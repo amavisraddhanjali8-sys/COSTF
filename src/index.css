@@ -407,3 +407,75 @@ html.dark .neon-title-gradient {
   }
 }
 
+
+/* INNOVISTA UI FIX: preserve project dashboard icon colors */
+[class~="bg-[#5b5ee7]"] {
+  background-color: #5b5ee7 !important;
+}
+
+[class~="bg-[#48bb78]"] {
+  background-color: #48bb78 !important;
+}
+
+[class~="bg-[#6c5ce7]"] {
+  background-color: #6c5ce7 !important;
+}
+
+[class~="bg-[#f59e0b]"] {
+  background-color: #f59e0b !important;
+}
+
+[class~="bg-[#ec4899]"] {
+  background-color: #ec4899 !important;
+}
+
+[class~="bg-[#0ea5e9]"] {
+  background-color: #0ea5e9 !important;
+}
+
+/* INNOVISTA UI FIX: FXTT blue gradient fallback */
+.fxtt-blue-gradient {
+  background-color: #025da4 !important;
+  background-image: linear-gradient(
+    to bottom,
+    #025da4 0%,
+    #014782 50%,
+    #002a52 100%
+  ) !important;
+}
+
+/* INNOVISTA UI FIX: preserve project dashboard icon colors */
+[class~="bg-[#5b5ee7]"] {
+  background-color: #5b5ee7 !important;
+}
+
+[class~="bg-[#48bb78]"] {
+  background-color: #48bb78 !important;
+}
+
+[class~="bg-[#6c5ce7]"] {
+  background-color: #6c5ce7 !important;
+}
+
+[class~="bg-[#f59e0b]"] {
+  background-color: #f59e0b !important;
+}
+
+[class~="bg-[#ec4899]"] {
+  background-color: #ec4899 !important;
+}
+
+[class~="bg-[#0ea5e9]"] {
+  background-color: #0ea5e9 !important;
+}
+
+/* INNOVISTA UI FIX: FXTT blue gradient fallback */
+.fxtt-blue-gradient {
+  background-color: #025da4 !important;
+  background-image: linear-gradient(
+    to bottom,
+    #025da4 0%,
+    #014782 50%,
+    #002a52 100%
+  ) !important;
+}

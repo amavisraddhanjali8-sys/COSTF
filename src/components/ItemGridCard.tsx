@@ -286,8 +286,8 @@ export const ItemGridCard: React.FC<ItemGridCardProps> = ({
             className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-106 transition-transform duration-500 ease-out"
           />
         ) : (
-          <div className="absolute inset-0 w-full h-full bg-gradient-to-b from-[#025da4] via-[#014782] to-[#002a52] flex items-center justify-center">
-            <ImageIcon className="w-12 h-12 text-white/20" />
+          <div className="fxtt-blue-gradient absolute inset-0 flex h-full w-full items-center justify-center">
+            <ImageIcon className="h-12 w-12 text-white/30" />
           </div>
         )}
 

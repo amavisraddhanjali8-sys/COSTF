@@ -372,6 +372,7 @@ async function startServer() {
   async function migrateAndCleanLegacyDatabases() {
     try {
       await postgresService.getDb();
+      if (!fs.existsSync(DB_FILE)) return;
       if (fs.existsSync(DB_FILE)) {
         console.log('[Migration] Migrating data from legacy database.json into PostgreSQL "inno_cost"...');
         const content = fs.readFileSync(DB_FILE, 'utf-8');
@@ -433,44 +434,14 @@ async function startServer() {
 
         // Delete legacy database.json so PostgreSQL inno_cost is the sole active database
         try {
-          fs.unlinkSync(DB_FILE);
-          console.log('[Migration] Legacy database.json deleted. All databases successfully consolidated into PostgreSQL "inno_cost".');
+          console.warn('[Migration] Automatic legacy-file deletion disabled; preserve database.json for verification.');
+          console.log('[Migration] Legacy database.json retained. Verify imported records before any manual removal.');
         } catch (delErr) {
           console.warn('[Migration] Note: Could not unlink DB_FILE:', delErr);
         }
       }
 
-      // Permanently remove any other SQL database files (.db, .sqlite, .sqlite3, etc.)
-      const dataDir = path.join(process.cwd(), 'data');
-      if (fs.existsSync(dataDir)) {
-        const files = fs.readdirSync(dataDir);
-        for (const file of files) {
-          if (file === 'inno_cost' || file === 'security.json') continue;
-          const lower = file.toLowerCase();
-          if (
-            lower.endsWith('.sqlite') ||
-            lower.endsWith('.sqlite3') ||
-            lower.endsWith('.db') ||
-            lower.endsWith('.db-shm') ||
-            lower.endsWith('.db-wal') ||
-            lower.endsWith('.sql') ||
-            lower === 'database.json'
-          ) {
-            try {
-              const fullPath = path.join(dataDir, file);
-              const stat = fs.statSync(fullPath);
-              if (stat.isDirectory()) {
-                fs.rmSync(fullPath, { recursive: true, force: true });
-              } else {
-                fs.unlinkSync(fullPath);
-              }
-              console.log(`[Database Cleanup] Permanently deleted non-PostgreSQL database artifact: ${file}`);
-            } catch (err) {
-              console.warn(`[Database Cleanup] Failed to delete ${file}:`, err);
-            }
-          }
-        }
-      }
+      // Automatic deletion of legacy database artifacts is disabled.
     } catch (e) {
       console.error('[Migration] Migration error:', e);
     }
