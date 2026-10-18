@@ -81,6 +81,37 @@ export default function App() {
   const [users, setUsers] = useState<AppUser[]>(() => getStoredUsers());
   const [accountRequests, setAccountRequests] = useState<AccountRequest[]>(() => getStoredRequests());
   const [companyDetails, setCompanyDetails] = useState<CompanyDetails>(() => getStoredCompanyDetails());
+
+  // Refresh company details from the server on startup
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshCompanyDetails = async () => {
+      try {
+        const response = await fetch('/api/company-details', {
+          cache: 'no-store'
+        });
+
+        if (!response.ok) return;
+
+        const details: CompanyDetails = await response.json();
+
+        if (!cancelled && details && details.name?.trim()) {
+          setCompanyDetails(details);
+          saveStoredCompanyDetails(details);
+        }
+      } catch (error) {
+        console.warn('Could not refresh company details from server:', error);
+      }
+    };
+
+    void refreshCompanyDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>(() => getStoredAuditLogs());
 
   // Active Session Inactivity Tracker & Auto Sign-Out Engine
