@@ -1,0 +1,13 @@
+
+!.env.example
+# Database files and secrets
+*.log
+.DS_Store
+.env
+.env*
+.env.*
+build/
+coverage/
+data/
+dist/
+node_modules/
