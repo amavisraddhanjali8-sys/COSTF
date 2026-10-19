@@ -60,24 +60,31 @@ export const ModernTileCard: React.FC<ModernTileCardProps> = ({
   const paletteRef = useRef<HTMLDivElement>(null);
   const theme = getThemeById(themeId);
 
-  // Close palette on click outside
+  // Close palette on click outside or Escape key
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (paletteRef.current && !paletteRef.current.contains(e.target as Node)) {
         setIsPaletteOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsPaletteOpen(false);
+      }
+    };
     if (isPaletteOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isPaletteOpen]);
 
-  const backgroundStyle: React.CSSProperties = customGradient
-    ? { background: customGradient }
-    : {};
+  const backgroundStyle: React.CSSProperties = {
+    background: customGradient || theme.gradientStyle || '#0284c7'
+  };
 
   const handleCardClick = () => {
     if (isPaletteOpen) return;

@@ -27,24 +27,24 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
   };
 
   return (
-    <div className={`bg-white rounded-lg p-3 ${compact ? 'w-64 shadow-xl border border-slate-200' : 'w-full'}`}>
-      <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-100">
-        <div className="flex items-center space-x-1.5 text-xs text-slate-800">
-          <Palette className="w-3.5 h-3.5 text-[#003049]" />
+    <div className={`bg-white dark:bg-slate-900 rounded-lg p-3 ${compact ? 'w-64 shadow-xl border border-slate-200 dark:border-slate-700' : 'w-full'}`}>
+      <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center space-x-1.5 text-xs text-slate-800 dark:text-slate-100">
+          <Palette className="w-3.5 h-3.5 text-[#003049] dark:text-sky-400" />
           <span>Card Color & Gradient Theme</span>
         </div>
-        <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded text-[10px]">
+        <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded text-[10px]">
           <button
             type="button"
             onClick={() => setActiveTab('presets')}
-            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'presets' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-600'}`}
+            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'presets' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
           >
             Presets
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('custom')}
-            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'custom' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-600'}`}
+            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'custom' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
           >
             Custom
           </button>
@@ -61,8 +61,9 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
                   key={preset.id}
                   type="button"
                   onClick={() => onSelectTheme(preset.id)}
-                  className={`group relative h-9 rounded-lg ${preset.gradientClass} p-1 transition-all duration-150 transform hover:scale-105 flex items-center justify-center shadow-xs ${
-                    isSelected ? 'ring-2 ring-offset-1 ring-[#003049]' : ''
+                  style={{ background: preset.gradientStyle }}
+                  className={`group relative h-9 rounded-lg p-1 transition-all duration-150 transform hover:scale-105 flex items-center justify-center shadow-xs cursor-pointer ${
+                    isSelected ? 'ring-2 ring-offset-1 ring-[#003049] dark:ring-sky-400' : ''
                   }`}
                   title={preset.name}
                 >
@@ -76,8 +77,8 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
               );
             })}
           </div>
-          <div className="mt-2 text-[10px] text-slate-500 text-center">
-            Selected: <span className="text-slate-800">{getThemeById(selectedThemeId).name}</span>
+          <div className="mt-2 text-[10px] text-slate-500 dark:text-slate-400 text-center">
+            Selected: <span className="text-slate-800 dark:text-slate-200 font-medium">{getThemeById(selectedThemeId).name}</span>
           </div>
         </div>
       ) : (
