@@ -38,6 +38,7 @@ import { generateNextNumber, peekNextNumber } from '../services/autoNumberingSer
 import { formatLKR } from '../utils/currency';
 import { persistentDatabase } from '../services/persistentDatabase';
 import { addBarcodeScanListener, playHardwareScanBeep } from '../services/globalBarcodeScanner';
+import { calcDiscountedLine } from '../utils/decimalMath';
 
 // Barcode Visual SVG Renderer
 export const BarcodeVisual: React.FC<{ code: string; className?: string }> = ({ code, className = '' }) => {
@@ -67,9 +68,12 @@ export interface InventoryProcurementViewProps {
   inventory?: InventoryItem[];
   projects?: Project[];
   suppliers?: Supplier[];
+  transactions?: InventoryTransaction[];
   onAddInventoryItem?: (item: Partial<InventoryItem>) => void;
   onUpdateInventoryStock?: (id: string, onHand: number) => void;
   onRecordTransaction?: (transaction: InventoryTransaction) => void;
+  onEditTransaction?: (id: string, updates: Partial<InventoryTransaction>) => Promise<void> | void;
+  onDeleteTransaction?: (id: string) => Promise<void> | void;
 }
 
 export type ScanValidationStatus = 'VALID' | 'WARNING_LOW_STOCK' | 'WARNING_ZERO_STOCK' | 'UNRECOGNIZED';
@@ -115,7 +119,10 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
   inventory = [],
   projects = [],
   suppliers = [],
+  transactions: propTransactions,
   onRecordTransaction,
+  onEditTransaction,
+  onDeleteTransaction,
   onUpdateInventoryStock
 }) => {
   // Materials state
@@ -169,67 +176,17 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
   // Notification Toast
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Transaction History
+  // Transaction History (PostgreSQL authoritative source)
   const [recentTransactions, setRecentTransactions] = useState<InventoryTransaction[]>(() => {
-    return persistentDatabase.getTransactions([
-      {
-        id: 'tx-init-1',
-        transactionNumber: 'TX-IN-00101',
-        type: 'IN',
-        date: new Date().toISOString().slice(0, 10),
-        timestamp: '11:42 AM',
-        projectId: 'prj-1',
-        projectCode: 'PRJ-AERO-01',
-        projectName: 'Commercial Airliner Wing Assembly',
-        materialId: 'mat-01',
-        materialCode: 'MAT-ALU-6061-T6',
-        materialName: 'Aerospace Structural Aluminum 6061-T6 Plate (12mm)',
-        barcode: 'MAT-ALU-6061-T6',
-        inventorySku: 'SKU-ALU-01',
-        batchLotNumber: 'LOT-2026-0089',
-        supplierId: 'sup-01',
-        supplierName: 'Vanguard Aerospace Materials Ltd',
-        requisitionNumber: 'REQ-2026-0101',
-        currency: 'LKR',
-        quantity: 25,
-        unit: 'sheet',
-        price: 420,
-        discount: 8,
-        discountAmount: 840,
-        totalAmount: 9660,
-        previousAvailableQuantity: 120,
-        newAvailableQuantity: 145
-      },
-      {
-        id: 'tx-init-2',
-        transactionNumber: 'TX-OUT-00102',
-        type: 'OUT',
-        date: new Date().toISOString().slice(0, 10),
-        timestamp: '10:15 AM',
-        projectId: 'none',
-        projectCode: 'GENERAL',
-        projectName: 'No Project / General Inventory',
-        materialId: 'mat-02',
-        materialCode: 'MAT-SS-316L',
-        materialName: 'Stainless Steel 316L Precision Ground Round Bar (50mm)',
-        barcode: 'MAT-SS-316L',
-        inventorySku: 'SKU-SS-02',
-        batchLotNumber: 'LOT-2026-0090',
-        supplierId: 'sup-02',
-        supplierName: 'Apex Precision Metals',
-        requisitionNumber: 'REQ-2026-0102',
-        currency: 'LKR',
-        quantity: 5,
-        unit: 'm',
-        price: 270.75,
-        discount: 0,
-        discountAmount: 0,
-        totalAmount: 1353.75,
-        previousAvailableQuantity: 20,
-        newAvailableQuantity: 15
-      }
-    ]);
+    if (propTransactions && propTransactions.length > 0) return propTransactions;
+    return persistentDatabase.getTransactions([]);
   });
+
+  useEffect(() => {
+    if (propTransactions) {
+      setRecentTransactions(propTransactions);
+    }
+  }, [propTransactions]);
 
   // Keep static database synced
   useEffect(() => {
@@ -989,32 +946,18 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
    * RECORDED TRANSACTIONS ACTIONS (EDIT, DELETE, BATCH REJECT)
    * =========================================================================
    */
-  const handleSaveEditedTransaction = (e: React.FormEvent) => {
+  const handleSaveEditedTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTx) return;
 
     const oldTx = recentTransactions.find((t) => t.id === editingTx.id);
     if (!oldTx) return;
 
-    const qtyDiff = editingTx.quantity - oldTx.quantity;
-    const sub = editingTx.quantity * editingTx.price;
-    const discAmt = (sub * (editingTx.discount || 0)) / 100;
-    const total = Math.max(0, sub - discAmt);
-
-    const mat = materials.find((m) => m.id === editingTx.materialId);
-    if (mat) {
-      let updatedStock = mat.inStock;
-      if (editingTx.type === 'IN') {
-        updatedStock += qtyDiff;
-      } else {
-        updatedStock -= qtyDiff;
-      }
-
-      setMaterials((prev) =>
-        prev.map((m) => (m.id === mat.id ? { ...m, inStock: updatedStock } : m))
-      );
-      if (onUpdateInventoryStock) onUpdateInventoryStock(mat.id, updatedStock);
-    }
+    const { discountAmount: discAmt, totalAmount: total } = calcDiscountedLine(
+      editingTx.quantity,
+      editingTx.price,
+      editingTx.discount || 0
+    );
 
     const updatedTx: InventoryTransaction = {
       ...editingTx,
@@ -1022,84 +965,79 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
       totalAmount: total
     };
 
-    setRecentTransactions((prev) =>
-      prev.map((t) => (t.id === updatedTx.id ? updatedTx : t))
-    );
-
-    setEditingTx(null);
-    setNotification({
-      type: 'success',
-      message: `Updated transaction ${updatedTx.transactionNumber || updatedTx.id}.`
-    });
+    try {
+      if (onEditTransaction) {
+        await onEditTransaction(editingTx.id, updatedTx);
+      }
+      setRecentTransactions((prev) =>
+        prev.map((t) => (t.id === updatedTx.id ? updatedTx : t))
+      );
+      setEditingTx(null);
+      setNotification({
+        type: 'success',
+        message: `Updated transaction ${updatedTx.transactionNumber || updatedTx.id} in PostgreSQL.`
+      });
+    } catch (err: any) {
+      setNotification({
+        type: 'error',
+        message: err?.message || 'Failed to update transaction in PostgreSQL.'
+      });
+    }
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleConfirmDeleteTransaction = () => {
+  const handleConfirmDeleteTransaction = async () => {
     if (!deletingTx) return;
 
-    const mat = materials.find((m) => m.id === deletingTx.materialId);
-    if (mat) {
-      let revertedStock = mat.inStock;
-      if (deletingTx.type === 'IN') {
-        revertedStock -= deletingTx.quantity;
-      } else {
-        revertedStock += deletingTx.quantity;
+    try {
+      if (onDeleteTransaction) {
+        await onDeleteTransaction(deletingTx.id);
       }
+      setRecentTransactions((prev) => prev.filter((t) => t.id !== deletingTx.id));
+      setSelectedHistoryIds((prev) => {
+        const next = new Set(prev);
+        next.delete(deletingTx.id);
+        return next;
+      });
 
-      setMaterials((prev) =>
-        prev.map((m) => (m.id === mat.id ? { ...m, inStock: revertedStock } : m))
-      );
-      if (onUpdateInventoryStock) onUpdateInventoryStock(mat.id, revertedStock);
+      setNotification({
+        type: 'success',
+        message: `Rejected and removed transaction ${deletingTx.transactionNumber || deletingTx.id}. Stock restored in PostgreSQL.`
+      });
+    } catch (err: any) {
+      setNotification({
+        type: 'error',
+        message: err?.message || 'Failed to reverse transaction in PostgreSQL.'
+      });
     }
-
-    setRecentTransactions((prev) => prev.filter((t) => t.id !== deletingTx.id));
-    setSelectedHistoryIds((prev) => {
-      const next = new Set(prev);
-      next.delete(deletingTx.id);
-      return next;
-    });
-
-    setNotification({
-      type: 'success',
-      message: `Rejected and removed transaction ${deletingTx.transactionNumber || deletingTx.id}. Stock restored.`
-    });
 
     setDeletingTx(null);
     setTimeout(() => setNotification(null), 3000);
   };
 
   // Batch reject selected recorded transactions
-  const handleBatchRejectHistory = () => {
+  const handleBatchRejectHistory = async () => {
     if (selectedHistoryIds.size === 0) return;
 
-    const txsToReject = recentTransactions.filter((t) => selectedHistoryIds.has(t.id));
-    const stockReversals: Record<string, number> = {};
-
-    for (const tx of txsToReject) {
-      const mat = materials.find((m) => m.id === tx.materialId);
-      if (!mat) continue;
-
-      const current = stockReversals[mat.id] !== undefined ? stockReversals[mat.id] : mat.inStock;
-      const reverted = tx.type === 'IN' ? current - tx.quantity : current + tx.quantity;
-      stockReversals[mat.id] = reverted;
-    }
-
-    setMaterials((prev) =>
-      prev.map((m) => {
-        if (stockReversals[m.id] !== undefined) {
-          if (onUpdateInventoryStock) onUpdateInventoryStock(m.id, stockReversals[m.id]);
-          return { ...m, inStock: stockReversals[m.id] };
+    const idsToDelete = Array.from(selectedHistoryIds);
+    try {
+      for (const txId of idsToDelete) {
+        if (onDeleteTransaction) {
+          await onDeleteTransaction(txId);
         }
-        return m;
-      })
-    );
-
-    setRecentTransactions((prev) => prev.filter((t) => !selectedHistoryIds.has(t.id)));
-    setNotification({
-      type: 'success',
-      message: `Batch rejected ${selectedHistoryIds.size} transactions. Stock reverted.`
-    });
-    setSelectedHistoryIds(new Set());
+      }
+      setRecentTransactions((prev) => prev.filter((t) => !selectedHistoryIds.has(t.id)));
+      setNotification({
+        type: 'success',
+        message: `Batch rejected ${idsToDelete.length} transactions. Stock reverted in PostgreSQL.`
+      });
+      setSelectedHistoryIds(new Set());
+    } catch (err: any) {
+      setNotification({
+        type: 'error',
+        message: err?.message || 'Failed to batch reject transactions.'
+      });
+    }
     setTimeout(() => setNotification(null), 4000);
   };
 

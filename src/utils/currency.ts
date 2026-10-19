@@ -1,4 +1,5 @@
 import { fxService } from '../services/fxService';
+import { bizStore } from '../services/bizStore';
 
 /**
  * Multi-Currency Utilities, Rates, and Formatting
@@ -34,7 +35,7 @@ export const DEFAULT_CURRENCY_CODE = 'USD';
  */
 export function getStoredCurrency(): string {
   try {
-    const saved = localStorage.getItem('fxtt_active_currency');
+    const saved = bizStore.getItem('fxtt_active_currency');
     if (saved && SUPPORTED_CURRENCIES.some((c) => c.code === saved)) {
       return saved;
     }
@@ -51,7 +52,7 @@ export function setStoredCurrency(code: string): void {
   try {
     const valid = SUPPORTED_CURRENCIES.find((c) => c.code === code);
     const targetCode = valid ? valid.code : DEFAULT_CURRENCY_CODE;
-    localStorage.setItem('fxtt_active_currency', targetCode);
+    bizStore.setItem('fxtt_active_currency', targetCode);
     window.dispatchEvent(new CustomEvent('fxtt-currency-changed', { detail: { currency: targetCode } }));
   } catch (e) {
     // Ignore storage errors

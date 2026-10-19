@@ -545,16 +545,162 @@ export interface PlanTemplate {
   sourceClientName?: string;
 }
 
-export interface BudgetaryPlan {
+export interface ProjectPlanRevision {
   id: string;
+  planId: string;
+  projectId: string;
+  revisionNumber: number;
+  versionLabel: string;
+  changeSummary: string;
+  statusAtRevision: string;
+  plannedRevenue: number;
+  directCost: number;
+  allocatedOverhead: number;
+  totalPlannedCost: number;
+  plannedProfit: number;
+  profitMarginPct: number;
+  changedBy: string;
+  effectiveDate?: string;
+  snapshot?: any;
+  createdAt: string;
+}
+
+export interface ProjectPlanSection {
+  id: string;
+  planId?: string;
+  projectId?: string;
+  phaseCode: string;
   name: string;
   description?: string;
+  sequenceOrder: number;
+  plannedBudget: number;
+  materialBudget: number;
+  laborBudget: number;
+  outsourcedBudget: number;
+  actualCost: number;
+  startDate?: string;
+  endDate?: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProjectPlanBoqItem {
+  id: string;
+  planId?: string;
+  projectId?: string;
+  sectionId?: string;
+  phaseId?: string;
+  type: 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'other';
+  itemId?: string;
+  itemCode?: string;
+  name: string;
+  category?: string;
+  supplierOrProvider: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  discountPct: number;
+  totalCost: number;
+  markupPct?: number;
+  billableRate?: number;
+  totalRevenue?: number;
+  grossProfit?: number;
+  currency?: string;
+  nativeUnitCost?: number;
+  consumptionRate?: number;
+  notes?: string;
+  lineOrder?: number;
+}
+
+export interface ProjectPlanResource {
+  id: string;
+  planId?: string;
+  projectId?: string;
+  sectionId?: string;
+  resourceId: string;
+  resourceType: 'team_member' | 'subcontractor' | 'equipment';
+  name: string;
+  roleOrTrade: string;
+  allocatedHours: number;
+  hourlyRate: number;
+  totalCost: number;
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
+}
+
+export interface ProjectPlanOverheadAllocation {
+  id: string;
+  planId?: string;
+  projectId?: string;
+  category: string;
+  allocationType: 'percentage' | 'fixed';
+  ratePct: number;
+  baseAmount: number;
+  allocatedAmount: number;
+  notes?: string;
+}
+
+export interface ProjectPlanCostSummary {
+  planId?: string;
+  projectId?: string;
+  plannedRevenue: number;
+  materialCost: number;
+  subcontractorCost: number;
+  outsourcedCost: number;
+  resourceCost: number;
+  directCost: number;
+  overheadAmount: number;
+  contingencyAmount: number;
+  laborBurdenAmount: number;
+  extraOverheadAmount: number;
+  allocatedOverhead: number;
+  totalPlannedCost: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  plannedProfit: number;
+  profitMarginPct: number;
+  boqItemCount: number;
+  sectionCount: number;
+  resourceCount: number;
+  calculatedAt?: string;
+}
+
+export interface BudgetaryPlan {
+  id: string;
+  planNumber?: string;
+  projectId?: string;
+  projectCode?: string;
+  projectName?: string;
+  clientName?: string;
+  name: string;
+  description?: string;
+  planType?: string;
+  status?: string;
+  revisionNumber?: number;
+  versionLabel?: string;
   isBaseline?: boolean;
+  isActive?: boolean;
+  currency?: string;
   createdAt: string;
+  updatedAt?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  effectiveDate?: string;
+  approvalDate?: string;
+  approvedBy?: string;
   targetMarginPct: number;
   overheadPct: number;
   contingencyPct: number;
+  laborBurdenPct?: number;
   selectedItems: ProjectCostItem[];
+  plannedRevenue?: number;
+  directCost?: number;
+  allocatedOverhead?: number;
+  totalPlannedCost?: number;
+  plannedProfit?: number;
+  profitMarginPct?: number;
   totalDirectCost?: number;
   totalProjectCost?: number;
   quotedRevenue?: number;
@@ -565,8 +711,16 @@ export interface BudgetaryPlan {
   sourceProjectId?: string;
   sourceProjectCode?: string;
   totalEstimatedCost?: number;
-  status?: string;
+  notes?: string;
+  costSummary?: ProjectPlanCostSummary;
+  sections?: ProjectPlanSection[];
+  boqItems?: ProjectPlanBoqItem[];
+  resources?: ProjectPlanResource[];
+  overheadAllocations?: ProjectPlanOverheadAllocation[];
+  revisions?: ProjectPlanRevision[];
 }
+
+export type ProjectPlanRecord = BudgetaryPlan;
 
 export interface Project {
   id: EntityId;

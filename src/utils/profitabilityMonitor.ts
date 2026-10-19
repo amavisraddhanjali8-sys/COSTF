@@ -1,473 +1,359 @@
 import { Project, InventoryItem } from '../types';
 import { bizStore } from '../services/bizStore';
+import { round1, round2, decAdd, decSub, decMul, decDiv, calcDiscountedLine } from './decimalMath';
+
+export const MARGIN_THRESHOLD_KEY = 'fxtt_margin_warning_threshold';
+export const DISMISSED_ALERTS_KEY = 'fxtt_dismissed_system_alerts_v1';
+export const DEFAULT_MARGIN_THRESHOLD = 15; // 15% default target margin threshold
+
+export function getMarginThreshold(): number {
+  try {
+    const saved = bizStore.getItem(MARGIN_THRESHOLD_KEY);
+    if (saved !== null) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return DEFAULT_MARGIN_THRESHOLD;
+}
+
+export function setMarginThreshold(threshold: number): void {
+  try {
+    const clamped = Math.max(0, Math.min(100, threshold));
+    bizStore.setItem(MARGIN_THRESHOLD_KEY, String(clamped));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('margin-threshold-changed', { detail: { threshold: clamped } }));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export interface ProjectProfitabilityAnalysis {
   projectId: string;
   projectCode: string;
   projectName: string;
-  clientName: string;
-  revenue: number;
-  directCost: number;
-  totalCost: number;
-  plannedBudget: number;
-  grossMarginPct: number;
+  quotedPrice: number;
+  totalDirectCost: number;
+  overheadCost: number;
+  contingencyCost: number;
+  totalEstimatedCost: number;
+  netProfit: number;
   netMarginPct: number;
-  budgetVariance: number;
-  isBudgetOverrun: boolean;
-  isMarginBelowThreshold: boolean;
+  grossMarginPct: number;
+  targetMarginPct: number;
   thresholdPct: number;
-  marginDeficitPct: number;
+  isMarginBelowThreshold: boolean;
+  isMarginBelowTarget: boolean;
+  marginShortfallPct: number;
+}
+
+export function calculateProjectProfitability(
+  project: Project,
+  customThresholdPct?: number
+): ProjectProfitabilityAnalysis {
+  const thresholdPct = customThresholdPct !== undefined ? customThresholdPct : getMarginThreshold();
+  const quotedPrice = round2(project.quotedPrice || 0);
+  const targetMarginPct = round2(project.targetMarginPct || 25);
+
+  const items = project.selectedItems || [];
+  let directCost = 0;
+
+  if (items.length > 0) {
+    for (const item of items) {
+      const { totalAmount } = calcDiscountedLine(
+        item.quantity ?? 1,
+        item.unitCost ?? 0,
+        item.discountPct ?? 0
+      );
+      directCost = decAdd(directCost, totalAmount);
+    }
+  } else if (project.analytics?.totalDirectCost !== undefined) {
+    directCost = round2(project.analytics.totalDirectCost);
+  }
+
+  const overheadPct = round2(project.overheadPct ?? 8.5);
+  const contingencyPct = round2(project.contingencyPct ?? 5.0);
+
+  const overheadCost = round2(decMul(directCost, decDiv(overheadPct, 100)));
+  const contingencyCost = round2(decMul(directCost, decDiv(contingencyPct, 100)));
+  const totalEstimatedCost = decAdd(decAdd(directCost, overheadCost), contingencyCost);
+
+  const grossProfit = decSub(quotedPrice, directCost);
+  const grossMarginPct = quotedPrice > 0 ? round2(decMul(decDiv(grossProfit, quotedPrice), 100)) : 0;
+
+  const netProfit = decSub(quotedPrice, totalEstimatedCost);
+  const netMarginPct = quotedPrice > 0 ? round2(decMul(decDiv(netProfit, quotedPrice), 100)) : 0;
+
+  const isMarginBelowThreshold = netMarginPct < thresholdPct;
+  const isMarginBelowTarget = netMarginPct < targetMarginPct;
+  const marginShortfallPct = Math.max(0, round2(decSub(thresholdPct, netMarginPct)));
+
+  return {
+    projectId: project.id,
+    projectCode: project.code,
+    projectName: project.name,
+    quotedPrice,
+    totalDirectCost: round2(directCost),
+    overheadCost,
+    contingencyCost,
+    totalEstimatedCost: round2(totalEstimatedCost),
+    netProfit: round2(netProfit),
+    netMarginPct,
+    grossMarginPct,
+    targetMarginPct,
+    thresholdPct,
+    isMarginBelowThreshold,
+    isMarginBelowTarget,
+    marginShortfallPct
+  };
+}
+
+export interface PhaseMarginTrendItem {
+  phaseId: string;
+  phaseName: string;
+  phaseShortName: string;
+  status: 'Completed' | 'In Progress' | 'Upcoming' | 'Delayed' | 'Not Started' | string;
+  budget: number;
+  recordedCost: number;
+  estimatedCost: number;
+  totalCost: number;
+  allocatedRevenue: number;
+  phaseProfit: number;
+  phaseMarginPct: number;
+  cumulativeRevenue: number;
+  cumulativeCost: number;
+  cumulativeMarginPct: number;
+  isMarginBelowThreshold: boolean;
+  isRecorded: boolean;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface PhaseMarginTrendAnalysis {
+  projectId: string;
+  phases: PhaseMarginTrendItem[];
+  latestRecordedMarginPct: number;
+  recordedPhasesCount: number;
+  totalPhasesCount: number;
+  isCurrentBelowThreshold: boolean;
+  trendDirection: 'improving' | 'declining' | 'stable';
+}
+
+export function calculatePhaseMarginTrend(
+  project: Project,
+  customThresholdPct?: number
+): PhaseMarginTrendAnalysis {
+  const threshold = customThresholdPct !== undefined ? customThresholdPct : getMarginThreshold();
+  const phases = project.phases || [];
+  const items = project.selectedItems || [];
+  const quotedPrice = round2(project.quotedPrice || 0);
+
+  const totalBudget = phases.reduce((acc, p) => decAdd(acc, p.budget || 0), 0);
+  const overheadMultiplier = decAdd(
+    1,
+    decDiv(decAdd(project.overheadPct ?? 8.5, project.contingencyPct ?? 5.0), 100)
+  );
+
+  let cumulativeRevenue = 0;
+  let cumulativeCost = 0;
+  const trendPhases: PhaseMarginTrendItem[] = [];
+
+  phases.forEach((p, idx) => {
+    const phaseItems = items.filter((i) => i.phaseId === p.id);
+    const itemsCost = phaseItems.reduce((acc, i) => {
+      const { totalAmount } = calcDiscountedLine(i.quantity ?? 1, i.unitCost ?? 0, i.discountPct ?? 0);
+      return decAdd(acc, totalAmount);
+    }, 0);
+
+    const recordedRaw = p.actualCost !== undefined && p.actualCost > 0 ? round2(p.actualCost) : itemsCost;
+    const isRecorded = p.status === 'Completed' || p.status === 'In Progress' || recordedRaw > 0;
+    const directPhaseCost = recordedRaw > 0 ? recordedRaw : round2(decMul(p.budget || 0, 0.85));
+    const totalCost = round2(decMul(directPhaseCost, overheadMultiplier));
+
+    const budgetShare =
+      totalBudget > 0
+        ? decDiv(p.budget || 0, totalBudget)
+        : phases.length > 0
+        ? decDiv(1, phases.length)
+        : 1;
+    const allocatedRevenue = round2(decMul(quotedPrice, budgetShare));
+    const phaseProfit = decSub(allocatedRevenue, totalCost);
+    const phaseMarginPct =
+      allocatedRevenue > 0 ? round1(decMul(decDiv(phaseProfit, allocatedRevenue), 100)) : round1(project.targetMarginPct || 25);
+
+    cumulativeRevenue = decAdd(cumulativeRevenue, allocatedRevenue);
+    cumulativeCost = decAdd(cumulativeCost, totalCost);
+    const cumProfit = decSub(cumulativeRevenue, cumulativeCost);
+    const cumulativeMarginPct =
+      cumulativeRevenue > 0 ? round1(decMul(decDiv(cumProfit, cumulativeRevenue), 100)) : phaseMarginPct;
+
+    const shortName = p.name.includes(':') ? p.name.split(':')[0].trim() : `Phase ${idx + 1}`;
+
+    trendPhases.push({
+      phaseId: p.id,
+      phaseName: p.name,
+      phaseShortName: shortName,
+      status: p.status || 'Upcoming',
+      budget: round2(p.budget || 0),
+      recordedCost: round2(recordedRaw),
+      estimatedCost: round2(itemsCost),
+      totalCost,
+      allocatedRevenue,
+      phaseProfit: round2(phaseProfit),
+      phaseMarginPct,
+      cumulativeRevenue: round2(cumulativeRevenue),
+      cumulativeCost: round2(cumulativeCost),
+      cumulativeMarginPct,
+      isMarginBelowThreshold: phaseMarginPct < threshold,
+      isRecorded,
+      startDate: p.startDate,
+      endDate: p.endDate
+    });
+  });
+
+  const recordedList = trendPhases.filter((tp) => tp.isRecorded);
+  const latestRecorded =
+    recordedList.length > 0
+      ? recordedList[recordedList.length - 1]
+      : trendPhases[trendPhases.length - 1];
+
+  const latestRecordedMarginPct = latestRecorded
+    ? latestRecorded.phaseMarginPct
+    : round1(project.targetMarginPct || 25);
+
+  let trendDirection: 'improving' | 'declining' | 'stable' = 'stable';
+  if (recordedList.length >= 2) {
+    const first = recordedList[0].phaseMarginPct;
+    const last = recordedList[recordedList.length - 1].phaseMarginPct;
+    if (last - first > 1.0) trendDirection = 'improving';
+    else if (first - last > 1.0) trendDirection = 'declining';
+  }
+
+  return {
+    projectId: project.id,
+    phases: trendPhases,
+    latestRecordedMarginPct,
+    recordedPhasesCount: recordedList.length,
+    totalPhasesCount: trendPhases.length,
+    isCurrentBelowThreshold: latestRecordedMarginPct < threshold,
+    trendDirection
+  };
 }
 
 export interface SystemAlert {
   id: string;
   type: 'margin' | 'budget' | 'inventory';
-  severity: 'critical' | 'warning' | 'info';
+  severity: 'warning' | 'critical';
   title: string;
   message: string;
-  value?: number;
-  target?: number;
   projectId?: string;
-  projectCode?: string;
-  projectName?: string;
-  itemId?: string;
+  inventoryId?: string;
   timestamp: string;
 }
 
-const THRESHOLD_STORAGE_KEY = 'user_margin_warning_threshold';
-const DISMISSED_ALERTS_KEY = 'dismissed_system_alerts';
-const DEFAULT_MARGIN_THRESHOLD = 20; // 20%
-
-/**
- * Get user-defined margin threshold percentage
- */
-export function getMarginThreshold(): number {
+export function getDismissedAlertIds(): string[] {
   try {
-    const val = bizStore.getItem(THRESHOLD_STORAGE_KEY);
-    if (val !== null) {
-      const parsed = parseFloat(val);
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
-        return parsed;
-      }
+    const saved = bizStore.getItem(DISMISSED_ALERTS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
-  return DEFAULT_MARGIN_THRESHOLD;
+  return [];
 }
 
-/**
- * Set user-defined margin threshold percentage
- */
-export function setMarginThreshold(threshold: number): void {
-  const clamped = Math.max(0, Math.min(100, Math.round(threshold * 10) / 10));
-  try {
-    bizStore.setItem(THRESHOLD_STORAGE_KEY, clamped.toString());
-    window.dispatchEvent(new CustomEvent('margin-threshold-changed', { detail: { threshold: clamped } }));
-  } catch (e) {
-    // ignore
-  }
-}
-
-/**
- * Calculate profitability & budget variance for a project
- */
-export function calculateProjectProfitability(
-  project: Project,
-  userThreshold: number = getMarginThreshold()
-): ProjectProfitabilityAnalysis {
-  const revenue = project.quotedPrice || 0;
-  const items = project.selectedItems || [];
-
-  // Direct costs from materials, subcontractors, outsourced
-  const directCost = items.reduce((sum, item) => {
-    return sum + (item.totalCost || (item.quantity || 1) * (item.unitCost || 0));
-  }, 0);
-
-  const overheadPct = project.overheadPct ?? 8.5;
-  const contingencyPct = project.contingencyPct ?? 5.0;
-
-  const overhead = directCost * (overheadPct / 100);
-  const contingency = directCost * (contingencyPct / 100);
-  const totalCost = directCost + overhead + contingency;
-
-  // Planned budget across phases
-  const plannedBudget = (project.phases || []).reduce((sum, p) => sum + (p.budget || 0), 0);
-
-  const grossMarginPct = revenue > 0 ? ((revenue - directCost) / revenue) * 100 : 0;
-  const netMarginPct = revenue > 0 ? ((revenue - totalCost) / revenue) * 100 : 0;
-
-  // We check net margin or gross margin against the threshold
-  // Net margin reflects true bottom-line profitability
-  const effectiveMargin = netMarginPct;
-  const isMarginBelowThreshold = (revenue > 0 || totalCost > 0) && effectiveMargin < userThreshold;
-  const budgetVariance = plannedBudget - totalCost;
-  const isBudgetOverrun = plannedBudget > 0 && totalCost > plannedBudget;
-  const marginDeficitPct = isMarginBelowThreshold ? userThreshold - effectiveMargin : 0;
-
-  return {
-    projectId: project.id,
-    projectCode: project.code,
-    projectName: project.name,
-    clientName: project.clientName,
-    revenue,
-    directCost,
-    totalCost,
-    plannedBudget,
-    grossMarginPct,
-    netMarginPct,
-    budgetVariance,
-    isBudgetOverrun,
-    isMarginBelowThreshold,
-    thresholdPct: userThreshold,
-    marginDeficitPct
-  };
-}
-
-/**
- * Get dismissed alert IDs
- */
-export function getDismissedAlertIds(): Set<string> {
-  try {
-    const raw = bizStore.getItem(DISMISSED_ALERTS_KEY);
-    if (raw) {
-      return new Set(JSON.parse(raw));
-    }
-  } catch (e) {
-    // ignore
-  }
-  return new Set();
-}
-
-/**
- * Dismiss an alert
- */
 export function dismissAlert(alertId: string): void {
   try {
-    const set = getDismissedAlertIds();
-    set.add(alertId);
-    bizStore.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(set)));
-    window.dispatchEvent(new CustomEvent('system-alerts-updated'));
-  } catch (e) {
+    const current = getDismissedAlertIds();
+    if (!current.includes(alertId)) {
+      bizStore.setItem(DISMISSED_ALERTS_KEY, JSON.stringify([...current, alertId]));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('system-alerts-updated'));
+      }
+    }
+  } catch {
     // ignore
   }
 }
 
-/**
- * Clear all dismissed alerts
- */
 export function resetDismissedAlerts(): void {
   try {
     bizStore.removeItem(DISMISSED_ALERTS_KEY);
-    window.dispatchEvent(new CustomEvent('system-alerts-updated'));
-  } catch (e) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('system-alerts-updated'));
+    }
+  } catch {
     // ignore
   }
 }
 
-/**
- * Scan all projects and inventory to compile active system alerts
- */
 export function compileSystemAlerts(
   projects: Project[],
-  inventory: InventoryItem[] = [],
-  threshold: number = getMarginThreshold()
+  inventory: InventoryItem[],
+  customThresholdPct?: number
 ): SystemAlert[] {
-  const dismissed = getDismissedAlertIds();
+  const threshold = customThresholdPct !== undefined ? customThresholdPct : getMarginThreshold();
+  const dismissed = new Set(getDismissedAlertIds());
   const alerts: SystemAlert[] = [];
+  const now = new Date().toISOString();
 
-  // 1. Project Margin Alerts
-  projects.forEach((p) => {
-    const analysis = calculateProjectProfitability(p, threshold);
-    const alertId = `margin-${p.id}`;
-
-    if (analysis.isMarginBelowThreshold && !dismissed.has(alertId)) {
-      const isCritical = analysis.netMarginPct < 5 || analysis.netMarginPct <= 0;
+  for (const proj of projects || []) {
+    const analysis = calculateProjectProfitability(proj, threshold);
+    const marginAlertId = `margin-${proj.id}`;
+    if (analysis.isMarginBelowThreshold && !dismissed.has(marginAlertId)) {
       alerts.push({
-        id: alertId,
+        id: marginAlertId,
         type: 'margin',
-        severity: isCritical ? 'critical' : 'warning',
-        title: isCritical ? 'Critical Margin' : 'Low Margin',
-        message: `${p.name}: Margin ${analysis.netMarginPct.toFixed(1)}% (below ${threshold}% target)`,
-        value: analysis.netMarginPct,
-        target: threshold,
-        projectId: p.id,
-        projectCode: p.code,
-        projectName: p.name,
-        timestamp: new Date().toISOString()
+        severity: analysis.netMarginPct < threshold * 0.5 ? 'critical' : 'warning',
+        title: `Low Margin: ${proj.code}`,
+        message: `${proj.name} net margin (${analysis.netMarginPct.toFixed(1)}%) is below the ${threshold}% floor.`,
+        projectId: proj.id,
+        timestamp: now
       });
     }
 
-    // 2. Budget Overrun Alerts
-    const budgetAlertId = `budget-${p.id}`;
-    if (analysis.isBudgetOverrun && !dismissed.has(budgetAlertId)) {
-      const overrunAmount = analysis.totalCost - analysis.plannedBudget;
-      alerts.push({
-        id: budgetAlertId,
-        type: 'budget',
-        severity: 'warning',
-        title: 'Budget Overrun',
-        message: `${p.name}: Cost exceeds budget by $${Math.round(overrunAmount).toLocaleString()}`,
-        value: overrunAmount,
-        target: analysis.plannedBudget,
-        projectId: p.id,
-        projectCode: p.code,
-        projectName: p.name,
-        timestamp: new Date().toISOString()
-      });
+    for (const phase of proj.phases || []) {
+      const actual = Number(phase.actualCost || 0);
+      const budget = Number(phase.budget || 0);
+      const budgetAlertId = `budget-${proj.id}-${phase.id}`;
+      if (budget > 0 && actual > budget && !dismissed.has(budgetAlertId)) {
+        const overrunPct = round1(decMul(decDiv(decSub(actual, budget), budget), 100));
+        alerts.push({
+          id: budgetAlertId,
+          type: 'budget',
+          severity: overrunPct > 15 ? 'critical' : 'warning',
+          title: `Phase Overrun: ${proj.code}`,
+          message: `${phase.name} exceeded budget by ${overrunPct.toFixed(1)}%.`,
+          projectId: proj.id,
+          timestamp: now
+        });
+      }
     }
-  });
+  }
 
-  // 3. Low Inventory Alerts
-  inventory.forEach((item) => {
-    const minStock = item.reorderLevel || 5;
-    const stock = item.currentStock ?? item.onHand ?? 0;
-    const alertId = `inv-${item.id}`;
-    const displayName = item.itemName || item.name || item.sku || 'Item';
-    if (stock <= minStock && !dismissed.has(alertId)) {
-      const isOut = stock <= 0;
+  for (const inv of inventory || []) {
+    const stockAlertId = `inv-${inv.id}`;
+    const qty = Number(inv.currentStock ?? inv.onHand ?? 0);
+    const reorder = Number(inv.reorderLevel ?? 0);
+    if (qty <= reorder && !dismissed.has(stockAlertId)) {
       alerts.push({
-        id: alertId,
+        id: stockAlertId,
         type: 'inventory',
-        severity: isOut ? 'critical' : 'warning',
-        title: isOut ? 'Out of Stock' : 'Low Stock',
-        message: `${displayName}: ${stock} ${item.unit || 'units'} left (min ${minStock})`,
-        value: stock,
-        target: minStock,
-        itemId: String(item.id),
-        timestamp: new Date().toISOString()
+        severity: qty === 0 ? 'critical' : 'warning',
+        title: `Low Stock: ${inv.sku}`,
+        message: `${inv.itemName || inv.name || inv.sku} is at ${qty} ${inv.unit || 'units'} (Reorder point: ${reorder}).`,
+        inventoryId: inv.id,
+        timestamp: now
       });
     }
-  });
+  }
 
   return alerts;
-}
-
-export interface PhaseMarginPoint {
-  phaseId: string;
-  phaseNumber: number;
-  phaseName: string;
-  phaseShortName: string;
-  status: 'Completed' | 'In Progress' | 'Not Started';
-  startDate?: string;
-  endDate?: string;
-  budget: number;
-  recordedCost: number;
-  totalCost: number; // including overhead & contingency
-  allocatedRevenue: number;
-  phaseMarginPct: number;
-  cumulativeRevenue: number;
-  cumulativeCost: number;
-  cumulativeMarginPct: number;
-  targetMarginPct: number;
-  thresholdPct: number;
-  isMarginBelowThreshold: boolean;
-  varianceAmount: number; // budget - totalCost
-  variancePct: number;
-  isRecorded: boolean;
-}
-
-export interface ProjectMarginTrendAnalysis {
-  projectId: string;
-  projectName: string;
-  projectCode: string;
-  currency: string;
-  targetMarginPct: number;
-  thresholdPct: number;
-  currentNetMarginPct: number;
-  isCurrentBelowThreshold: boolean;
-  phases: PhaseMarginPoint[];
-  recordedPhasesCount: number;
-  totalPhasesCount: number;
-  lowestPhaseMargin: PhaseMarginPoint | null;
-  highestPhaseMargin: PhaseMarginPoint | null;
-  trendDirection: 'improving' | 'declining' | 'stable';
-  latestRecordedMarginPct: number;
-}
-
-/**
- * Calculates historical margin trend over recorded project phases.
- */
-export function calculatePhaseMarginTrend(
-  project: Project,
-  userThreshold: number = getMarginThreshold()
-): ProjectMarginTrendAnalysis {
-  const totalRevenue = project.quotedPrice || 0;
-  const targetMarginPct = project.targetMarginPct || 25;
-  const overheadPct = project.overheadPct ?? 8.5;
-  const contingencyPct = project.contingencyPct ?? 5.0;
-  const addOnMultiplier = 1 + (overheadPct + contingencyPct) / 100;
-
-  // If project has defined phases, use them. Otherwise, synthesize standard phases based on project timeline.
-  let phasesList = (project.phases && project.phases.length > 0) ? [...project.phases] : [];
-
-  if (phasesList.length === 0) {
-    const totalItemsCost = (project.selectedItems || []).reduce((sum, item) => sum + (item.totalCost || 0), 0);
-    const estBudget = project.quotedPrice ? project.quotedPrice * 0.75 : 100000;
-    phasesList = [
-      {
-        id: 'ph-1',
-        name: 'Phase 1: Alloy & Material Sourcing',
-        phaseNumber: 1,
-        status: 'Completed',
-        startDate: project.startDate || '2026-08-01',
-        endDate: '2026-09-15',
-        budget: Math.round(estBudget * 0.45),
-        actualCost: Math.round(totalItemsCost * 0.42) || Math.round(estBudget * 0.40),
-        items: []
-      },
-      {
-        id: 'ph-2',
-        name: 'Phase 2: Precision Machining & Fab',
-        phaseNumber: 2,
-        status: 'In Progress',
-        startDate: '2026-09-16',
-        endDate: '2026-10-31',
-        budget: Math.round(estBudget * 0.35),
-        actualCost: Math.round(totalItemsCost * 0.32) || Math.round(estBudget * 0.33),
-        items: []
-      },
-      {
-        id: 'ph-3',
-        name: 'Phase 3: Metrology & Surface Finishing',
-        phaseNumber: 3,
-        status: 'Not Started',
-        startDate: '2026-11-01',
-        endDate: '2026-11-20',
-        budget: Math.round(estBudget * 0.12),
-        actualCost: 0,
-        items: []
-      },
-      {
-        id: 'ph-4',
-        name: 'Phase 4: Assembly, QA & Handover',
-        phaseNumber: 4,
-        status: 'Not Started',
-        startDate: '2026-11-21',
-        endDate: project.deliveryDeadline || '2026-12-15',
-        budget: Math.round(estBudget * 0.08),
-        actualCost: 0,
-        items: []
-      }
-    ];
-  }
-
-  // Sort phases by phaseNumber or index
-  phasesList.sort((a, b) => (a.phaseNumber || 0) - (b.phaseNumber || 0));
-
-  const totalPhaseBudget = phasesList.reduce((sum, p) => sum + (p.budget || p.plannedCost || 1), 0);
-
-  let runningCumRevenue = 0;
-  let runningCumCost = 0;
-  const phasePoints: PhaseMarginPoint[] = [];
-
-  phasesList.forEach((phase, index) => {
-    const phaseNum = phase.phaseNumber || index + 1;
-    const phaseBudget = phase.budget || phase.plannedCost || (totalPhaseBudget / phasesList.length);
-
-    // Sum item costs assigned to this phase
-    const phaseItemsCost = (project.selectedItems || [])
-      .filter((item) => item.phaseId === phase.id || (!item.phaseId && index === 0))
-      .reduce((sum, item) => sum + (item.totalCost || (item.quantity || 1) * (item.unitCost || 0)), 0);
-
-    // Recorded cost: prioritize actualCost if explicitly recorded > 0, else phaseItemsCost
-    const recordedDirectCost = phase.actualCost > 0
-      ? phase.actualCost
-      : phase.status === 'Completed' || phase.status === 'In Progress'
-      ? Math.max(phaseItemsCost, Math.round(phaseBudget * (phase.status === 'Completed' ? 0.95 : 0.6)))
-      : 0;
-
-    const isRecorded = phase.status === 'Completed' || (phase.status === 'In Progress' && recordedDirectCost > 0);
-    const activeDirectCost = isRecorded ? recordedDirectCost : (phase.plannedCost || phaseBudget);
-    const totalPhaseCost = Math.round(activeDirectCost * addOnMultiplier);
-
-    // Revenue allocation proportional to phase budget
-    const allocatedRevenue = totalPhaseBudget > 0
-      ? Math.round(totalRevenue * (phaseBudget / totalPhaseBudget))
-      : Math.round(totalRevenue / phasesList.length);
-
-    // Phase Margin %
-    const phaseMarginPct = allocatedRevenue > 0
-      ? Math.round(((allocatedRevenue - totalPhaseCost) / allocatedRevenue) * 1000) / 10
-      : 0;
-
-    runningCumRevenue += allocatedRevenue;
-    runningCumCost += totalPhaseCost;
-
-    const cumulativeMarginPct = runningCumRevenue > 0
-      ? Math.round(((runningCumRevenue - runningCumCost) / runningCumRevenue) * 1000) / 10
-      : 0;
-
-    const isBelow = phaseMarginPct < userThreshold;
-    const varianceAmount = phaseBudget - totalPhaseCost;
-    const variancePct = phaseBudget > 0 ? Math.round((varianceAmount / phaseBudget) * 1000) / 10 : 0;
-
-    // Short name for clean XAxis display
-    const rawName = phase.name || `Phase ${phaseNum}`;
-    const cleanedName = rawName.replace(/^Phase\s*\d+:\s*/i, '');
-    const phaseShortName = `P${phaseNum}: ${cleanedName.length > 14 ? cleanedName.substring(0, 14) + '…' : cleanedName}`;
-
-    phasePoints.push({
-      phaseId: phase.id,
-      phaseNumber: phaseNum,
-      phaseName: rawName,
-      phaseShortName,
-      status: phase.status,
-      startDate: phase.startDate,
-      endDate: phase.endDate,
-      budget: phaseBudget,
-      recordedCost: recordedDirectCost,
-      totalCost: totalPhaseCost,
-      allocatedRevenue,
-      phaseMarginPct,
-      cumulativeRevenue: runningCumRevenue,
-      cumulativeCost: runningCumCost,
-      cumulativeMarginPct,
-      targetMarginPct,
-      thresholdPct: userThreshold,
-      isMarginBelowThreshold: isBelow,
-      varianceAmount,
-      variancePct,
-      isRecorded
-    });
-  });
-
-  const recordedPoints = phasePoints.filter(p => p.isRecorded);
-  const activePoints = recordedPoints.length > 0 ? recordedPoints : phasePoints;
-
-  const lowestPhaseMargin = activePoints.reduce((min, p) => (p.phaseMarginPct < min.phaseMarginPct ? p : min), activePoints[0] || null);
-  const highestPhaseMargin = activePoints.reduce((max, p) => (p.phaseMarginPct > max.phaseMarginPct ? p : max), activePoints[0] || null);
-
-  // Overall current project net margin
-  const overallAnalysis = calculateProjectProfitability(project, userThreshold);
-
-  // Trend direction across recorded phases
-  let trendDirection: 'improving' | 'declining' | 'stable' = 'stable';
-  if (activePoints.length >= 2) {
-    const first = activePoints[0].phaseMarginPct;
-    const last = activePoints[activePoints.length - 1].phaseMarginPct;
-    const diff = last - first;
-    if (diff >= 1.0) trendDirection = 'improving';
-    else if (diff <= -1.0) trendDirection = 'declining';
-  }
-
-  const latestRecorded = activePoints[activePoints.length - 1]?.phaseMarginPct ?? overallAnalysis.netMarginPct;
-
-  return {
-    projectId: project.id,
-    projectName: project.name,
-    projectCode: project.code,
-    currency: project.currency || 'USD',
-    targetMarginPct,
-    thresholdPct: userThreshold,
-    currentNetMarginPct: overallAnalysis.netMarginPct,
-    isCurrentBelowThreshold: overallAnalysis.isMarginBelowThreshold,
-    phases: phasePoints,
-    recordedPhasesCount: recordedPoints.length,
-    totalPhasesCount: phasePoints.length,
-    lowestPhaseMargin,
-    highestPhaseMargin,
-    trendDirection,
-    latestRecordedMarginPct: latestRecorded
-  };
 }

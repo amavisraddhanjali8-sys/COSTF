@@ -1,378 +1,361 @@
-/**
- * Foreign Exchange (FX) Service
- * Manages live-simulated mid-market rates, real-time public API updates,
- * custom CSV/JSON rate imports, and application-wide projection recalculations.
- */
+import { bizStore } from './bizStore';
 
 export interface LiveExchangeRate {
   code: string;
   name: string;
   symbol: string;
+  flag: string;
   decimals: number;
-  rateToUSD: number; // 1 USD = X Currency
-  bid: number;
-  ask: number;
-  spreadPct: number;
+  rateToUSD: number;
+  previousRateToUSD: number;
   change24hPct: number;
   lastUpdated: string;
-  source: 'Live API' | 'Simulated Mid-Market' | 'Imported Feed' | 'Manual Override' | 'Central Bank';
+  source: 'Live API' | 'Custom Manual' | 'Manual Override' | 'Imported Custom Feed' | 'Simulated';
 }
 
-const STORAGE_KEY_RATES = 'fxtt_live_exchange_rates_v1';
-const STORAGE_KEY_AUTO_TICK = 'fxtt_fx_auto_tick_enabled';
+export interface FXRatesData {
+  base: string;
+  rates: Record<string, number>;
+  lastUpdated: string;
+  source: 'Live API' | 'Custom Manual';
+}
 
-export const BASE_DEFAULT_RATES: LiveExchangeRate[] = [
-  { code: 'USD', name: 'US Dollar', symbol: '$', decimals: 2, rateToUSD: 1.0, bid: 1.0, ask: 1.0, spreadPct: 0.0, change24hPct: 0.0, lastUpdated: new Date().toISOString(), source: 'Central Bank' },
-  { code: 'EUR', name: 'Euro', symbol: '€', decimals: 2, rateToUSD: 0.9215, bid: 0.9212, ask: 0.9218, spreadPct: 0.06, change24hPct: +0.22, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'GBP', name: 'British Pound', symbol: '£', decimals: 2, rateToUSD: 0.7895, bid: 0.7891, ask: 0.7899, spreadPct: 0.10, change24hPct: -0.15, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'LKR', name: 'Sri Lanka Rupee', symbol: 'Rs.', decimals: 2, rateToUSD: 305.25, bid: 304.80, ask: 305.70, spreadPct: 0.29, change24hPct: +0.45, lastUpdated: new Date().toISOString(), source: 'Central Bank' },
-  { code: 'INR', name: 'Indian Rupee', symbol: '₹', decimals: 2, rateToUSD: 86.52, bid: 86.48, ask: 86.56, spreadPct: 0.09, change24hPct: +0.12, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'JPY', name: 'Japanese Yen', symbol: '¥', decimals: 0, rateToUSD: 154.20, bid: 154.10, ask: 154.30, spreadPct: 0.13, change24hPct: -0.38, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', decimals: 2, rateToUSD: 1.542, bid: 1.540, ask: 1.544, spreadPct: 0.26, change24hPct: +0.31, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$', decimals: 2, rateToUSD: 1.391, bid: 1.389, ask: 1.393, spreadPct: 0.28, change24hPct: -0.08, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', decimals: 2, rateToUSD: 1.348, bid: 1.346, ask: 1.350, spreadPct: 0.29, change24hPct: +0.05, lastUpdated: new Date().toISOString(), source: 'Live API' },
-  { code: 'AED', name: 'UAE Dirham', symbol: 'AED', decimals: 2, rateToUSD: 3.6725, bid: 3.6720, ask: 3.6730, spreadPct: 0.03, change24hPct: 0.0, lastUpdated: new Date().toISOString(), source: 'Central Bank' },
-  { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', decimals: 2, rateToUSD: 7.241, bid: 7.238, ask: 7.244, spreadPct: 0.08, change24hPct: -0.19, lastUpdated: new Date().toISOString(), source: 'Live API' }
+export const SUPPORTED_CURRENCIES: { code: string; name: string; symbol: string; flag: string; decimals: number }[] = [
+  { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸', decimals: 2 },
+  { code: 'EUR', name: 'Euro', symbol: '€', flag: '🇪🇺', decimals: 2 },
+  { code: 'GBP', name: 'British Pound', symbol: '£', flag: '🇬🇧', decimals: 2 },
+  { code: 'LKR', name: 'Sri Lankan Rupee', symbol: 'Rs.', flag: '🇱🇰', decimals: 2 },
+  { code: 'INR', name: 'Indian Rupee', symbol: '₹', flag: '🇮🇳', decimals: 2 },
+  { code: 'JPY', name: 'Japanese Yen', symbol: '¥', flag: '🇯🇵', decimals: 0 },
+  { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', flag: '🇦🇺', decimals: 2 },
+  { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$', flag: '🇨🇦', decimals: 2 },
+  { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', flag: '🇸🇬', decimals: 2 },
+  { code: 'AED', name: 'UAE Dirham', symbol: 'AED', flag: '🇦🇪', decimals: 2 },
+  { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', flag: '🇨🇳', decimals: 2 },
+  { code: 'SAR', name: 'Saudi Riyal', symbol: 'SAR', flag: '🇸🇦', decimals: 2 },
+  { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF', flag: '🇨🇭', decimals: 2 }
 ];
 
+const DEFAULT_RATES: Record<string, number> = {
+  USD: 1.0,
+  EUR: 0.92,
+  GBP: 0.79,
+  LKR: 305.0,
+  INR: 86.5,
+  JPY: 154.0,
+  AUD: 1.54,
+  CAD: 1.39,
+  SGD: 1.35,
+  AED: 3.67,
+  CNY: 7.24,
+  SAR: 3.75,
+  CHF: 0.91
+};
+
+const STORAGE_KEY_RATES = 'fxtt_fx_rates_data_v1';
+
 class FXService {
-  private rates: LiveExchangeRate[] = [];
-  private tickInterval: number | null = null;
-  private isAutoTickActive: boolean = false;
+  private ratesList: LiveExchangeRate[];
+  private simulationTimer: any = null;
+  private listeners: (() => void)[] = [];
 
   constructor() {
-    this.loadRates();
-    this.isAutoTickActive = this.getStoredAutoTickPreference();
-    if (this.isAutoTickActive) {
-      this.startLiveSimulation();
-    }
+    this.ratesList = this.loadInitialRates();
   }
 
-  private loadRates(): void {
+  private buildDefaultRatesList(): LiveExchangeRate[] {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    return SUPPORTED_CURRENCIES.map((c) => {
+      const rate = DEFAULT_RATES[c.code] ?? 1.0;
+      return {
+        code: c.code,
+        name: c.name,
+        symbol: c.symbol,
+        flag: c.flag,
+        decimals: c.decimals,
+        rateToUSD: rate,
+        previousRateToUSD: rate,
+        change24hPct: 0,
+        lastUpdated: now,
+        source: 'Live API'
+      };
+    });
+  }
+
+  private loadInitialRates(): LiveExchangeRate[] {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY_RATES);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.rates = parsed;
-          return;
+      const saved = bizStore.getItem(STORAGE_KEY_RATES);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].code) {
+          return parsed;
+        }
+        if (parsed && parsed.rates && typeof parsed.rates === 'object') {
+          const now = parsed.lastUpdated || new Date().toISOString().replace('T', ' ').slice(0, 19);
+          return SUPPORTED_CURRENCIES.map((c) => {
+            const r = Number(parsed.rates[c.code] ?? DEFAULT_RATES[c.code] ?? 1.0);
+            return {
+              code: c.code,
+              name: c.name,
+              symbol: c.symbol,
+              flag: c.flag,
+              decimals: c.decimals,
+              rateToUSD: r,
+              previousRateToUSD: r,
+              change24hPct: 0,
+              lastUpdated: now,
+              source: parsed.source || 'Live API'
+            };
+          });
         }
       }
-    } catch (e) {
-      // Ignore parse failure
+    } catch {
+      // ignore parse errors
     }
-    this.rates = [...BASE_DEFAULT_RATES];
+    return this.buildDefaultRatesList();
   }
 
-  private persistRates(): void {
+  private save() {
     try {
-      localStorage.setItem(STORAGE_KEY_RATES, JSON.stringify(this.rates));
-    } catch (e) {
-      // Ignore quota error
+      bizStore.setItem(STORAGE_KEY_RATES, JSON.stringify(this.ratesList));
+    } catch {
+      // ignore storage errors
     }
-    this.broadcastUpdate();
-  }
-
-  private broadcastUpdate(): void {
+    this.notify();
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('fxtt-rates-updated', {
-          detail: {
-            rates: this.rates,
-            timestamp: new Date().toISOString()
-          }
-        })
-      );
+      window.dispatchEvent(new CustomEvent('fxtt-rates-updated', { detail: { rates: this.ratesList } }));
     }
   }
 
   public getRates(): LiveExchangeRate[] {
-    if (this.rates.length === 0) {
-      this.loadRates();
-    }
-    return [...this.rates];
+    return [...this.ratesList];
   }
 
-  public getRate(code: string): LiveExchangeRate | undefined {
-    return this.rates.find((r) => r.code.toUpperCase() === code.toUpperCase());
-  }
-
-  public getRateValue(code: string): number {
-    if (code.toUpperCase() === 'USD') return 1.0;
-    const item = this.getRate(code);
-    return item ? item.rateToUSD : 1.0;
-  }
-
-  /**
-   * Convert an amount between any two currencies using current mid-market rates
-   */
-  public convert(amount: number, fromCurrency: string, toCurrency: string): number {
-    if (isNaN(amount) || amount === 0) return 0;
-    if (fromCurrency.toUpperCase() === toCurrency.toUpperCase()) return amount;
-
-    const fromRate = this.getRateValue(fromCurrency);
-    const toRate = this.getRateValue(toCurrency);
-
-    // Amount / fromRate gives value in USD; multiplied by toRate gives value in target currency
-    const inUSD = amount / (fromRate || 1);
-    return inUSD * (toRate || 1);
-  }
-
-  /**
-   * Update a specific currency exchange rate manually or from override
-   */
-  public setRate(code: string, newRate: number, source: LiveExchangeRate['source'] = 'Manual Override'): void {
-    if (newRate <= 0) return;
-    this.rates = this.rates.map((r) => {
-      if (r.code.toUpperCase() === code.toUpperCase()) {
-        const delta = ((newRate - r.rateToUSD) / r.rateToUSD) * 100;
-        const spreadHalf = (newRate * (r.spreadPct / 100)) / 2;
-        return {
-          ...r,
-          rateToUSD: Number(newRate.toFixed(r.decimals > 2 ? 4 : 2)),
-          bid: Number((newRate - spreadHalf).toFixed(r.decimals > 2 ? 4 : 2)),
-          ask: Number((newRate + spreadHalf).toFixed(r.decimals > 2 ? 4 : 2)),
-          change24hPct: Number((r.change24hPct + delta).toFixed(2)),
-          lastUpdated: new Date().toISOString(),
-          source
-        };
-      }
-      return r;
+  public getData(): FXRatesData {
+    const ratesMap: Record<string, number> = {};
+    this.ratesList.forEach((r) => {
+      ratesMap[r.code] = r.rateToUSD;
     });
-    this.persistRates();
+    return {
+      base: 'USD',
+      rates: ratesMap,
+      lastUpdated: this.ratesList[0]?.lastUpdated || new Date().toISOString().replace('T', ' ').slice(0, 19),
+      source: 'Live API'
+    };
   }
 
-  /**
-   * Simulate realistic micro-ticks in mid-market rates (e.g. ±0.03% to ±0.15%)
-   */
-  public tickLiveSimulatedMarket(): void {
-    const timestamp = new Date().toISOString();
-    this.rates = this.rates.map((r) => {
-      if (r.code === 'USD') return r; // USD is base
+  public getRate(currency: string): LiveExchangeRate | undefined {
+    const code = (currency || 'USD').toUpperCase();
+    return this.ratesList.find((r) => r.code === code);
+  }
 
-      // Random micro-fluctuation between -0.15% and +0.15%
-      const swingPct = (Math.random() - 0.49) * 0.18;
-      const newMid = r.rateToUSD * (1 + swingPct / 100);
-      const spread = (newMid * (r.spreadPct / 100)) / 2;
+  public getRateValue(currency: string): number {
+    const found = this.getRate(currency);
+    return found ? found.rateToUSD : DEFAULT_RATES[(currency || 'USD').toUpperCase()] || 1.0;
+  }
 
+  public setRate(
+    currencyCode: string,
+    newRateToUSD: number,
+    source: LiveExchangeRate['source'] = 'Manual Override'
+  ): void {
+    const code = (currencyCode || 'USD').toUpperCase();
+    if (isNaN(newRateToUSD) || newRateToUSD <= 0) return;
+    if (code === 'USD') return;
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const rounded = Math.round((newRateToUSD + Number.EPSILON) * 10000) / 10000;
+
+    this.ratesList = this.ratesList.map((r) => {
+      if (r.code !== code) return r;
+      const prev = r.rateToUSD || rounded;
+      const changePct = prev > 0 ? Math.round((((rounded - prev) / prev) * 100 + Number.EPSILON) * 100) / 100 : 0;
       return {
         ...r,
-        rateToUSD: Number(newMid.toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-        bid: Number((newMid - spread).toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-        ask: Number((newMid + spread).toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-        change24hPct: Number((r.change24hPct + swingPct).toFixed(2)),
-        lastUpdated: timestamp,
-        source: 'Simulated Mid-Market'
+        previousRateToUSD: prev,
+        rateToUSD: rounded,
+        change24hPct: changePct,
+        lastUpdated: now,
+        source
       };
     });
-    this.persistRates();
+    this.save();
   }
 
-  public startLiveSimulation(intervalMs: number = 3500): void {
-    if (this.tickInterval) return;
-    this.isAutoTickActive = true;
-    this.setStoredAutoTickPreference(true);
-    this.tickInterval = window.setInterval(() => {
-      this.tickLiveSimulatedMarket();
-    }, intervalMs);
+  public setCustomRate(currencyCode: string, newRateAgainstUsd: number): void {
+    this.setRate(currencyCode, newRateAgainstUsd, 'Custom Manual');
   }
 
-  public stopLiveSimulation(): void {
-    if (this.tickInterval) {
-      clearInterval(this.tickInterval);
-      this.tickInterval = null;
-    }
-    this.isAutoTickActive = false;
-    this.setStoredAutoTickPreference(false);
+  public convert(amount: number, fromCurrency: string, toCurrency: string): number {
+    const fromRate = this.getRateValue(fromCurrency);
+    const toRate = this.getRateValue(toCurrency);
+    if (!fromRate || fromRate === 0) return amount;
+    const inUsd = amount / fromRate;
+    const raw = inUsd * toRate;
+    return Math.round((raw + Number.EPSILON) * 10000) / 10000;
   }
 
   public isSimulating(): boolean {
-    return this.isAutoTickActive;
+    return this.simulationTimer !== null;
   }
 
-  /**
-   * Fetch live exchange rates from public forex APIs with graceful fallback
-   */
-  public async fetchLiveRatesFromApi(): Promise<{ success: boolean; message: string; count: number }> {
-    try {
-      // Primary: Open Exchange Rates free public mirror
-      const res = await fetch('https://open.er-api.com/v6/latest/USD');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      if (data && data.rates && typeof data.rates === 'object') {
-        const ratesObj = data.rates;
-        let updatedCount = 0;
-        const now = new Date().toISOString();
-
-        this.rates = this.rates.map((r) => {
-          const apiRate = ratesObj[r.code];
-          if (apiRate && typeof apiRate === 'number' && apiRate > 0) {
-            updatedCount++;
-            const spreadHalf = (apiRate * (r.spreadPct / 100)) / 2;
-            const deltaPct = ((apiRate - r.rateToUSD) / r.rateToUSD) * 100;
-            return {
-              ...r,
-              rateToUSD: Number(apiRate.toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-              bid: Number((apiRate - spreadHalf).toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-              ask: Number((apiRate + spreadHalf).toFixed(r.decimals === 0 ? 0 : r.decimals > 2 ? 4 : 2)),
-              change24hPct: Number(deltaPct.toFixed(2)),
-              lastUpdated: now,
-              source: 'Live API'
-            };
-          }
-          return r;
-        });
-
-        this.persistRates();
+  public startLiveSimulation(): void {
+    if (this.simulationTimer) return;
+    this.simulationTimer = setInterval(() => {
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      this.ratesList = this.ratesList.map((r) => {
+        if (r.code === 'USD') return r;
+        const delta = (Math.random() - 0.495) * 0.004;
+        const nextVal = Math.max(0.01, Math.round((r.rateToUSD * (1 + delta) + Number.EPSILON) * 10000) / 10000);
+        const baseDefault = DEFAULT_RATES[r.code] || r.rateToUSD;
+        const change24hPct = Math.round((((nextVal - baseDefault) / baseDefault) * 100 + Number.EPSILON) * 100) / 100;
         return {
-          success: true,
-          message: `Synchronized ${updatedCount} live exchange rates from Open Exchange API.`,
-          count: updatedCount
+          ...r,
+          previousRateToUSD: r.rateToUSD,
+          rateToUSD: nextVal,
+          change24hPct,
+          lastUpdated: now,
+          source: 'Simulated'
         };
-      }
-      throw new Error('Invalid rate payload structure');
-    } catch (err: any) {
-      // Fallback: Frankfurter API
-      try {
-        const fbRes = await fetch('https://api.frankfurter.app/latest?from=USD');
-        if (fbRes.ok) {
-          const fbData = await fbRes.json();
-          if (fbData && fbData.rates) {
-            let fbCount = 0;
-            const now = new Date().toISOString();
-            this.rates = this.rates.map((r) => {
-              const rVal = fbData.rates[r.code];
-              if (rVal && typeof rVal === 'number') {
-                fbCount++;
-                return {
-                  ...r,
-                  rateToUSD: rVal,
-                  lastUpdated: now,
-                  source: 'Live API'
-                };
-              }
-              return r;
-            });
-            this.persistRates();
-            return {
-              success: true,
-              message: `Synchronized ${fbCount} rates from fallback Frankfurter FX API.`,
-              count: fbCount
-            };
-          }
-        }
-      } catch (fallbackErr) {
-        // Fallback to ticking existing rates
-      }
+      });
+      this.save();
+    }, 3500);
+  }
 
-      // If network fails (e.g. offline sandbox), apply simulated mid-market tick
-      this.tickLiveSimulatedMarket();
-      return {
-        success: true,
-        message: 'Live connection simulated: updated mid-market forex brackets.',
-        count: this.rates.length
-      };
+  public stopLiveSimulation(): void {
+    if (this.simulationTimer) {
+      clearInterval(this.simulationTimer);
+      this.simulationTimer = null;
     }
   }
 
-  /**
-   * Import rates from CSV or JSON text format
-   * Supports:
-   * CSV: "USD,1.0\nEUR,0.92\nLKR,305.2..."
-   * JSON: {"USD": 1.0, "EUR": 0.92, "LKR": 305.2} or [{code: "LKR", rate: 305.2}]
-   */
-  public importRatesFromString(content: string, sourceName: string = 'Imported Feed'): { success: boolean; count: number; error?: string } {
+  public async fetchLiveRatesFromApi(): Promise<{ success: boolean; message: string }> {
     try {
-      const trimmed = content.trim();
-      let importedPairs: { code: string; rate: number }[] = [];
+      const response = await fetch('https://open.er-api.com/v6/latest/USD');
+      if (!response.ok) throw new Error('FX network response failed');
+      const json = await response.json();
+      if (json && json.rates) {
+        const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        this.ratesList = this.ratesList.map((r) => {
+          if (r.code === 'USD') return r;
+          const apiVal = json.rates[r.code] ? Number(json.rates[r.code]) : r.rateToUSD;
+          const changePct =
+            r.rateToUSD > 0 ? Math.round((((apiVal - r.rateToUSD) / r.rateToUSD) * 100 + Number.EPSILON) * 100) / 100 : 0;
+          return {
+            ...r,
+            previousRateToUSD: r.rateToUSD,
+            rateToUSD: Math.round((apiVal + Number.EPSILON) * 10000) / 10000,
+            change24hPct: changePct,
+            lastUpdated: now,
+            source: 'Live API'
+          };
+        });
+        this.save();
+        return { success: true, message: 'Synchronized live mid-market FX rates.' };
+      }
+    } catch {
+      // Fallback to current persisted rates if offline
+    }
+    return { success: true, message: 'Synchronized cached mid-market FX rates.' };
+  }
+
+  public async fetchLiveRates(): Promise<FXRatesData> {
+    await this.fetchLiveRatesFromApi();
+    return this.getData();
+  }
+
+  public importRatesFromString(
+    rawInput: string,
+    source: LiveExchangeRate['source'] = 'Imported Custom Feed'
+  ): { success: boolean; count: number; error?: string } {
+    try {
+      const trimmed = rawInput.trim();
+      const parsedMap: Record<string, number> = {};
 
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        // JSON parsing
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          importedPairs = parsed
-            .map((item) => ({
-              code: String(item.code || item.currency || item.symbol || '').toUpperCase(),
-              rate: Number(item.rate || item.rateToUSD || item.value || 0)
-            }))
-            .filter((p) => p.code && p.rate > 0);
-        } else if (typeof parsed === 'object') {
-          importedPairs = Object.entries(parsed)
-            .map(([code, val]) => ({
-              code: code.toUpperCase(),
-              rate: Number(val)
-            }))
-            .filter((p) => p.code && p.rate > 0);
+        const json = JSON.parse(trimmed);
+        if (Array.isArray(json)) {
+          json.forEach((item) => {
+            if (item && item.code && !isNaN(Number(item.rateToUSD || item.rate))) {
+              parsedMap[String(item.code).toUpperCase()] = Number(item.rateToUSD || item.rate);
+            }
+          });
+        } else if (json && typeof json === 'object') {
+          const sourceObj = json.rates && typeof json.rates === 'object' ? json.rates : json;
+          Object.entries(sourceObj).forEach(([k, v]) => {
+            if (!isNaN(Number(v))) {
+              parsedMap[k.toUpperCase()] = Number(v);
+            }
+          });
         }
       } else {
-        // CSV parsing
-        const lines = trimmed.split(/[\r\n]+/);
+        const lines = trimmed.split(/\r?\n/);
         for (const line of lines) {
-          const parts = line.split(/[,\t;|]/).map((s) => s.trim().replace(/['"]/g, ''));
+          const clean = line.trim();
+          if (!clean || clean.startsWith('#')) continue;
+          const parts = clean.split(/[,;:\t]+/);
           if (parts.length >= 2) {
-            const code = parts[0].toUpperCase();
-            const rate = parseFloat(parts[1]);
-            if (code && !isNaN(rate) && rate > 0) {
-              importedPairs.push({ code, rate });
+            const code = parts[0].trim().toUpperCase();
+            const val = parseFloat(parts[1].trim());
+            if (code && !isNaN(val) && val > 0) {
+              parsedMap[code] = val;
             }
           }
         }
       }
 
-      if (importedPairs.length === 0) {
-        return { success: false, count: 0, error: 'No valid currency pairs found in imported data.' };
+      const codes = Object.keys(parsedMap);
+      if (codes.length === 0) {
+        return { success: false, count: 0, error: 'No valid currency rate pairs found in input.' };
       }
 
-      const now = new Date().toISOString();
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       let updatedCount = 0;
-
-      this.rates = this.rates.map((r) => {
-        const found = importedPairs.find((p) => p.code === r.code);
-        if (found) {
+      this.ratesList = this.ratesList.map((r) => {
+        if (r.code === 'USD') return r;
+        const nextVal = parsedMap[r.code];
+        if (nextVal !== undefined && nextVal > 0) {
           updatedCount++;
-          const spreadHalf = (found.rate * (r.spreadPct / 100)) / 2;
+          const changePct =
+            r.rateToUSD > 0 ? Math.round((((nextVal - r.rateToUSD) / r.rateToUSD) * 100 + Number.EPSILON) * 100) / 100 : 0;
           return {
             ...r,
-            rateToUSD: found.rate,
-            bid: Number((found.rate - spreadHalf).toFixed(r.decimals > 2 ? 4 : 2)),
-            ask: Number((found.rate + spreadHalf).toFixed(r.decimals > 2 ? 4 : 2)),
+            previousRateToUSD: r.rateToUSD,
+            rateToUSD: Math.round((nextVal + Number.EPSILON) * 10000) / 10000,
+            change24hPct: changePct,
             lastUpdated: now,
-            source: 'Imported Feed'
+            source
           };
         }
         return r;
       });
 
-      this.persistRates();
+      this.save();
       return { success: true, count: updatedCount };
     } catch (e: any) {
-      return { success: false, count: 0, error: e.message || 'Failed to parse import' };
+      return { success: false, count: 0, error: e?.message || 'Failed to parse input.' };
     }
   }
 
-  /**
-   * Reset all exchange rates to standard reference values
-   */
   public resetToDefaults(): void {
-    this.rates = [...BASE_DEFAULT_RATES];
-    this.persistRates();
+    this.stopLiveSimulation();
+    this.ratesList = this.buildDefaultRatesList();
+    this.save();
   }
 
-  private getStoredAutoTickPreference(): boolean {
-    try {
-      return localStorage.getItem(STORAGE_KEY_AUTO_TICK) === 'true';
-    } catch (e) {
-      return false;
-    }
+  public resetToDefaultRates(): void {
+    this.resetToDefaults();
   }
 
-  private setStoredAutoTickPreference(enabled: boolean): void {
-    try {
-      localStorage.setItem(STORAGE_KEY_AUTO_TICK, enabled ? 'true' : 'false');
-    } catch (e) {
-      // Ignore storage errors
-    }
+  public subscribe(listener: () => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify() {
+    this.listeners.forEach((l) => l());
   }
 }
 

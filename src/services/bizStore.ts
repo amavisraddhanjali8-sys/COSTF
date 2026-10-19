@@ -1,5 +1,7 @@
 // Business settings kept in PostgreSQL (through /api/kv).
 // Same methods as localStorage so old code keeps working.
+import { authFetch as fetch } from './http';
+
 const mem = new Map<string, string>();
 const timers = new Map<string, any>();
 

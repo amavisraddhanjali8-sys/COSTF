@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -7,17 +8,8 @@ import QRCode from 'qrcode';
 import { spawnSync } from 'child_process';
 import { createServer as createViteServer } from 'vite';
 
-import {
-  INITIAL_SUPPLIERS,
-  INITIAL_MATERIALS,
-  INITIAL_OUTSOURCED_SERVICES,
-  INITIAL_SUBCONTRACTORS,
-  INITIAL_INVENTORY,
-  INITIAL_PROJECTS,
-  INITIAL_PRODUCE_ITEMS
-} from './src/data/initialData';
-import { INITIAL_CLIENT_PROFILES } from './src/data/categoriesAndProfiles';
-import { postgresService } from './src/server/postgresDb';
+import { postgresService, ListQueryOptions } from './src/server/postgresDb';
+import { round1, round2, decAdd, decSub, decMul, decDiv, calcDiscountedLine } from './src/utils/decimalMath';
 
 const DB_FILE = path.join(process.cwd(), 'data', 'database.json');
 const LEGACY_SECURITY_FILE = path.join(process.cwd(), 'data', 'security.json');
@@ -55,8 +47,38 @@ function generateBackupCodes(count: number = 8): string[] {
 
 function sanitizeUser(u: any) {
   if (!u) return null;
-  const { passwordHash, passwordSalt, twoFactorSecret, ...safe } = u;
+  const { passwordHash, passwordSalt, twoFactorSecret, pendingTwoFactorSecret, ...safe } = u;
   return safe;
+}
+
+function extractListOptions(query: any): ListQueryOptions & { paginated?: boolean } {
+  return {
+    page: query?.page ? Number(query.page) : undefined,
+    limit: query?.limit ? Number(query.limit) : undefined,
+    search: query?.search ? String(query.search) : undefined,
+    sortBy: query?.sortBy ? String(query.sortBy) : undefined,
+    sortOrder: query?.sortOrder === 'asc' || query?.sortOrder === 'desc' ? query.sortOrder : undefined,
+    category: query?.category ? String(query.category) : undefined,
+    status: query?.status ? String(query.status) : undefined,
+    projectId: query?.projectId ? String(query.projectId) : undefined,
+    planType: query?.planType ? String(query.planType) : undefined,
+    entityType: query?.entityType ? String(query.entityType) : undefined,
+    entityId: query?.entityId ? String(query.entityId) : undefined,
+    fromDate: query?.fromDate ? String(query.fromDate) : undefined,
+    toDate: query?.toDate ? String(query.toDate) : undefined,
+    paginated: query?.paginated === 'true' || query?.paginated === '1'
+  };
+}
+
+function sendListResponse(res: express.Response, result: { data: any[]; total: number; page: number; limit: number; totalPages: number }, paginated?: boolean) {
+  res.setHeader('X-Total-Count', String(result.total));
+  res.setHeader('X-Page', String(result.page));
+  res.setHeader('X-Limit', String(result.limit));
+  res.setHeader('X-Total-Pages', String(result.totalPages));
+  if (paginated) {
+    return res.json(result);
+  }
+  return res.json(result.data);
 }
 
 // Security data lives in PostgreSQL (users table + security_settings table).
@@ -107,8 +129,13 @@ async function initSecurityStore() {
   if (!SEC.pendingSignups) SEC.pendingSignups = {};
   if (!SEC.backupCodes?.length) SEC.backupCodes = generateBackupCodes(8);
 
+  if (process.env.ADMIN_SECRET_CODE) {
+    SEC.adminSecretCode = process.env.ADMIN_SECRET_CODE;
+  }
+
   // Make sure one admin exists. Password comes from ADMIN_PASSWORD or is random and printed once.
-  if (!SEC.users.find((u: any) => u.role === 'ADMIN')) {
+  const existingAdmin = SEC.users.find((u: any) => u.role === 'ADMIN');
+  if (!existingAdmin) {
     const pwd = process.env.ADMIN_PASSWORD || crypto.randomBytes(5).toString('hex');
     const { hash, salt } = hashPassword(pwd);
     SEC.users.unshift({
@@ -126,6 +153,14 @@ async function initSecurityStore() {
       twoFactorEnabled: false
     });
     if (!process.env.ADMIN_PASSWORD) console.log(`[Security] First admin created: ${SEC.users[0].email} / ${pwd}  (change it after login)`);
+  } else if (process.env.ADMIN_PASSWORD) {
+    const { hash, salt } = hashPassword(process.env.ADMIN_PASSWORD);
+    existingAdmin.passwordHash = hash;
+    existingAdmin.passwordSalt = salt;
+    if (process.env.ADMIN_EMAIL) {
+      existingAdmin.email = process.env.ADMIN_EMAIL;
+    }
+    existingAdmin.status = 'Active';
   }
   saveSecurityStore(SEC);
   await secWrite;
@@ -171,94 +206,99 @@ function runPythonAnalytics(projectData: any) {
   return fallbackAnalytics(projectData);
 }
 
-// Fallback pure TypeScript analytical calculation if Python process is unavailable
+// Fallback pure TypeScript decimal-safe analytical calculation if Python process is unavailable
 function fallbackAnalytics(projectData: any) {
-  const revenue = Number(projectData.quotedPrice || 0);
+  const revenue = round2(projectData.quotedPrice || 0);
   const items = projectData.selectedItems || [];
   let materialCost = 0;
   let subcontractorCost = 0;
   let outsourcedCost = 0;
 
   for (const item of items) {
-    const cost = Number(item.unitCost || 0) * Number(item.quantity || 1);
-    const disc = Number(item.discountPct || 0);
-    const discounted = cost * (1 - disc / 100);
-    if (item.type === 'material') materialCost += discounted;
-    else if (item.type === 'subcontractor') subcontractorCost += discounted;
-    else if (item.type === 'outsourced') outsourcedCost += discounted;
-    else materialCost += discounted;
+    const { totalAmount: discounted } = calcDiscountedLine(
+      item.quantity ?? 1,
+      item.unitCost ?? 0,
+      item.discountPct ?? 0
+    );
+    if (item.type === 'material') materialCost = decAdd(materialCost, discounted);
+    else if (item.type === 'subcontractor') subcontractorCost = decAdd(subcontractorCost, discounted);
+    else if (item.type === 'outsourced') outsourcedCost = decAdd(outsourcedCost, discounted);
+    else materialCost = decAdd(materialCost, discounted);
   }
 
-  const totalDirectCost = materialCost + subcontractorCost + outsourcedCost;
-  const overheadPct = Number(projectData.overheadPct || 8.5);
-  const contingencyPct = Number(projectData.contingencyPct || 5.0);
-  const overheadAmount = totalDirectCost * (overheadPct / 100);
-  const contingencyAmount = totalDirectCost * (contingencyPct / 100);
-  const totalProjectCost = totalDirectCost + overheadAmount + contingencyAmount;
-  const grossProfit = revenue - totalDirectCost;
-  const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
-  const netProfit = revenue - totalProjectCost;
-  const netMarginPct = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const totalDirectCost = decAdd(decAdd(materialCost, subcontractorCost), outsourcedCost);
+  const overheadPct = round2(projectData.overheadPct ?? 8.5);
+  const contingencyPct = round2(projectData.contingencyPct ?? 5.0);
+  const overheadAmount = round2(decMul(totalDirectCost, decDiv(overheadPct, 100)));
+  const contingencyAmount = round2(decMul(totalDirectCost, decDiv(contingencyPct, 100)));
+  const totalProjectCost = decAdd(decAdd(totalDirectCost, overheadAmount), contingencyAmount);
+  const grossProfit = decSub(revenue, totalDirectCost);
+  const grossMarginPct = revenue > 0 ? round2(decMul(decDiv(grossProfit, revenue), 100)) : 0;
+  const netProfit = decSub(revenue, totalProjectCost);
+  const netMarginPct = revenue > 0 ? round2(decMul(decDiv(netProfit, revenue), 100)) : 0;
 
   const phases = projectData.phases || [];
   let totalPlannedBudget = 0;
   const phaseMetrics = phases.map((p: any) => {
-    const planned = Number(p.budget || 0);
-    const actual = Number(p.actualCost || 0);
-    totalPlannedBudget += planned;
-    const variance = planned - actual;
+    const planned = round2(p.budget || 0);
+    const actual = round2(p.actualCost || 0);
+    totalPlannedBudget = decAdd(totalPlannedBudget, planned);
+    const variance = decSub(planned, actual);
     return {
       phaseId: p.id,
       phaseName: p.name,
       plannedBudget: planned,
       actualCost: actual,
       variance,
-      variancePct: planned > 0 ? (variance / planned) * 100 : 0,
+      variancePct: planned > 0 ? round2(decMul(decDiv(variance, planned), 100)) : 0,
       status: variance >= 0 ? 'Under Budget' : 'Over Budget'
     };
   });
 
-  const budgetVariance = totalPlannedBudget - totalProjectCost;
-  const budgetVariancePct = totalPlannedBudget > 0 ? (budgetVariance / totalPlannedBudget) * 100 : 0;
+  const budgetVariance = decSub(totalPlannedBudget, totalProjectCost);
+  const budgetVariancePct = totalPlannedBudget > 0 ? round2(decMul(decDiv(budgetVariance, totalPlannedBudget), 100)) : 0;
 
   let healthScore = 100;
-  if (netMarginPct < 15) healthScore -= 25;
-  if (budgetVariance < 0) healthScore -= Math.min(30, Math.abs(budgetVariancePct) * 2);
-  healthScore = Math.max(10, Math.min(100, healthScore));
+  if (netMarginPct < 15) healthScore = decSub(healthScore, 25);
+  if (budgetVariance < 0) healthScore = decSub(healthScore, Math.min(30, decMul(Math.abs(budgetVariancePct), 2)));
+  healthScore = Math.max(10, Math.min(100, round1(healthScore)));
+
+  const matInflationImpact = round2(decMul(materialCost, 0.05));
+  const labHikeImpact = round2(decMul(subcontractorCost, 0.08));
 
   return {
-    revenue: Math.round(revenue * 100) / 100,
-    materialCost: Math.round(materialCost * 100) / 100,
-    subcontractorCost: Math.round(subcontractorCost * 100) / 100,
-    outsourcedCost: Math.round(outsourcedCost * 100) / 100,
-    totalDirectCost: Math.round(totalDirectCost * 100) / 100,
-    overheadAmount: Math.round(overheadAmount * 100) / 100,
-    contingencyAmount: Math.round(contingencyAmount * 100) / 100,
-    totalProjectCost: Math.round(totalProjectCost * 100) / 100,
-    grossProfit: Math.round(grossProfit * 100) / 100,
-    grossMarginPct: Math.round(grossMarginPct * 100) / 100,
-    netProfit: Math.round(netProfit * 100) / 100,
-    netMarginPct: Math.round(netMarginPct * 100) / 100,
-    totalPlannedBudget: Math.round(totalPlannedBudget * 100) / 100,
-    budgetVariance: Math.round(budgetVariance * 100) / 100,
-    budgetVariancePct: Math.round(budgetVariancePct * 100) / 100,
-    healthScore: Math.round(healthScore * 10) / 10,
+    revenue,
+    materialCost: round2(materialCost),
+    subcontractorCost: round2(subcontractorCost),
+    outsourcedCost: round2(outsourcedCost),
+    totalDirectCost: round2(totalDirectCost),
+    overheadAmount,
+    contingencyAmount,
+    totalProjectCost: round2(totalProjectCost),
+    grossProfit: round2(grossProfit),
+    grossMarginPct,
+    netProfit: round2(netProfit),
+    netMarginPct,
+    totalPlannedBudget: round2(totalPlannedBudget),
+    budgetVariance: round2(budgetVariance),
+    budgetVariancePct,
+    healthScore,
     phaseMetrics,
     sensitivity: {
       materialInflation5Pct: {
-        costImpact: Math.round(materialCost * 0.05 * 100) / 100,
-        revisedNetMarginPct: revenue > 0 ? Math.round(((netProfit - materialCost * 0.05) / revenue) * 10000) / 100 : 0
+        costImpact: matInflationImpact,
+        revisedNetMarginPct: revenue > 0 ? round2(decMul(decDiv(decSub(netProfit, matInflationImpact), revenue), 100)) : 0
       },
       labourRateHike8Pct: {
-        costImpact: Math.round(subcontractorCost * 0.08 * 100) / 100,
-        revisedNetMarginPct: revenue > 0 ? Math.round(((netProfit - subcontractorCost * 0.08) / revenue) * 10000) / 100 : 0
+        costImpact: labHikeImpact,
+        revisedNetMarginPct: revenue > 0 ? round2(decMul(decDiv(decSub(netProfit, labHikeImpact), revenue), 100)) : 0
       }
     },
     costDistribution: [
-      { category: 'Materials', amount: Math.round(materialCost), pct: totalDirectCost > 0 ? Math.round((materialCost / totalDirectCost) * 100) : 0 },
-      { category: 'Subcontractor Labour', amount: Math.round(subcontractorCost), pct: totalDirectCost > 0 ? Math.round((subcontractorCost / totalDirectCost) * 100) : 0 },
-      { category: 'Outsourced Services', amount: Math.round(outsourcedCost), pct: totalDirectCost > 0 ? Math.round((outsourcedCost / totalDirectCost) * 100) : 0 },
-      { category: 'Overhead & Contingency', amount: Math.round(overheadAmount + contingencyAmount), pct: totalProjectCost > 0 ? Math.round(((overheadAmount + contingencyAmount) / totalProjectCost) * 100) : 0 }
+      { category: 'Materials', amount: Math.round(materialCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(materialCost, totalDirectCost), 100)) : 0 },
+      { category: 'Subcontractor Labour', amount: Math.round(subcontractorCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(subcontractorCost, totalDirectCost), 100)) : 0 },
+      { category: 'Outsourced Services', amount: Math.round(outsourcedCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(outsourcedCost, totalDirectCost), 100)) : 0 },
+      { category: 'Overhead & Contingency', amount: Math.round(decAdd(overheadAmount, contingencyAmount)), pct: totalProjectCost > 0 ? Math.round(decMul(decDiv(decAdd(overheadAmount, contingencyAmount), totalProjectCost), 100)) : 0 }
     ]
   };
 }
@@ -277,19 +317,35 @@ async function startServer() {
     ['GET', /^\/api\/images\/[^/]+$/],
     ['POST', /^\/api\/auth\/(login|verify-mfa|google-login|signup-init|signup-verify)$/],
     ['GET', /^\/api\/auth\/session$/],          // checks its own token
-    ['POST', /^\/api\/auth\/(touch-session|logout)$/] // check their own token
+    ['POST', /^\/api\/auth\/(touch-session|logout)$/], // check their own token
+    ['POST', /^\/api\/account-requests$/]       // public access request submission from login page
   ];
   const ADMIN_ONLY: Array<[string | '*', RegExp]> = [
     ['*', /^\/api\/users(\/|$)/],
     ['*', /^\/api\/security(\/|$)/],
     ['GET', /^\/api\/audit-logs$/],
+    ['GET', /^\/api\/account-requests$/],
+    ['PUT', /^\/api\/account-requests\/[^/]+\/status$/],
     ['*', /^\/api\/database(\/|$)/],
     ['*', /^\/api\/reset-data$/],
     ['PUT', /^\/api\/company-details$/]
   ];
 
-  app.use('/api', (req: any, res, next) => {
+  const dbReadyPromise = (async () => {
+    await postgresService.getDb();
+    await migrateAndCleanLegacyDatabases();
+    await initSecurityStore();
+    console.log('[PostgreSQL] Connected to "inno_cost".');
+  })();
+
+  app.use('/api', async (req: any, res, next) => {
     const url = '/api' + req.path;
+    if (req.method === 'GET' && url === '/api/health') return next();
+    try {
+      await dbReadyPromise;
+    } catch (e: any) {
+      return res.status(503).json({ error: 'Database initializing or unavailable', details: e?.message });
+    }
     if (PUBLIC_ROUTES.some(([m, rx]) => m === req.method && rx.test(url))) return next();
 
     const header = req.headers.authorization;
@@ -431,31 +487,19 @@ async function startServer() {
         if (legacy.companyDetails) {
           await postgresService.updateCompanyDetails(legacy.companyDetails).catch(() => {});
         }
-
-        // Delete legacy database.json so PostgreSQL inno_cost is the sole active database
-        try {
-          console.warn('[Migration] Automatic legacy-file deletion disabled; preserve database.json for verification.');
-          console.log('[Migration] Legacy database.json retained. Verify imported records before any manual removal.');
-        } catch (delErr) {
-          console.warn('[Migration] Note: Could not unlink DB_FILE:', delErr);
-        }
       }
-
-      // Automatic deletion of legacy database artifacts is disabled.
     } catch (e) {
       console.error('[Migration] Migration error:', e);
     }
   }
 
-
-
   // Health check
-  app.get('/api/health', (req, res) => {
+  app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString(), pythonEngine: 'active', database: 'inno_cost (PostgreSQL)' });
   });
 
-  // PostgreSQL Database Status
-  app.get('/api/database/status', async (req, res) => {
+  // PostgreSQL Database Status & Migrations
+  app.get('/api/database/status', async (_req, res) => {
     try {
       const stats = await postgresService.getDbStats();
       res.json(stats);
@@ -464,8 +508,27 @@ async function startServer() {
     }
   });
 
+  app.get('/api/database/migrations', async (_req, res) => {
+    try {
+      const migrations = await postgresService.getMigrations();
+      res.json(migrations);
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to fetch database migrations', details: err?.message });
+    }
+  });
+
+  app.post('/api/database/backup', async (req, res) => {
+    try {
+      const label = req.body?.label ? String(req.body.label).replace(/[^A-Za-z0-9_-]/g, '_') : 'manual';
+      const backupFile = await postgresService.createBackup(label);
+      res.json({ success: true, backupFile });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to create database backup', details: err?.message });
+    }
+  });
+
   // Company Details (PostgreSQL inno_cost - permanent single source of truth)
-  app.get('/api/company-details', async (req, res) => {
+  app.get('/api/company-details', async (_req, res) => {
     try {
       const details = await postgresService.getCompanyDetails();
       res.json(details);
@@ -477,6 +540,9 @@ async function startServer() {
 
   app.put('/api/company-details', async (req, res) => {
     try {
+      if (!req.body || typeof req.body !== 'object') {
+        return res.status(400).json({ error: 'Company details payload is required' });
+      }
       const updated = await postgresService.updateCompanyDetails(req.body);
       res.json(updated);
     } catch (err: any) {
@@ -576,7 +642,7 @@ async function startServer() {
     });
   });
 
-  // 2. Verify Multi-Factor Authentication (Admin or user enters ONE verification code; no dummy codes)
+  // 2. Verify Multi-Factor Authentication
   app.post('/api/auth/verify-mfa', (req, res) => {
     const { tempMfaToken, code, adminCode, totpCode } = req.body;
     if (!tempMfaToken) {
@@ -597,7 +663,6 @@ async function startServer() {
       return res.status(404).json({ error: 'User profile not found.' });
     }
 
-    // Single unified verification code (Authenticator TOTP, Master Code 123456, Admin Secret Code, or Backup Code)
     const verificationCode = String(code || adminCode || totpCode || '').trim();
 
     if (!verificationCode) {
@@ -620,19 +685,18 @@ async function startServer() {
       );
       if (backupIdx !== -1) {
         isValid = true;
-        // Consume the used backup code
         sec.backupCodes.splice(backupIdx, 1);
       }
     }
 
-    // Check 3: Real Google Authenticator TOTP code (strictly verified via otplib - no dummy codes!)
+    // Check 3: Real Google Authenticator TOTP code
     if (!isValid && user.twoFactorSecret) {
       try {
         const check = verifySync({ secret: user.twoFactorSecret, token: verificationCode });
         if (check && check.valid) {
           isValid = true;
         }
-      } catch (err) {
+      } catch {
         // Fall through to error
       }
     }
@@ -643,7 +707,6 @@ async function startServer() {
       });
     }
 
-    // MFA succeeded! Clean up temp token, create persistent session
     delete sec.tempMfaTokens[tempMfaToken];
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const now = Date.now();
@@ -664,7 +727,7 @@ async function startServer() {
     });
   });
 
-  // 3. Validate existing session & prevent immediate logout on page reload
+  // 3. Validate existing session
   app.get('/api/auth/session', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -682,14 +745,12 @@ async function startServer() {
     const now = Date.now();
     const elapsedMinutes = (now - session.lastActivity) / (60 * 1000);
 
-    // If inactivity timeout exceeded, terminate session
     if (elapsedMinutes > sec.sessionTimeoutMinutes) {
       delete sec.sessions[token];
       saveSecurityStore(sec);
       return res.status(401).json({ valid: false, error: 'Session expired due to inactivity' });
     }
 
-    // Still within active window: update activity and return safe user
     session.lastActivity = now;
     session.expiresAt = now + sec.sessionTimeoutMinutes * 60 * 1000;
     saveSecurityStore(sec);
@@ -702,7 +763,7 @@ async function startServer() {
     });
   });
 
-  // 4. Touch session (keep-alive during user interaction)
+  // 4. Touch session
   app.post('/api/auth/touch-session', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -732,7 +793,6 @@ async function startServer() {
   });
 
   // 6. Setup Google Authenticator (Admin only in settings)
-  // CRITICAL REQUIREMENT: "dont show codes when signup just only the QR. for admin accounts they can add athenticator through settings but other cant"
   app.post('/api/auth/totp-setup', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -746,7 +806,6 @@ async function startServer() {
     const user = sec.users.find((u: any) => u.id === session.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // ONLY Admin accounts can configure Authenticator through settings!
     if (user.role !== 'ADMIN') {
       return res.status(403).json({ error: 'Only administrative accounts can configure Google Authenticator.' });
     }
@@ -762,7 +821,6 @@ async function startServer() {
         secret: newSecret
       });
 
-      // Generate clean QR code data URL - DO NOT RETURN SECRET TEXT KEY
       const qrCodeDataUrl = await QRCode.toDataURL(otpauth, {
         margin: 1,
         width: 240,
@@ -772,7 +830,6 @@ async function startServer() {
         }
       });
 
-      // ONLY QR code is returned - NO secret code text exposed in frontend UI
       res.json({
         qrCodeDataUrl,
         instructions: 'Scan this QR code with the Google Authenticator app on your mobile device.'
@@ -821,7 +878,7 @@ async function startServer() {
     res.json({ success: true, message: 'Google Authenticator successfully configured and activated!' });
   });
 
-  // 8. Admin Security Configuration (Secret Code, Timeout, Backup Codes)
+  // 8. Admin Security Configuration
   app.get('/api/security/admin-config', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -894,8 +951,8 @@ async function startServer() {
     });
   });
 
-  // 10. Sanitized Users API (Passwords and secrets are never sent to client, synced to PostgreSQL inno_cost)
-  app.get('/api/users', async (req, res) => {
+  // 10. Sanitized Users API (PostgreSQL inno_cost)
+  app.get('/api/users', async (_req, res) => {
     try {
       const pgUsers = await postgresService.getUsers();
       if (pgUsers && pgUsers.length > 0) {
@@ -959,7 +1016,6 @@ async function startServer() {
     const existing = sec.users[idx];
     const updates: any = { ...req.body };
 
-    // If new password passed, hash it securely on server
     if (updates.password && updates.password.trim()) {
       const { hash, salt } = hashPassword(updates.password.trim());
       existing.passwordHash = hash;
@@ -997,7 +1053,45 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Google OAuth signin handler - STRICTLY RESTRICTED for accounts that have not signed up
+  // --- Account Requests API (PostgreSQL inno_cost) ---
+  app.get('/api/account-requests', async (_req, res) => {
+    try {
+      const list = await postgresService.getAccountRequests();
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Failed to fetch account requests', details: e?.message });
+    }
+  });
+
+  app.post('/api/account-requests', async (req, res) => {
+    try {
+      const { name, email } = req.body || {};
+      if (!name || !email) {
+        return res.status(400).json({ error: 'Name and email are required for account requests' });
+      }
+      const created = await postgresService.createAccountRequest(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Failed to create account request', details: e?.message });
+    }
+  });
+
+  app.put('/api/account-requests/:id/status', async (req, res) => {
+    try {
+      const { status } = req.body || {};
+      if (!['Approved', 'Rejected'].includes(status)) {
+        return res.status(400).json({ error: 'Status must be Approved or Rejected' });
+      }
+      const actor = (req as any).user;
+      const updated = await postgresService.updateAccountRequestStatus(req.params.id, status, actor?.name || 'ADMIN');
+      if (!updated) return res.status(404).json({ error: 'Account request not found' });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: 'Failed to update account request status', details: e?.message });
+    }
+  });
+
+  // Google OAuth signin handler
   app.post('/api/auth/google-login', (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -1008,7 +1102,6 @@ async function startServer() {
       (u: any) => u.email?.toLowerCase() === query || u.googleEmail?.toLowerCase() === query
     );
 
-    // CRITICAL USER REQUIREMENT: login by Google account must be restricted for accounts without signed up
     if (!user) {
       return res.status(403).json({
         error: 'Access restricted: This Google account is not signed up in the system. Please click "Sign up" to register your account and configure your mandatory Authenticator.'
@@ -1019,7 +1112,6 @@ async function startServer() {
       return res.status(403).json({ error: 'User account is deactivated. Contact Administrator.' });
     }
 
-    // Mandatory Authenticator check for registered accounts
     if (user.twoFactorEnabled || user.twoFactorSecret) {
       const tempMfaToken = crypto.randomBytes(24).toString('hex');
       sec.tempMfaTokens[tempMfaToken] = {
@@ -1056,7 +1148,7 @@ async function startServer() {
     });
   });
 
-  // Step 1: Sign up initiation with MANDATORY Authenticator QR generation (ONLY QR code, no text secret exposed)
+  // Step 1: Sign up initiation with MANDATORY Authenticator QR generation
   app.post('/api/auth/signup-init', async (req, res) => {
     try {
       const { employeeId, name, email, password, department, role, authProvider } = req.body;
@@ -1073,7 +1165,6 @@ async function startServer() {
       const sec = loadSecurityStore();
       const normalizedEmail = String(email).trim().toLowerCase();
 
-      // Check if account already exists
       const existingUser = sec.users.find(
         (u: any) => u.email?.toLowerCase() === normalizedEmail || u.googleEmail?.toLowerCase() === normalizedEmail
       );
@@ -1083,17 +1174,13 @@ async function startServer() {
         });
       }
 
-      // Generate genuine TOTP secret for the authenticator app
       const twoFactorSecret = generateSecret();
-
-      // Generate OTP Auth URI
       const otpauth = generateURI({
         issuer: 'COST SYSTEM',
         label: normalizedEmail,
         secret: twoFactorSecret
       });
 
-      // Generate high-resolution QR code (DO NOT expose secret code text)
       const qrCodeDataUrl = await QRCode.toDataURL(otpauth, {
         margin: 1,
         width: 240,
@@ -1127,7 +1214,6 @@ async function startServer() {
       };
       saveSecurityStore(sec);
 
-      // Return ONLY the QR code (no text secret)
       return res.json({
         status: 'totp_setup_required',
         signupToken,
@@ -1141,7 +1227,7 @@ async function startServer() {
     }
   });
 
-  // Step 2: Sign up verification with MANDATORY Authenticator code verification (NO DUMMY CODES)
+  // Step 2: Sign up verification with MANDATORY Authenticator code verification
   app.post('/api/auth/signup-verify', (req, res) => {
     try {
       const { signupToken, code } = req.body;
@@ -1164,14 +1250,13 @@ async function startServer() {
         return res.status(400).json({ error: 'Signup session expired. Please start registration again.' });
       }
 
-      // STRICT AUTHENTICATOR CODE VERIFICATION - NO DUMMY CODES ACCEPTED!
       let isCodeValid = false;
       try {
         const check = verifySync({ secret: pending.twoFactorSecret, token: cleanCode });
         if (check && check.valid) {
           isCodeValid = true;
         }
-      } catch (err) {
+      } catch {
         // Validation error
       }
 
@@ -1181,7 +1266,6 @@ async function startServer() {
         });
       }
 
-      // Code is genuinely verified! Finalize account registration with mandatory 2FA enabled
       const newUser = {
         id: `user-${Date.now()}`,
         employeeId: pending.employeeId,
@@ -1196,14 +1280,13 @@ async function startServer() {
         createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
         authProvider: pending.authProvider,
         twoFactorSecret: pending.twoFactorSecret,
-        twoFactorEnabled: true, // Mandatory Authenticator configured
+        twoFactorEnabled: true,
         lastLogin: new Date().toISOString().replace('T', ' ').slice(0, 19)
       };
 
       sec.users.unshift(newUser);
       delete sec.pendingSignups[signupToken];
 
-      // Issue active session immediately upon verified registration
       const sessionToken = crypto.randomBytes(32).toString('hex');
       const now = Date.now();
       sec.sessions[sessionToken] = {
@@ -1230,8 +1313,9 @@ async function startServer() {
   // --- Clients API (PostgreSQL inno_cost) ---
   app.get('/api/clients', async (req, res) => {
     try {
-      const clients = await postgresService.getClients();
-      res.json(clients);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getClientsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get clients:', e);
       res.status(500).json({ error: 'Failed to fetch clients from PostgreSQL', details: e?.message });
@@ -1240,6 +1324,9 @@ async function startServer() {
 
   app.post('/api/clients', async (req, res) => {
     try {
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Client name or code is required' });
+      }
       const newClient = await postgresService.createClient(req.body);
       res.status(201).json(newClient);
     } catch (e: any) {
@@ -1272,8 +1359,9 @@ async function startServer() {
   // --- Suppliers API (PostgreSQL inno_cost) ---
   app.get('/api/suppliers', async (req, res) => {
     try {
-      const sups = await postgresService.getSuppliers();
-      res.json(sups);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getSuppliersPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get suppliers:', e);
       res.status(500).json({ error: 'Failed to fetch suppliers', details: e?.message });
@@ -1282,6 +1370,9 @@ async function startServer() {
 
   app.post('/api/suppliers', async (req, res) => {
     try {
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Supplier name or code is required' });
+      }
       const newSupplier = await postgresService.createSupplier(req.body);
       res.status(201).json(newSupplier);
     } catch (e: any) {
@@ -1309,9 +1400,9 @@ async function startServer() {
       const newContract = {
         contractId: req.body.contractId || `CTR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
         title: req.body.title || 'Master Commercial & Supply Accord',
-        value: Number(req.body.value || 0),
+        value: round2(req.body.value || 0),
         startDate: req.body.startDate || new Date().toISOString().split('T')[0],
-        endDate: req.body.endDate || new Date(Date.now() + 365*24*3600*1000).toISOString().split('T')[0],
+        endDate: req.body.endDate || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
         status: req.body.status || 'Active',
         scopeType: req.body.scopeType || target.supplyScope || 'materials',
         deliverablesSummary: req.body.deliverablesSummary || '',
@@ -1340,8 +1431,9 @@ async function startServer() {
   // --- Materials API (PostgreSQL inno_cost) ---
   app.get('/api/materials', async (req, res) => {
     try {
-      const mats = await postgresService.getMaterials();
-      res.json(mats);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getMaterialsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to fetch materials:', e);
       res.status(500).json({ error: 'Failed to fetch materials', details: e?.message });
@@ -1350,9 +1442,13 @@ async function startServer() {
 
   app.post('/api/materials', async (req, res) => {
     try {
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Material name or code is required' });
+      }
       const newMat = await postgresService.createMaterial(req.body);
       res.status(201).json(newMat);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to create material:', e);
       res.status(500).json({ error: 'Failed to create material in PostgreSQL', details: e?.message });
     }
@@ -1371,36 +1467,23 @@ async function startServer() {
 
   app.post('/api/materials/:id/price-update', async (req, res) => {
     try {
-      const { newPrice, reason, updatedBy, volumePricing } = req.body;
-      const mats = await postgresService.getMaterials();
-      const existing = mats.find((m: any) => m.id === req.params.id);
-      if (!existing) return res.status(404).json({ error: 'Material not found' });
-
-      const oldPrice = Number(existing.retailPrice || existing.currentPrice || 0);
-      const newP = Number(newPrice);
-      const changePct = oldPrice > 0 ? ((newP - oldPrice) / oldPrice) * 100 : 0;
-
-      const historyRecord = {
-        id: `ph-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        previousPrice: oldPrice,
-        newPrice: newP,
-        changePct: Math.round(changePct * 10) / 10,
-        reason: reason || 'Vendor scheduled price revision',
-        updatedBy: updatedBy || 'Materials Manager'
-      };
-
-      const updatedHistory = [historyRecord, ...(existing.priceHistory || [])];
-      const updated = await postgresService.updateMaterial(req.params.id, {
-        retailPrice: newP,
-        currentPrice: newP,
-        volumePricing: volumePricing || existing.volumePricing,
-        priceHistory: updatedHistory,
-        lastUpdated: new Date().toISOString().split('T')[0]
+      const { newPrice, reason, updatedBy, volumePricing, effectiveDate, idempotencyKey } = req.body || {};
+      if (newPrice === undefined || newPrice === null || isNaN(Number(newPrice)) || Number(newPrice) < 0) {
+        return res.status(400).json({ error: 'A valid non-negative newPrice is required' });
+      }
+      const actor = (req as any).user;
+      const updated = await postgresService.updateMaterialPriceTransactional(req.params.id, {
+        newPrice: Number(newPrice),
+        reason,
+        updatedBy: updatedBy || actor?.name || 'Materials Manager',
+        volumePricing,
+        effectiveDate,
+        idempotencyKey
       });
-
+      if (!updated) return res.status(404).json({ error: 'Material not found' });
       res.json(updated);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to update material price:', e);
       res.status(500).json({ error: 'Failed to update material price', details: e?.message });
     }
@@ -1419,8 +1502,9 @@ async function startServer() {
   // --- Outsourced Services API (PostgreSQL inno_cost) ---
   app.get('/api/outsourced', async (req, res) => {
     try {
-      const out = await postgresService.getOutsourced();
-      res.json(out);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getOutsourcedPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get outsourced services:', e);
       res.status(500).json({ error: 'Failed to fetch outsourced services', details: e?.message });
@@ -1429,6 +1513,9 @@ async function startServer() {
 
   app.post('/api/outsourced', async (req, res) => {
     try {
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Outsourced service name or code is required' });
+      }
       const newService = await postgresService.createOutsourced(req.body);
       res.status(201).json(newService);
     } catch (e: any) {
@@ -1450,33 +1537,24 @@ async function startServer() {
 
   app.post('/api/outsourced/:id/price-update', async (req, res) => {
     try {
-      const { newRate, reason, updatedBy, tierRates, retailPrice } = req.body;
-      const list = await postgresService.getOutsourced();
-      const existing = list.find((s: any) => s.id === req.params.id);
-      if (!existing) return res.status(404).json({ error: 'Outsourced service not found' });
-
-      const oldRate = Number(existing.rate || 0);
-      const newR = Number(newRate);
-      const historyRecord = {
-        id: `oph-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        oldRate,
-        newRate: newR,
-        reason: reason || 'Tariff schedule renegotiation',
-        updatedBy: updatedBy || 'Operations Lead'
-      };
-
-      const updatedHistory = [historyRecord, ...(existing.priceHistory || [])];
-      const updated = await postgresService.updateOutsourced(req.params.id, {
-        rate: newR,
-        retailPrice: retailPrice !== undefined ? Number(retailPrice) : existing.retailPrice,
-        tierRates: tierRates || existing.tierRates,
-        priceHistory: updatedHistory,
-        lastUpdated: new Date().toISOString().split('T')[0]
+      const { newRate, reason, updatedBy, tierRates, retailPrice, effectiveDate, idempotencyKey } = req.body || {};
+      if (newRate === undefined || newRate === null || isNaN(Number(newRate)) || Number(newRate) < 0) {
+        return res.status(400).json({ error: 'A valid non-negative newRate is required' });
+      }
+      const actor = (req as any).user;
+      const updated = await postgresService.updateOutsourcedRateTransactional(req.params.id, {
+        newRate: Number(newRate),
+        retailPrice: retailPrice !== undefined ? Number(retailPrice) : undefined,
+        tierRates,
+        reason,
+        updatedBy: updatedBy || actor?.name || 'Operations Lead',
+        effectiveDate,
+        idempotencyKey
       });
-
+      if (!updated) return res.status(404).json({ error: 'Outsourced service not found' });
       res.json(updated);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to update outsourced rate:', e);
       res.status(500).json({ error: 'Failed to update outsourced rate', details: e?.message });
     }
@@ -1495,8 +1573,9 @@ async function startServer() {
   // --- Subcontractors API (PostgreSQL inno_cost) ---
   app.get('/api/subcontractors', async (req, res) => {
     try {
-      const subs = await postgresService.getSubcontractors();
-      res.json(subs);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getSubcontractorsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get subcontractors:', e);
       res.status(500).json({ error: 'Failed to fetch subcontractors', details: e?.message });
@@ -1505,6 +1584,9 @@ async function startServer() {
 
   app.post('/api/subcontractors', async (req, res) => {
     try {
+      if (!req.body || (!req.body.subcontractorName && !req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Subcontractor name or code is required' });
+      }
       const newSub = await postgresService.createSubcontractor(req.body);
       res.status(201).json(newSub);
     } catch (e: any) {
@@ -1526,35 +1608,25 @@ async function startServer() {
 
   app.post('/api/subcontractors/:id/rate-update', async (req, res) => {
     try {
-      const { newBaseRate, newRetailRate, fullContractEstimate, bulkPricingRanges, changeReason, updatedBy } = req.body;
-      const list = await postgresService.getSubcontractors();
-      const existing = list.find((s: any) => s.id === req.params.id);
-      if (!existing) return res.status(404).json({ error: 'Subcontractor rate not found' });
-
-      const oldRate = Number(existing.baseRate || existing.rate || 0);
-      const newR = Number(newBaseRate);
-      const historyRecord = {
-        id: `srh-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        oldRate,
-        newRate: newR,
-        changeReason: changeReason || 'Rate schedule review',
-        updatedBy: updatedBy || 'Contracts Director'
-      };
-
-      const updatedHistory = [historyRecord, ...(existing.rateHistory || [])];
-      const updated = await postgresService.updateSubcontractor(req.params.id, {
-        baseRate: newR,
-        rate: newR,
-        retailRate: newRetailRate !== undefined ? Number(newRetailRate) : existing.retailRate,
-        fullContractEstimate: fullContractEstimate !== undefined ? Number(fullContractEstimate) : existing.fullContractEstimate,
-        bulkPricingRanges: bulkPricingRanges || existing.bulkPricingRanges,
-        rateHistory: updatedHistory,
-        lastUpdated: new Date().toISOString().split('T')[0]
+      const { newBaseRate, newRetailRate, fullContractEstimate, bulkPricingRanges, changeReason, updatedBy, effectiveDate, idempotencyKey } = req.body || {};
+      if (newBaseRate === undefined || newBaseRate === null || isNaN(Number(newBaseRate)) || Number(newBaseRate) < 0) {
+        return res.status(400).json({ error: 'A valid non-negative newBaseRate is required' });
+      }
+      const actor = (req as any).user;
+      const updated = await postgresService.updateSubcontractorRateTransactional(req.params.id, {
+        newBaseRate: Number(newBaseRate),
+        newRetailRate: newRetailRate !== undefined ? Number(newRetailRate) : undefined,
+        fullContractEstimate: fullContractEstimate !== undefined ? Number(fullContractEstimate) : undefined,
+        bulkPricingRanges,
+        changeReason,
+        updatedBy: updatedBy || actor?.name || 'Contracts Director',
+        effectiveDate,
+        idempotencyKey
       });
-
+      if (!updated) return res.status(404).json({ error: 'Subcontractor rate not found' });
       res.json(updated);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to update subcontractor rate:', e);
       res.status(500).json({ error: 'Failed to update subcontractor rate', details: e?.message });
     }
@@ -1573,8 +1645,9 @@ async function startServer() {
   // --- Produce Catalog API (PostgreSQL inno_cost) ---
   app.get('/api/produce', async (req, res) => {
     try {
-      const prods = await postgresService.getProduce();
-      res.json(prods);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getProducePaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get produce items:', e);
       res.status(500).json({ error: 'Failed to fetch produce items', details: e?.message });
@@ -1583,6 +1656,9 @@ async function startServer() {
 
   app.post('/api/produce', async (req, res) => {
     try {
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Produce item name or code is required' });
+      }
       const newProduce = await postgresService.createProduce(req.body);
       res.status(201).json(newProduce);
     } catch (e: any) {
@@ -1604,35 +1680,23 @@ async function startServer() {
 
   app.post('/api/produce/:id/price-update', async (req, res) => {
     try {
-      const { newPrice, reason, updatedBy, bundlesAndRanges } = req.body;
-      const prods = await postgresService.getProduce();
-      const existing = prods.find((p: any) => p.id === req.params.id);
-      if (!existing) return res.status(404).json({ error: 'Produce item not found' });
-
-      const oldPrice = Number(existing.retailPrice || 0);
-      const newP = Number(newPrice);
-      const changePct = oldPrice > 0 ? ((newP - oldPrice) / oldPrice) * 100 : 0;
-
-      const historyRecord = {
-        id: `pph-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        previousPrice: oldPrice,
-        newPrice: newP,
-        changePct: Math.round(changePct * 10) / 10,
-        reason: reason || 'Commercial catalog price update',
-        updatedBy: updatedBy || 'Pricing Strategy Lead'
-      };
-
-      const updatedHistory = [historyRecord, ...(existing.priceHistory || [])];
-      const updated = await postgresService.updateProduce(req.params.id, {
-        retailPrice: newP,
-        bundlesAndRanges: bundlesAndRanges || existing.bundlesAndRanges,
-        priceHistory: updatedHistory,
-        lastUpdated: new Date().toISOString().split('T')[0]
+      const { newPrice, reason, updatedBy, bundlesAndRanges, effectiveDate, idempotencyKey } = req.body || {};
+      if (newPrice === undefined || newPrice === null || isNaN(Number(newPrice)) || Number(newPrice) < 0) {
+        return res.status(400).json({ error: 'A valid non-negative newPrice is required' });
+      }
+      const actor = (req as any).user;
+      const updated = await postgresService.updateProducePriceTransactional(req.params.id, {
+        newPrice: Number(newPrice),
+        bundlesAndRanges,
+        reason,
+        updatedBy: updatedBy || actor?.name || 'Pricing Strategy Lead',
+        effectiveDate,
+        idempotencyKey
       });
-
+      if (!updated) return res.status(404).json({ error: 'Produce item not found' });
       res.json(updated);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to update produce price:', e);
       res.status(500).json({ error: 'Failed to update produce price', details: e?.message });
     }
@@ -1648,11 +1712,24 @@ async function startServer() {
     }
   });
 
+  // --- Price History Records API (PostgreSQL inno_cost) ---
+  app.get('/api/price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getPriceHistory(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch price history:', e);
+      res.status(500).json({ error: 'Failed to fetch price history records', details: e?.message });
+    }
+  });
+
   // --- Inventory API (PostgreSQL inno_cost) ---
   app.get('/api/inventory', async (req, res) => {
     try {
-      const inv = await postgresService.getInventory();
-      res.json(inv);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getInventoryPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get inventory:', e);
       res.status(500).json({ error: 'Failed to fetch inventory', details: e?.message });
@@ -1693,8 +1770,9 @@ async function startServer() {
   // --- Inventory Transactions API (PostgreSQL inno_cost) ---
   app.get('/api/inventory/transactions', async (req, res) => {
     try {
-      const txs = await postgresService.getTransactions();
-      res.json(txs);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getTransactionsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to fetch transactions:', e);
       res.status(500).json({ error: 'Failed to fetch transactions', details: e?.message });
@@ -1713,11 +1791,38 @@ async function startServer() {
     }
   });
 
+  app.put('/api/inventory/transactions/:id', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const updated = await postgresService.updateTransaction(req.params.id, req.body, { id: actor?.id, name: actor?.name });
+      if (!updated) return res.status(404).json({ error: 'Inventory transaction not found' });
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update transaction:', e);
+      res.status(500).json({ error: 'Failed to update transaction', details: e?.message });
+    }
+  });
+
+  app.delete('/api/inventory/transactions/:id', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const deleted = await postgresService.deleteTransaction(req.params.id, { id: actor?.id, name: actor?.name });
+      if (!deleted) return res.status(404).json({ error: 'Inventory transaction not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete transaction:', e);
+      res.status(500).json({ error: 'Failed to delete transaction', details: e?.message });
+    }
+  });
+
   // --- Audit Logs API (PostgreSQL inno_cost) ---
   app.get('/api/audit-logs', async (req, res) => {
     try {
-      const logs = await postgresService.getAuditLogs();
-      res.json(logs);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getAuditLogsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to fetch audit logs:', e);
       res.status(500).json({ error: 'Failed to fetch audit logs', details: e?.message });
@@ -1729,9 +1834,9 @@ async function startServer() {
       const actor = (req as any).user;
       const created = await postgresService.createAuditLog({
         ...req.body,
-        actorId: actor?.id,
-        actorName: actor?.name,
-        actorRole: actor?.role
+        actorId: actor?.id || req.body?.actorId,
+        actorName: actor?.name || req.body?.actorName,
+        actorRole: actor?.role || req.body?.actorRole
       });
       res.status(201).json(created);
     } catch (e: any) {
@@ -1740,7 +1845,7 @@ async function startServer() {
     }
   });
 
-  // --- Shared app settings (numbering rules, templates, image overrides, calendar) ---
+  // --- Shared app settings (numbering rules, templates, image overrides, calendar, FX rates) ---
   const KV_KEY = /^[A-Za-z0-9_.\-]{1,80}$/;
   app.get('/api/kv', async (_req, res) => {
     try { res.json(await postgresService.getKv()); }
@@ -1764,12 +1869,13 @@ async function startServer() {
   // --- Projects & Profitability API (PostgreSQL inno_cost) ---
   app.get('/api/projects', async (req, res) => {
     try {
-      const projs = await postgresService.getProjects();
-      const withAnalytics = projs.map((p: any) => ({
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getProjectsPaginated(opts);
+      const withAnalytics = result.data.map((p: any) => ({
         ...p,
         analytics: runPythonAnalytics(p)
       }));
-      res.json(withAnalytics);
+      return sendListResponse(res, { ...result, data: withAnalytics }, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get projects:', e);
       res.status(500).json({ error: 'Failed to fetch projects', details: e?.message });
@@ -1778,8 +1884,7 @@ async function startServer() {
 
   app.get('/api/projects/:id', async (req, res) => {
     try {
-      const projs = await postgresService.getProjects();
-      const project = projs.find((p: any) => p.id === req.params.id);
+      const project = await postgresService.getProjectById(req.params.id);
       if (!project) return res.status(404).json({ error: 'Project not found' });
       project.analytics = runPythonAnalytics(project);
       res.json(project);
@@ -1789,9 +1894,17 @@ async function startServer() {
     }
   });
 
-  app.post('/api/projects', async (req, res) => {
+  app.post('/api/projects', async (req: any, res) => {
     try {
-      const newProject = await postgresService.createProject(req.body);
+      if (!req.body || (!req.body.name && !req.body.code)) {
+        return res.status(400).json({ error: 'Project name or code is required' });
+      }
+      const payload = {
+        ...req.body,
+        createdByUserId: req.body.createdByUserId || req.user?.id || 'usr-1',
+        createdByName: req.body.createdByName || req.user?.name || 'System User'
+      };
+      const newProject = await postgresService.createProject(payload);
       newProject.analytics = runPythonAnalytics(newProject);
       res.status(201).json(newProject);
     } catch (e: any) {
@@ -1800,9 +1913,14 @@ async function startServer() {
     }
   });
 
-  app.put('/api/projects/:id', async (req, res) => {
+  app.put('/api/projects/:id', async (req: any, res) => {
     try {
-      const updated = await postgresService.updateProject(req.params.id, req.body);
+      const payload = {
+        ...req.body,
+        updatedByUserId: req.body.updatedByUserId || req.user?.id || 'usr-1',
+        updatedByName: req.body.updatedByName || req.user?.name || 'System User'
+      };
+      const updated = await postgresService.updateProject(req.params.id, payload);
       if (!updated) return res.status(404).json({ error: 'Project not found' });
       updated.analytics = runPythonAnalytics(updated);
       res.json(updated);
@@ -1822,6 +1940,199 @@ async function startServer() {
     }
   });
 
+  // --- Project Plans API (Normalized PostgreSQL Project Planning System) ---
+  app.get('/api/projects/:projectId/plans', async (req, res) => {
+    try {
+      const project = await postgresService.getProjectById(req.params.projectId);
+      if (!project) {
+        return res.status(404).json({ error: `Project with ID "${req.params.projectId}" does not exist.` });
+      }
+      const opts = extractListOptions({ ...req.query, projectId: req.params.projectId });
+      const result = await postgresService.getProjectPlansPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to get plans for project:', e);
+      res.status(500).json({ error: 'Failed to fetch project plans', details: e?.message });
+    }
+  });
+
+  app.post('/api/projects/:projectId/plans', async (req: any, res) => {
+    try {
+      const projectId = req.params.projectId;
+      if (!req.body || !String(req.body.name || req.body.planName || '').trim()) {
+        return res.status(400).json({ error: 'Plan name is required.' });
+      }
+      const payload = {
+        ...req.body,
+        projectId,
+        createdByUserId: req.body.createdByUserId || req.user?.id || 'usr-1',
+        createdByName: req.body.createdByName || req.user?.name || 'System User',
+        updatedByUserId: req.body.updatedByUserId || req.user?.id || 'usr-1',
+        updatedByName: req.body.updatedByName || req.user?.name || 'System User'
+      };
+      const created = await postgresService.createProjectPlan(payload);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create project plan:', e);
+      const msg = String(e?.message || '');
+      if (msg.includes('does not exist') || msg.includes('required')) {
+        return res.status(400).json({ error: msg });
+      }
+      if (msg.includes('already exists') || msg.includes('unique')) {
+        return res.status(409).json({ error: msg });
+      }
+      res.status(500).json({ error: 'Failed to create project plan', details: msg });
+    }
+  });
+
+  app.get('/api/project-plans', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getProjectPlansPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to get project plans:', e);
+      res.status(500).json({ error: 'Failed to fetch project plans', details: e?.message });
+    }
+  });
+
+  app.get('/api/project-plans/:id', async (req, res) => {
+    try {
+      const plan = await postgresService.getProjectPlanById(req.params.id);
+      if (!plan) {
+        return res.status(404).json({ error: 'Project plan not found' });
+      }
+      res.json(plan);
+    } catch (e: any) {
+      console.error('Failed to get project plan details:', e);
+      res.status(500).json({ error: 'Failed to fetch project plan details', details: e?.message });
+    }
+  });
+
+  app.post('/api/project-plans', async (req: any, res) => {
+    try {
+      const projectId = String(req.body?.projectId || '').trim();
+      if (!projectId) {
+        return res.status(400).json({ error: 'A valid projectId is required to create a project plan.' });
+      }
+      if (!String(req.body?.name || req.body?.planName || '').trim()) {
+        return res.status(400).json({ error: 'Plan name is required.' });
+      }
+      const payload = {
+        ...req.body,
+        projectId,
+        createdByUserId: req.body.createdByUserId || req.user?.id || 'usr-1',
+        createdByName: req.body.createdByName || req.user?.name || 'System User',
+        updatedByUserId: req.body.updatedByUserId || req.user?.id || 'usr-1',
+        updatedByName: req.body.updatedByName || req.user?.name || 'System User'
+      };
+      const created = await postgresService.createProjectPlan(payload);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create project plan:', e);
+      const msg = String(e?.message || '');
+      if (msg.includes('does not exist') || msg.includes('required')) {
+        return res.status(400).json({ error: msg });
+      }
+      if (msg.includes('already exists') || msg.includes('unique')) {
+        return res.status(409).json({ error: msg });
+      }
+      res.status(500).json({ error: 'Failed to create project plan', details: msg });
+    }
+  });
+
+  app.put('/api/project-plans/:id', async (req: any, res) => {
+    try {
+      const payload = {
+        ...req.body,
+        updatedByUserId: req.body.updatedByUserId || req.user?.id || 'usr-1',
+        updatedByName: req.body.updatedByName || req.user?.name || 'System User'
+      };
+      if (payload.status === 'Approved' && !payload.approvedByName) {
+        payload.approvedByUserId = req.user?.id || 'usr-1';
+        payload.approvedByName = req.user?.name || 'System User';
+      }
+      const updated = await postgresService.updateProjectPlan(req.params.id, payload);
+      if (!updated) {
+        return res.status(404).json({ error: 'Project plan not found' });
+      }
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update project plan:', e);
+      const msg = String(e?.message || '');
+      if (msg.includes('does not exist') || msg.includes('required')) {
+        return res.status(400).json({ error: msg });
+      }
+      if (msg.includes('already exists') || msg.includes('unique')) {
+        return res.status(409).json({ error: msg });
+      }
+      res.status(500).json({ error: 'Failed to update project plan', details: msg });
+    }
+  });
+
+  app.post('/api/project-plans/:id/archive', async (req: any, res) => {
+    try {
+      const archived = await postgresService.archiveProjectPlan(req.params.id, {
+        userId: req.body?.userId || req.user?.id || 'usr-1',
+        userName: req.body?.userName || req.user?.name || 'System User'
+      });
+      if (!archived) {
+        return res.status(404).json({ error: 'Project plan not found' });
+      }
+      res.json(archived);
+    } catch (e: any) {
+      console.error('Failed to archive project plan:', e);
+      res.status(500).json({ error: 'Failed to archive project plan', details: e?.message });
+    }
+  });
+
+  app.post('/api/project-plans/:id/activate', async (req: any, res) => {
+    try {
+      const activated = await postgresService.setActiveProjectPlan(req.params.id, {
+        userId: req.body?.userId || req.user?.id || 'usr-1',
+        userName: req.body?.userName || req.user?.name || 'System User'
+      });
+      if (!activated) {
+        return res.status(404).json({ error: 'Project plan not found' });
+      }
+      res.json(activated);
+    } catch (e: any) {
+      console.error('Failed to activate project plan:', e);
+      res.status(500).json({ error: 'Failed to activate project plan', details: e?.message });
+    }
+  });
+
+  app.post('/api/project-plans/:id/duplicate', async (req: any, res) => {
+    try {
+      const duplicated = await postgresService.duplicateProjectPlan(req.params.id, {
+        name: req.body?.name,
+        userId: req.body?.userId || req.user?.id || 'usr-1',
+        userName: req.body?.userName || req.user?.name || 'System User'
+      });
+      if (!duplicated) {
+        return res.status(404).json({ error: 'Source project plan not found' });
+      }
+      res.status(201).json(duplicated);
+    } catch (e: any) {
+      console.error('Failed to duplicate project plan:', e);
+      res.status(500).json({ error: 'Failed to duplicate project plan', details: e?.message });
+    }
+  });
+
+  app.delete('/api/project-plans/:id', async (req, res) => {
+    try {
+      const existing = await postgresService.getProjectPlanById(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: 'Project plan not found' });
+      }
+      await postgresService.deleteProjectPlan(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete project plan:', e);
+      res.status(500).json({ error: 'Failed to delete project plan', details: e?.message });
+    }
+  });
+
   // Calculate ad-hoc scenario with Python Analytics
   app.post('/api/analytics/calculate', (req, res) => {
     const results = runPythonAnalytics(req.body);
@@ -1831,8 +2142,9 @@ async function startServer() {
   // --- Categories API (PostgreSQL inno_cost) ---
   app.get('/api/categories', async (req, res) => {
     try {
-      const cats = await postgresService.getCategories();
-      res.json(cats);
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getCategoriesPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
     } catch (e: any) {
       console.error('Failed to get categories:', e);
       res.status(500).json({ error: 'Failed to fetch categories', details: e?.message });
@@ -1871,7 +2183,7 @@ async function startServer() {
   });
 
   // --- Custom Tiles API (PostgreSQL inno_cost) ---
-  app.get('/api/custom-tiles', async (req, res) => {
+  app.get('/api/custom-tiles', async (_req, res) => {
     try {
       const tiles = await postgresService.getCustomTiles();
       res.json(tiles);
@@ -1891,6 +2203,17 @@ async function startServer() {
     }
   });
 
+  app.put('/api/custom-tiles/:id', async (req, res) => {
+    try {
+      const updated = await postgresService.updateCustomTile(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Custom tile not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update custom tile:', e);
+      res.status(500).json({ error: 'Failed to update custom tile', details: e?.message });
+    }
+  });
+
   app.delete('/api/custom-tiles/:id', async (req, res) => {
     try {
       await postgresService.deleteCustomTile(req.params.id);
@@ -1902,12 +2225,12 @@ async function startServer() {
   });
 
   // --- Master Database Export & Import API (PostgreSQL inno_cost) ---
-  app.get('/api/database/export', async (req, res) => {
+  app.get('/api/database/export', async (_req, res) => {
     try {
       const [
         clients, suppliers, materials, outsourced, subcontractors,
-        produce, projects, inventory, transactions, categories,
-        customTiles, companyDetails, auditLogs
+        produce, projects, projectPlans, inventory, transactions, categories,
+        customTiles, companyDetails, auditLogs, priceHistory, accountRequests
       ] = await Promise.all([
         postgresService.getClients(),
         postgresService.getSuppliers(),
@@ -1916,12 +2239,15 @@ async function startServer() {
         postgresService.getSubcontractors(),
         postgresService.getProduce(),
         postgresService.getProjects(),
+        postgresService.getProjectPlans(),
         postgresService.getInventory(),
         postgresService.getTransactions(),
         postgresService.getCategories(),
         postgresService.getCustomTiles(),
         postgresService.getCompanyDetails(),
-        postgresService.getAuditLogs()
+        postgresService.getAuditLogs(),
+        postgresService.getPriceHistory().then((r) => r.data),
+        postgresService.getAccountRequests()
       ]);
 
       res.setHeader('Content-Disposition', `attachment; filename=inno_cost_backup_${Date.now()}.json`);
@@ -1929,12 +2255,12 @@ async function startServer() {
       res.json({
         system: 'Cost and Planning Database System',
         database: 'inno_cost (PostgreSQL)',
-        version: '3.0.0',
+        version: '3.2.0',
         exportedAt: new Date().toISOString(),
         data: {
           clients, suppliers, materials, outsourced, subcontractors,
-          produce, projects, inventory, transactions, categories,
-          customTiles, companyDetails, auditLogs
+          produce, projects, projectPlans, inventory, transactions, categories,
+          customTiles, companyDetails, auditLogs, priceHistory, accountRequests
         }
       });
     } catch (e: any) {
@@ -1968,6 +2294,9 @@ async function startServer() {
       if (Array.isArray(data.projects)) {
         for (const prj of data.projects) await postgresService.createProject(prj).catch(() => {});
       }
+      if (Array.isArray(data.projectPlans)) {
+        for (const pl of data.projectPlans) await postgresService.createProjectPlan(pl).catch(() => {});
+      }
       if (Array.isArray(data.inventory)) {
         for (const inv of data.inventory) await postgresService.createInventory(inv).catch(() => {});
       }
@@ -1980,6 +2309,9 @@ async function startServer() {
       if (Array.isArray(data.customTiles)) {
         for (const tile of data.customTiles) await postgresService.createCustomTile(tile).catch(() => {});
       }
+      if (Array.isArray(data.accountRequests)) {
+        for (const reqItem of data.accountRequests) await postgresService.createAccountRequest(reqItem).catch(() => {});
+      }
       if (data.companyDetails) {
         await postgresService.updateCompanyDetails(data.companyDetails).catch(() => {});
       }
@@ -1991,7 +2323,7 @@ async function startServer() {
   });
 
   // Clear/delete all dummy data from PostgreSQL database
-  app.post(['/api/reset-data', '/api/database/clear-dummy-data'], async (req, res) => {
+  app.post(['/api/reset-data', '/api/database/clear-dummy-data'], async (_req, res) => {
     try {
       await postgresService.clearDummyData();
       res.json({ success: true, message: 'All dummy data permanently deleted from PostgreSQL database' });
@@ -2000,7 +2332,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/database/dummy-data', async (req, res) => {
+  app.delete('/api/database/dummy-data', async (_req, res) => {
     try {
       await postgresService.clearDummyData();
       res.json({ success: true, message: 'All dummy data permanently deleted from PostgreSQL database' });
@@ -2008,12 +2340,6 @@ async function startServer() {
       res.status(500).json({ error: 'Failed to delete dummy data', details: e?.message });
     }
   });
-
-  // Connect to PostgreSQL first. Stop if it is not reachable.
-  await postgresService.getDb();
-  await migrateAndCleanLegacyDatabases();
-  await initSecurityStore();
-  console.log('[PostgreSQL] Connected to "inno_cost".');
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
@@ -2025,7 +2351,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

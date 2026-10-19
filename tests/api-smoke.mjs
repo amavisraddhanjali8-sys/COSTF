@@ -2,12 +2,21 @@
 const B = process.env.BASE || 'http://localhost:3000';
 let pass = 0, fail = 0;
 const ok = (n, c, extra='') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n} ${c ? '' : extra}`); };
-const TOKEN = process.env.TOKEN || '';
+let TOKEN = process.env.TOKEN || '';
 const call = async (m, p, body, token = TOKEN) => {
   const r = await fetch(B + p, { method: m, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
   let j = null; try { j = await r.json(); } catch {}
   return { s: r.status, j };
 };
+if (!TOKEN && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+  const l1 = await call('POST', '/api/auth/login', { identifier: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
+  if (l1.j?.tempMfaToken && process.env.ADMIN_CODE) {
+    const l2 = await call('POST', '/api/auth/verify-mfa', { tempMfaToken: l1.j.tempMfaToken, code: process.env.ADMIN_CODE });
+    TOKEN = l2.j?.sessionToken || '';
+  } else {
+    TOKEN = l1.j?.sessionToken || '';
+  }
+}
 const lists = ['clients','suppliers','materials','outsourced','subcontractors','produce','inventory','inventory/transactions','projects','categories','custom-tiles','audit-logs','users','company-details'];
 for (const l of lists) { const r = await call('GET', '/api/' + l); ok(`GET /api/${l}`, r.s === 200, `status ${r.s}`); }
 

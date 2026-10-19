@@ -260,13 +260,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }
   }, [clientsProp]);
 
-  // Load clients from backend API on initial mount if not provided
+  // Load clients and custom tiles from backend API on initial mount
   useEffect(() => {
     if (!clientsProp || clientsProp.length === 0) {
       api.getClients().then((res) => {
         if (res && res.length > 0) setClientProfiles(res);
       }).catch((e) => console.warn('Could not load clients from API:', e));
     }
+    api.getCustomTiles().then((tiles) => {
+      if (Array.isArray(tiles)) setCustomTiles(tiles);
+    }).catch((e) => console.warn('Could not load custom tiles from API:', e));
   }, []);
 
   // Time-aware greeting for user
@@ -743,9 +746,15 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         const copy: ClientProfile = {
           ...match,
           id: `client-copy-${Date.now()}`,
+          code: `${match.code || 'CLI'}-CPY`,
           name: `${match.name} (Copy)`
         };
         setClientProfiles((prev) => [copy, ...prev]);
+        if (onAddClient) {
+          onAddClient(copy);
+        } else {
+          api.createClient(copy).catch(console.error);
+        }
       }
     } else if (itemType === 'project' && onAddProject) {
       const match = projects.find((p) => p.id === id);
@@ -1056,6 +1065,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     const updatedTiles = [newTile, ...customTiles];
     setCustomTiles(updatedTiles);
     persistentDatabase.saveCustomTiles(updatedTiles);
+    api.createCustomTile(newTile).catch(console.error);
 
     // If tile represents a category type, also create a CategoryNode in the hierarchy
     let catGroup: 'material' | 'product' | 'subcontractor' | 'service' | 'outsourced' | undefined;

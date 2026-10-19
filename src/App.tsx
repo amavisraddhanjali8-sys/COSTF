@@ -353,7 +353,7 @@ export default function App() {
     }
   }, [selectedProject?.id, selectedProject?.quotedPrice, selectedProject?.selectedItems?.length, marginThreshold]);
 
-  // Helper to append and persist audit log records
+  // Helper to append and persist audit log records to PostgreSQL
   const logAuditEvent = (
     action: string,
     module: 'Inventory' | 'Materials' | 'Users' | 'Settings' | 'Auth' | 'Projects' | 'Catalog',
@@ -374,7 +374,7 @@ export default function App() {
       recordId,
       recordName,
       details: details || '',
-      ipAddress: '192.168.1.102',
+      ipAddress: '127.0.0.1',
       status: 'Success'
     };
 
@@ -383,6 +383,10 @@ export default function App() {
       saveStoredAuditLogs(updated);
       return updated;
     });
+
+    if (currentUser || overrideActor) {
+      api.createAuditLog(newRecord).catch(() => {});
+    }
   };
 
   // Auth Handlers
@@ -418,6 +422,17 @@ export default function App() {
   // User Password update handler (for account recovery)
   const handleUpdateUserPassword = async (userId: string, newPassword: string): Promise<boolean> => {
     let updated = false;
+    const targetUser = users.find(
+      u => u.id === userId || u.employeeId === userId || u.email.toLowerCase() === userId.toLowerCase()
+    );
+    if (targetUser) {
+      try {
+        await api.updateUser(targetUser.id, { password: newPassword });
+        updated = true;
+      } catch (e) {
+        console.warn('Password update API error:', e);
+      }
+    }
     setUsers(prev => {
       const next = prev.map(u => {
         if (u.id === userId || u.employeeId === userId || u.email.toLowerCase() === userId.toLowerCase()) {
@@ -486,48 +501,29 @@ export default function App() {
     }
   };
 
-  const handleRequestAccount = (reqData: Omit<AccountRequest, 'id' | 'submittedAt' | 'status'>) => {
-    const newReq: AccountRequest = {
-      ...reqData,
-      id: `req-${Date.now()}`,
-      submittedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      status: 'Pending'
-    };
-    setAccountRequests(prev => {
-      const updated = [newReq, ...prev];
-      saveStoredRequests(updated);
-      return updated;
-    });
-    logAuditEvent(
-      'ACCOUNT_REQUESTED',
-      'Auth',
-      newReq.employeeId,
-      newReq.name,
-      `Account request submitted for role ${newReq.requestedRole}. Dept: ${newReq.department}`
-    );
-    showToast('Account request submitted. An Administrator will review your access.');
+  const handleRequestAccount = async (reqData: Omit<AccountRequest, 'id' | 'submittedAt' | 'status'>) => {
+    try {
+      const savedReq = await api.createAccountRequest(reqData);
+      setAccountRequests(prev => {
+        const updated = [savedReq, ...prev.filter(r => r.id !== savedReq.id)];
+        saveStoredRequests(updated);
+        return updated;
+      });
+      showToast('Account request submitted and saved to PostgreSQL. An Administrator will review your access.');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to submit account request.');
+    }
   };
 
-  const handleApproveRequest = (requestId: string) => {
+  const handleApproveRequest = async (requestId: string) => {
     const req = accountRequests.find(r => r.id === requestId);
     if (!req) return;
 
-    const newUser: AppUser = {
-      id: `user-${Date.now()}`,
-      employeeId: req.employeeId,
-      name: req.name,
-      email: req.email,
-      role: req.requestedRole,
-      department: req.department,
-      status: 'Active',
-      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19)
-    };
-
-    setUsers(prev => {
-      const updated = [newUser, ...prev];
-      saveStoredUsers(updated);
-      return updated;
-    });
+    try {
+      await api.updateAccountRequestStatus(requestId, 'Approved');
+    } catch (e) {
+      console.warn('Error updating account request status in PostgreSQL:', e);
+    }
 
     setAccountRequests(prev => {
       const updated = prev.map(r => r.id === requestId ? { ...r, status: 'Approved' as const } : r);
@@ -538,15 +534,20 @@ export default function App() {
     logAuditEvent(
       'USER_APPROVED',
       'Users',
-      newUser.employeeId,
-      newUser.name,
-      `Administrator approved account request for ${newUser.name} (${newUser.role}).`
+      req.employeeId,
+      req.name,
+      `Administrator approved account request for ${req.name} (${req.requestedRole}).`
     );
-    showToast(`Account approved. User ${newUser.name} is now active.`);
+    showToast(`Account request for ${req.name} marked as Approved.`);
   };
 
-  const handleRejectRequest = (requestId: string) => {
+  const handleRejectRequest = async (requestId: string) => {
     const req = accountRequests.find(r => r.id === requestId);
+    try {
+      await api.updateAccountRequestStatus(requestId, 'Rejected');
+    } catch (e) {
+      console.warn('Error rejecting account request in PostgreSQL:', e);
+    }
     setAccountRequests(prev => {
       const updated = prev.map(r => r.id === requestId ? { ...r, status: 'Rejected' as const } : r);
       saveStoredRequests(updated);
@@ -565,63 +566,44 @@ export default function App() {
   };
 
   const handleUpdateCompanyDetails = async (details: CompanyDetails) => {
-    setCompanyDetails(details);
-    saveStoredCompanyDetails(details);
-    try {
-      await api.updateCompanyDetails(details);
-    } catch (e) {
-      console.warn('API updateCompanyDetails fallback:', e);
-    }
+    const saved = await api.updateCompanyDetails(details);
+    setCompanyDetails(saved);
+    saveStoredCompanyDetails(saved);
     logAuditEvent(
       'SETTINGS_UPDATE',
       'Settings',
       'COMP-CONFIG',
-      details.name,
-      `Updated company details and logo placement (${details.logoPosition} corner).`
+      saved.name,
+      `Updated company details and logo placement (${saved.logoPosition} corner).`
     );
   };
 
   const handleAddUser = async (userData: Omit<AppUser, 'id' | 'createdAt'>) => {
-    let created: AppUser | null = null;
-    try {
-      created = await api.createUser(userData);
-    } catch (e) {
-      console.warn('API createUser fallback:', e);
-    }
-    const newUser: AppUser = created || {
-      ...userData,
-      id: `user-${Date.now()}`,
-      createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19)
-    };
+    const created = await api.createUser(userData);
     setUsers(prev => {
-      const updated = [newUser, ...prev];
+      const updated = [created, ...prev.filter(u => u.id !== created.id)];
       saveStoredUsers(updated);
       return updated;
     });
     logAuditEvent(
       'USER_CREATED',
       'Users',
-      newUser.employeeId,
-      newUser.name,
-      `Admin created user account for ${newUser.name} (${newUser.role}).`
+      created.employeeId,
+      created.name,
+      `Admin created user account for ${created.name} (${created.role}).`
     );
   };
 
   const handleUpdateUser = async (id: string, updates: Partial<AppUser>) => {
-    try {
-      await api.updateUser(id, updates);
-    } catch (e) {
-      console.warn('API updateUser fallback:', e);
-    }
+    const saved = await api.updateUser(id, updates);
     setUsers(prev => {
-      const updated = prev.map(u => u.id === id ? { ...u, ...updates } : u);
+      const updated = prev.map(u => u.id === id ? { ...u, ...saved } : u);
       saveStoredUsers(updated);
       return updated;
     });
-    // If the updated user is currently logged in, update current session as well
     setCurrentUser(prev => {
       if (prev && prev.id === id) {
-        const nextUser = { ...prev, ...updates };
+        const nextUser = { ...prev, ...saved };
         saveStoredCurrentUser(nextUser);
         return nextUser;
       }
@@ -641,11 +623,7 @@ export default function App() {
 
   const handleDeleteUser = async (id: string) => {
     const target = users.find(u => u.id === id);
-    try {
-      await api.deleteUser(id);
-    } catch (e) {
-      console.warn('API deleteUser fallback:', e);
-    }
+    await api.deleteUser(id);
     setUsers(prev => {
       const updated = prev.filter(u => u.id !== id);
       saveStoredUsers(updated);
@@ -723,6 +701,14 @@ export default function App() {
         setTransactions(d.transactions);
         if (d.company && d.company.name) setCompanyDetails(d.company);
         if (Array.isArray(d.users)) setUsers(d.users);
+        if (Array.isArray(d.auditLogs)) {
+          setAuditLogs(d.auditLogs);
+          saveStoredAuditLogs(d.auditLogs);
+        }
+        if (Array.isArray(d.accountRequests)) {
+          setAccountRequests(d.accountRequests);
+          saveStoredRequests(d.accountRequests);
+        }
         setIsDataReady(true);
       } catch (e) {
         console.error('Could not load data:', e);
@@ -768,7 +754,7 @@ export default function App() {
     }
   };
 
-  // Material Price Update with History
+  // Material Price Update with History (Transactional PostgreSQL)
   const handleUpdateMaterialPrice = async (
     id: string,
     newPrice: number,
@@ -779,31 +765,6 @@ export default function App() {
     const updated = await api.updateMaterialPrice(id, newPrice, reason, updatedBy, tiers);
     if (updated && updated.id) {
       setMaterials(prev => prev.map(m => m.id === id ? updated : m));
-    } else {
-      setMaterials(prev => prev.map(m => {
-        if (m.id === id) {
-          const old = m.retailPrice;
-          const changePct = old > 0 ? Number((((newPrice - old) / old) * 100).toFixed(2)) : 0;
-          return {
-            ...m,
-            retailPrice: newPrice,
-            lastUpdated: new Date().toISOString().split('T')[0],
-            priceHistory: [
-              {
-                id: `hist-${Date.now()}`,
-                date: new Date().toISOString().split('T')[0],
-                previousPrice: old,
-                newPrice: newPrice,
-                changePct,
-                reason,
-                updatedBy
-              },
-              ...(m.priceHistory || [])
-            ]
-          };
-        }
-        return m;
-      }));
     }
     showToast(`Price updated for item. Audit log entry recorded.`);
   };
@@ -812,36 +773,14 @@ export default function App() {
   const handleAddMaterial = async (matData: Partial<MaterialItem>) => {
     const newMat = await api.createMaterial(matData);
     if (newMat) {
-      setMaterials(prev => [newMat, ...prev]);
-    } else {
-      const fallback: MaterialItem = {
-        id: `mat-${Date.now()}`,
-        code: matData.code || 'MAT-CUSTOM',
-        name: matData.name || 'Custom Material Spec',
-        category: matData.category || 'General',
-        subCategory: matData.subCategory || 'General',
-        moreSubCategory: matData.moreSubCategory || 'General',
-        itemClassification: matData.itemClassification || 'raw_material',
-        supplierId: matData.supplierId || 'sup-1',
-        supplierName: matData.supplierName || 'Vanguard',
-        unit: matData.unit || 'pcs',
-        retailPrice: matData.retailPrice || 100,
-        defaultDiscountPct: matData.defaultDiscountPct || 0,
-        inStock: matData.inStock || 10,
-        reorderPoint: 5,
-        leadTimeDays: matData.leadTimeDays || 7,
-        lastUpdated: new Date().toISOString().split('T')[0],
-        priceHistory: [],
-        volumePricing: matData.volumePricing || []
-      };
-      setMaterials(prev => [fallback, ...prev]);
+      setMaterials(prev => [newMat, ...prev.filter(m => m.id !== newMat.id)]);
     }
     showToast('New material added to catalog.');
   };
 
   const handleUpdateMaterial = async (id: string, updatedFields: Partial<MaterialItem>) => {
-    await api.updateMaterial(id, updatedFields);
-    setMaterials(prev => prev.map(m => m.id === id ? { ...m, ...updatedFields } : m));
+    const saved = await api.updateMaterial(id, updatedFields);
+    setMaterials(prev => prev.map(m => m.id === id ? { ...m, ...saved } : m));
     showToast('Material item updated.');
   };
 
@@ -853,7 +792,7 @@ export default function App() {
     showToast('Material item deleted from catalog.');
   };
 
-  // Update Subcontractor Rate
+  // Update Subcontractor Rate (Transactional PostgreSQL)
   const handleUpdateSubcontractorRate = async (
     id: string,
     newRate: number,
@@ -863,30 +802,6 @@ export default function App() {
     const updated = await api.updateSubcontractorRate(id, newRate, reason, updatedBy);
     if (updated && updated.id) {
       setSubcontractors(prev => prev.map(s => s.id === id ? updated : s));
-    } else {
-      setSubcontractors(prev => prev.map(s => {
-        if (s.id === id) {
-          const old = s.rate ?? s.baseRate ?? 0;
-          return {
-            ...s,
-            baseRate: newRate,
-            rate: newRate,
-            lastUpdated: new Date().toISOString().split('T')[0],
-            priceHistory: [
-              {
-                id: `hist-${Date.now()}`,
-                date: new Date().toISOString().split('T')[0],
-                previousRate: old,
-                newRate: newRate,
-                reason,
-                updatedBy
-              },
-              ...(s.priceHistory || [])
-            ]
-          };
-        }
-        return s;
-      }));
     }
     showToast('Subcontractor rate schedule updated and audited.');
   };
@@ -895,34 +810,14 @@ export default function App() {
   const handleAddSubcontractor = async (item: Partial<SubcontractorRateItem>) => {
     const created = await api.createSubcontractor(item);
     if (created) {
-      setSubcontractors(prev => [created, ...prev]);
-    } else {
-      const fallback: SubcontractorRateItem = {
-        id: `sub-${Date.now()}`,
-        code: item.code || 'SUB-CUSTOM',
-        name: item.name || 'Custom Service',
-        subcontractorId: item.subcontractorId || 'sup-1',
-        subcontractorName: item.subcontractorName || 'Vanguard',
-        category: item.category || 'Fabrication',
-        subCategory: item.subCategory || 'General',
-        serviceType: item.serviceType || 'Precision Fabrication',
-        unit: item.unit || 'per_hour',
-        baseRate: item.baseRate || item.rate || 100,
-        rate: item.rate || item.baseRate || 100,
-        retailRate: item.retailRate || 130,
-        skillLevel: item.skillLevel || 'Certified Senior Engineer',
-        lastUpdated: new Date().toISOString().split('T')[0],
-        priceHistory: [],
-        rateRanges: item.rateRanges || []
-      };
-      setSubcontractors(prev => [fallback, ...prev]);
+      setSubcontractors(prev => [created, ...prev.filter(s => s.id !== created.id)]);
     }
     showToast('Subcontractor rate schedule registered.');
   };
 
   const handleUpdateSubcontractor = async (id: string, updatedFields: Partial<SubcontractorRateItem>) => {
-    await api.updateSubcontractor(id, updatedFields);
-    setSubcontractors(prev => prev.map(s => s.id === id ? { ...s, ...updatedFields } : s));
+    const saved = await api.updateSubcontractor(id, updatedFields);
+    setSubcontractors(prev => prev.map(s => s.id === id ? { ...s, ...saved } : s));
     showToast('Subcontractor profile updated.');
   };
 
@@ -934,7 +829,7 @@ export default function App() {
     showToast('Subcontractor removed from enterprise directory.');
   };
 
-  // Update Outsourced Rate
+  // Update Outsourced Rate (Transactional PostgreSQL)
   const handleUpdateOutsourcedRate = async (
     id: string,
     newRate: number,
@@ -944,78 +839,29 @@ export default function App() {
     const updated = await api.updateOutsourcedRate(id, newRate, reason, updatedBy);
     if (updated && updated.id) {
       setOutsourcedServices(prev => prev.map(o => o.id === id ? updated : o));
-    } else {
-      setOutsourcedServices(prev => prev.map(o => {
-        if (o.id === id) {
-          const old = o.rate;
-          return {
-            ...o,
-            rate: newRate,
-            lastUpdated: new Date().toISOString().split('T')[0],
-            priceHistory: [
-              {
-                id: `hist-${Date.now()}`,
-                date: new Date().toISOString().split('T')[0],
-                oldRate: old,
-                newRate: newRate,
-                reason,
-                updatedBy
-              },
-              ...(o.priceHistory || [])
-            ]
-          };
-        }
-        return o;
-      }));
     }
     showToast('Outsourced tariff updated and logged.');
   };
 
   // Add Outsourced Service
   const handleAddOutsourcedService = async (item: Partial<OutsourcedService>) => {
-    let created: OutsourcedService | null = null;
-    try {
-      created = await api.createOutsourcedService(item);
-    } catch (e) {
-      console.warn('API createOutsourcedService failed:', e);
+    const created = await api.createOutsourcedService(item);
+    if (created) {
+      persistentDatabase.addOutsourcedService(created);
+      setOutsourcedServices(prev => [created, ...prev.filter(o => o.id !== created.id)]);
+      showToast(`Outsourced tariff "${created.name}" registered.`);
     }
-    const finalItem: OutsourcedService = created || {
-      id: item.id || `svc-${Date.now()}`,
-      name: item.name || 'Outsourced Utility Service',
-      providerId: item.providerId || 'sup-1',
-      providerName: item.providerName || 'Global Services',
-      category: item.category || 'Specialized Services',
-      subCategory: item.subCategory || 'General',
-      baseUnitType: item.baseUnitType || 'per_hour',
-      rate: Number(item.rate || 5),
-      retailPrice: Number(item.retailPrice || 6),
-      slaLevel: item.slaLevel || 'Tier-1 SLA (99.5%)',
-      lastUpdated: new Date().toISOString().split('T')[0],
-      priceHistory: [],
-      tierRates: item.tierRates || []
-    };
-    persistentDatabase.addOutsourcedService(finalItem);
-    setOutsourcedServices(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id)]);
-    showToast(`Outsourced tariff "${finalItem.name}" registered.`);
   };
 
   const handleUpdateOutsourcedService = async (id: string, updatedFields: Partial<OutsourcedService>) => {
-    try {
-      await api.updateOutsourcedService(id, updatedFields);
-    } catch (e) {
-      console.warn('API updateOutsourcedService failed:', e);
-    }
-    persistentDatabase.updateOutsourcedService(id, updatedFields);
-    setOutsourcedServices(prev => prev.map(o => o.id === id ? { ...o, ...updatedFields } : o));
+    const saved = await api.updateOutsourcedService(id, updatedFields);
+    persistentDatabase.updateOutsourcedService(id, saved);
+    setOutsourcedServices(prev => prev.map(o => o.id === id ? { ...o, ...saved } : o));
     showToast('Outsourced tariff updated.');
   };
 
   const handleDeleteOutsourcedService = async (id: string) => {
-    try {
-      await api.deleteOutsourcedService(id);
-    } catch (e) {
-      console.warn('API deleteOutsourcedService error:', e);
-    }
+    await api.deleteOutsourcedService(id);
     persistentDatabase.deleteOutsourcedService(id);
     setOutsourcedServices(prev => prev.filter(o => o.id !== id));
     logAuditEvent('OUTSOURCED_DELETED', 'Catalog', id, 'Outsourced Tariff', `Deleted outsourced service tariff ${id}.`);
@@ -1026,39 +872,15 @@ export default function App() {
   const handleAddSupplier = async (sup: Partial<Supplier>) => {
     const created = await api.createSupplier(sup);
     if (created) {
-      setSuppliers(prev => [created, ...prev]);
-    } else {
-      const fallback: Supplier = {
-        id: `sup-${Date.now()}`,
-        name: sup.name || 'Vendor Corp',
-        contactPerson: sup.contactPerson || 'Contact Person',
-        email: sup.email || 'orders@vendor.com',
-        phone: sup.phone || '+1 (555) 000-0000',
-        category: sup.category || 'Materials',
-        supplyScope: sup.supplyScope || 'materials',
-        paymentTerms: sup.paymentTerms || 'Net 30',
-        rating: sup.rating || 4.5,
-        onTimeDeliveryPct: sup.onTimeDeliveryPct || 95,
-        qualityScorePct: sup.qualityScorePct || 98,
-        status: sup.status || 'Active',
-        country: sup.country || 'USA',
-        city: sup.city || 'Chicago, IL',
-        contractHistory: sup.contractHistory || [],
-        notes: sup.notes || ''
-      };
-      setSuppliers(prev => [fallback, ...prev]);
+      setSuppliers(prev => [created, ...prev.filter(s => s.id !== created.id)]);
     }
     showToast('Supplier registered into enterprise directory.');
   };
 
   // Update Supplier
   const handleUpdateSupplier = async (id: string, updatedFields: Partial<Supplier>) => {
-    try {
-      await api.updateSupplier(id, updatedFields);
-    } catch (e) {
-      console.warn('API updateSupplier fallback:', e);
-    }
-    setSuppliers(prev => prev.map(s => s.id === id ? { ...s, ...updatedFields } : s));
+    const saved = await api.updateSupplier(id, updatedFields);
+    setSuppliers(prev => prev.map(s => s.id === id ? { ...s, ...saved } : s));
     showToast('Supplier record updated.');
   };
 
@@ -1075,35 +897,11 @@ export default function App() {
     const updatedSup = await api.addSupplierContract(supplierId, contract);
     if (updatedSup && updatedSup.id) {
       setSuppliers(prev => prev.map(s => s.id === supplierId ? updatedSup : s));
-    } else {
-      setSuppliers(prev => prev.map(s => {
-        if (s.id === supplierId) {
-          const newContract: SupplierContract = {
-            contractId: (contract as any).contractId || `ctr-${Date.now()}`,
-            contractNumber: contract.contractNumber || `CTR-${Date.now().toString().slice(-4)}`,
-            title: contract.title || 'Enterprise Supply Agreement',
-            type: contract.type || 'materials',
-            scopeType: contract.scopeType || 'materials',
-            status: (contract.status === 'Active' || contract.status === 'Completed' || contract.status === 'Renewed' || contract.status === 'Pending Approval') ? contract.status : 'Active',
-            startDate: contract.startDate || new Date().toISOString().split('T')[0],
-            endDate: contract.endDate || '2027-12-31',
-            value: contract.value || 50000,
-            paymentTerms: contract.paymentTerms || 'Net 30',
-            currency: 'USD',
-            scopeDescription: contract.scopeDescription || 'General procurement scope'
-          };
-          return {
-            ...s,
-            contractHistory: [newContract, ...(s.contractHistory || [])]
-          };
-        }
-        return s;
-      }));
     }
     showToast('Supplier contract agreement recorded and saved.');
   };
 
-  // Update Produce Item Price
+  // Update Produce Item Price (Transactional PostgreSQL)
   const handleUpdateProducePrice = async (
     id: string,
     newPrice: number,
@@ -1114,32 +912,6 @@ export default function App() {
     const updated = await api.updateProduceItemPrice(id, newPrice, reason, updatedBy, bundlesAndRanges);
     if (updated && updated.id) {
       setProduceItems(prev => prev.map(p => p.id === id ? updated : p));
-    } else {
-      setProduceItems(prev => prev.map(p => {
-        if (p.id === id) {
-          const old = p.retailPrice;
-          const changePct = old > 0 ? Number((((newPrice - old) / old) * 100).toFixed(2)) : 0;
-          return {
-            ...p,
-            retailPrice: newPrice,
-            bundlesAndRanges: bundlesAndRanges || p.bundlesAndRanges,
-            lastUpdated: new Date().toISOString().split('T')[0],
-            priceHistory: [
-              {
-                id: `hist-${Date.now()}`,
-                date: new Date().toISOString().split('T')[0],
-                previousPrice: old,
-                newPrice: newPrice,
-                changePct,
-                reason,
-                updatedBy
-              },
-              ...(p.priceHistory || [])
-            ]
-          };
-        }
-        return p;
-      }));
     }
     showToast('Produced product/service price updated and audited.');
   };
@@ -1148,34 +920,14 @@ export default function App() {
   const handleAddProduceItem = async (itemData: Partial<ProduceItem>) => {
     const created = await api.createProduceItem(itemData);
     if (created) {
-      setProduceItems(prev => [created, ...prev]);
-    } else {
-      const fallback: ProduceItem = {
-        id: `prod-${Date.now()}`,
-        code: itemData.code || 'PRD-CUSTOM',
-        name: itemData.name || 'Custom Product / Service',
-        type: itemData.type || 'product',
-        category: itemData.category || 'Precision Equipment',
-        subCategory: itemData.subCategory || 'General',
-        moreSubCategory: itemData.moreSubCategory || 'General',
-        unit: itemData.unit || 'system',
-        costPrice: itemData.costPrice || 650,
-        retailPrice: itemData.retailPrice || 1000,
-        defaultDiscountPct: itemData.defaultDiscountPct || 0,
-        bundlesAndRanges: itemData.bundlesAndRanges || [],
-        leadTimeDays: itemData.leadTimeDays || 14,
-        status: itemData.status || 'Active',
-        priceHistory: [],
-        lastUpdated: new Date().toISOString().split('T')[0]
-      };
-      setProduceItems(prev => [fallback, ...prev]);
+      setProduceItems(prev => [created, ...prev.filter(p => p.id !== created.id)]);
     }
     showToast('New produced product/service registered to enterprise catalog.');
   };
 
   const handleUpdateProduceItem = async (id: string, updatedFields: Partial<ProduceItem>) => {
-    await api.updateProduceItem(id, updatedFields);
-    setProduceItems(prev => prev.map(p => p.id === id ? { ...p, ...updatedFields } : p));
+    const saved = await api.updateProduceItem(id, updatedFields);
+    setProduceItems(prev => prev.map(p => p.id === id ? { ...p, ...saved } : p));
     showToast('Product item updated.');
   };
 
@@ -1191,49 +943,26 @@ export default function App() {
   const handleAddInventory = async (item: Partial<InventoryItem>) => {
     const created = await api.createInventoryItem(item);
     if (created) {
-      setInventory(prev => [created, ...prev]);
-    } else {
-      const fallback: InventoryItem = {
-        id: `inv-${Date.now()}`,
-        sku: item.sku || 'SKU-001',
-        name: item.name || item.itemName || 'Inventory Item',
-        itemName: item.name || item.itemName || 'Inventory Item',
-        category: item.category || 'Materials',
-        allocatedProjectId: item.allocatedProjectId || 'prj-1',
-        projectPhase: item.projectPhase || 'Phase 1: Materials',
-        onHand: item.onHand || 10,
-        reserved: item.reserved || 0,
-        available: item.available || 10,
-        reorderLevel: item.reorderLevel || 5,
-        unit: item.unit || 'pcs',
-        unitCost: item.unitCost || 100,
-        supplierId: item.supplierId || 'sup-1',
-        supplierName: item.supplierName || 'Vanguard',
-        status: item.status || 'Optimal',
-        location: item.location || 'Bay 1',
-        lastAuditDate: new Date().toISOString().split('T')[0]
-      };
-      setInventory(prev => [fallback, ...prev]);
+      setInventory(prev => [created, ...prev.filter(i => i.id !== created.id)]);
     }
     showToast('Inventory requisition created.');
   };
 
-  // Update Inventory Stock
-  const handleUpdateInventoryStock = (id: string, onHand: number) => {
-    setInventory(prev => prev.map(i => {
-      if (i.id === id) {
-        const available = Math.max(0, onHand - i.reserved);
-        const status = onHand <= 0 ? 'Critical Reorder' : onHand <= i.reorderLevel ? 'Low Stock' : 'Optimal';
-        return { ...i, onHand, available, status };
-      }
-      return i;
-    }));
-    showToast('Inventory count updated.');
+  // Update Inventory Stock (Persisted to PostgreSQL)
+  const handleUpdateInventoryStock = async (id: string, onHand: number) => {
+    const target = inventory.find(i => i.id === id);
+    const reserved = target?.reserved || 0;
+    const reorderLevel = target?.reorderLevel || 5;
+    const available = Math.max(0, onHand - reserved);
+    const status = onHand <= 0 ? 'Critical Reorder' : onHand <= reorderLevel ? 'Low Stock' : 'Optimal';
+
+    const saved = await api.updateInventory(id, { onHand, available, status });
+    setInventory(prev => prev.map(i => i.id === id ? { ...i, ...saved } : i));
+    showToast('Inventory count updated in PostgreSQL.');
   };
 
   // Record Inventory IN / OUT Transaction
   const handleInventoryTransaction = async (transaction: InventoryTransaction) => {
-    // The server checks stock and saves everything in one step
     let saved: InventoryTransaction;
     try {
       saved = await api.createTransaction(transaction);
@@ -1242,7 +971,7 @@ export default function App() {
       return;
     }
     transaction = { ...transaction, ...saved };
-    setTransactions((prev) => [transaction, ...prev]);
+    setTransactions((prev) => [transaction, ...prev.filter(t => t.id !== transaction.id)]);
     try {
       const [mats, inv] = await Promise.all([api.getMaterials(), api.getInventory()]);
       setMaterials(mats);
@@ -1251,7 +980,6 @@ export default function App() {
       console.error(e);
     }
 
-    // 3. Log to system audit trail
     logAuditEvent(
       transaction.type === 'IN' ? 'INVENTORY_IN' : 'INVENTORY_OUT',
       'Inventory',
@@ -1263,68 +991,30 @@ export default function App() {
     showToast(`Recorded Inventory ${transaction.type}: ${transaction.quantity} ${transaction.unit} for ${transaction.materialCode}`);
   };
 
+  const handleEditInventoryTransaction = async (id: string, updates: Partial<InventoryTransaction>) => {
+    const saved = await api.updateTransaction(id, updates);
+    setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...saved } : t));
+    const [mats, inv] = await Promise.all([api.getMaterials(), api.getInventory()]);
+    setMaterials(mats);
+    setInventory(inv);
+    showToast('Transaction updated and stock reconciled in PostgreSQL.');
+  };
+
+  const handleDeleteInventoryTransaction = async (id: string) => {
+    await api.deleteTransaction(id);
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    const [mats, inv] = await Promise.all([api.getMaterials(), api.getInventory()]);
+    setMaterials(mats);
+    setInventory(inv);
+    showToast('Transaction reversed and deleted from PostgreSQL.');
+  };
+
   // Create Project
   const handleCreateProject = async (projData: Partial<Project>) => {
     const created = await api.createProject(projData);
     if (created) {
-      setProjects(prev => [created, ...prev]);
+      setProjects(prev => [created, ...prev.filter(p => p.id !== created.id)]);
       setSelectedProjectId(created.id);
-    } else {
-      const price = projData.quotedPrice || 100000;
-      const fallback: Project = {
-        id: `prj-${Date.now()}`,
-        code: projData.code || 'PRJ-NEW',
-        name: projData.name || 'New Project',
-        clientName: projData.clientName || 'Valued Client',
-        productCategory: projData.productCategory || 'Industrial',
-        productSubCategory: projData.productSubCategory || 'Automation',
-        moreSubCategory: projData.productMoreSubCategory || projData.moreSubCategory || 'Robotics',
-        targetProduct: projData.targetProduct || 'Custom System',
-        quotedPrice: price,
-        targetMarginPct: projData.targetMarginPct || 25,
-        overheadPct: projData.overheadPct || 5,
-        contingencyPct: projData.contingencyPct || 3,
-        status: projData.status || 'Proposal',
-        startDate: new Date().toISOString().split('T')[0],
-        deliveryDeadline: new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0],
-        createdDate: new Date().toISOString().split('T')[0],
-        contractLocked: false,
-        phases: projData.phases || [],
-        selectedItems: projData.selectedItems || [],
-        alternativeOptions: projData.alternativeOptions || [],
-        notes: projData.notes || '',
-        analytics: {
-          revenue: price,
-          materialCost: price * 0.4,
-          subcontractorCost: price * 0.25,
-          outsourcedCost: price * 0.05,
-          totalDirectCost: price * 0.7,
-          overheadAmount: price * 0.05,
-          contingencyAmount: price * 0.03,
-          totalProjectCost: price * 0.78,
-          grossProfit: price * 0.3,
-          grossMarginPct: 30,
-          netProfit: price * 0.22,
-          netMarginPct: 22,
-          totalPlannedBudget: price * 0.8,
-          budgetVariance: price * 0.02,
-          budgetVariancePct: 2.5,
-          healthScore: 88,
-          phaseMetrics: [],
-          costDistribution: [
-            { category: 'Raw Materials', amount: price * 0.4, pct: 51.3 },
-            { category: 'Subcontractor Machining', amount: price * 0.25, pct: 32.1 },
-            { category: 'Outsourced Logistics', amount: price * 0.05, pct: 6.4 },
-            { category: 'Overhead & Contingency', amount: price * 0.08, pct: 10.2 }
-          ],
-          sensitivity: {
-            materialInflation5Pct: { costImpact: price * 0.02, revisedNetMarginPct: 20.0 },
-            labourRateHike8Pct: { costImpact: price * 0.02, revisedNetMarginPct: 20.0 }
-          }
-        }
-      };
-      setProjects(prev => [fallback, ...prev]);
-      setSelectedProjectId(fallback.id);
     }
     showToast('Project created with multi-phase budgets.');
     setActiveTab('cost-analysis');
@@ -1877,7 +1567,10 @@ export default function App() {
             inventory={inventory}
             projects={projects}
             suppliers={suppliers}
+            transactions={transactions}
             onRecordTransaction={handleInventoryTransaction}
+            onEditTransaction={handleEditInventoryTransaction}
+            onDeleteTransaction={handleDeleteInventoryTransaction}
             onAddInventoryItem={handleAddInventory}
             onUpdateInventoryStock={handleUpdateInventoryStock}
           />
@@ -1942,7 +1635,15 @@ export default function App() {
           <AuditLogView
             currentUser={currentUser}
             auditLogs={auditLogs}
-            onRefresh={() => setAuditLogs(getStoredAuditLogs())}
+            onRefresh={async () => {
+              try {
+                const logs = await api.getAuditLogs();
+                setAuditLogs(logs);
+                saveStoredAuditLogs(logs);
+              } catch {
+                setAuditLogs(getStoredAuditLogs());
+              }
+            }}
             showToast={showToast}
           />
         )}
