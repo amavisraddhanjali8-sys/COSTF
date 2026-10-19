@@ -8,6 +8,6 @@
 .env.*
 build/
 coverage/
-data/
+/data/
 dist/
 node_modules/

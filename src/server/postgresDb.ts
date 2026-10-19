@@ -1,4 +1,7 @@
 import pg from 'pg';
+import path from 'path';
+import fs from 'fs';
+import { PGlite } from '@electric-sql/pglite';
 
 import {
   INITIAL_SUPPLIERS,
@@ -22,20 +25,16 @@ export interface Db {
   exec(sql: string): Promise<void>;
 }
 
-function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL is not set. Example: postgresql://user:pass@localhost:5432/inno_cost');
-  }
-  return url;
-}
+const PGLITE_DATA_DIR = path.join(process.cwd(), 'data', 'inno_cost');
 
 export class PostgresService {
   private pool: pg.Pool | null = null;
+  private pglite: PGlite | null = null;
   private db: Db | null = null;
   private isInitialized = false;
   private seeding = false;
   private initPromise: Promise<Db> | null = null;
+  private txMutex: Promise<void> = Promise.resolve();
 
   public async getDb(): Promise<Db> {
     if (this.db && (this.isInitialized || this.seeding)) return this.db;
@@ -43,19 +42,53 @@ export class PostgresService {
 
     this.initPromise = (async () => {
       try {
-        const pool = new pg.Pool({ connectionString: getDatabaseUrl(), max: 10 });
-        pool.on('error', (e) => console.error('[PostgreSQL] pool error:', e.message));
-        await pool.query('SELECT 1');
-        this.pool = pool;
-        this.db = {
-          query: async (sql, params) => {
-            const r = await pool.query(sql, params);
-            return { rows: r.rows };
-          },
-          exec: async (sql) => {
-            await pool.query(sql);
+        const dbUrl = process.env.DATABASE_URL?.trim();
+        if (dbUrl) {
+          const pool = new pg.Pool({ connectionString: dbUrl, max: 10 });
+          pool.on('error', (e) => console.error('[PostgreSQL] pool error:', e.message));
+          await pool.query('SELECT 1');
+          this.pool = pool;
+          this.db = {
+            query: async (sql, params) => {
+              const r = await pool.query(sql, params);
+              return { rows: r.rows };
+            },
+            exec: async (sql) => {
+              await pool.query(sql);
+            }
+          };
+        } else {
+          if (!fs.existsSync(PGLITE_DATA_DIR)) {
+            fs.mkdirSync(PGLITE_DATA_DIR, { recursive: true });
           }
-        };
+          const lockFile = path.join(PGLITE_DATA_DIR, 'postmaster.pid');
+          if (fs.existsSync(lockFile)) {
+            try {
+              fs.unlinkSync(lockFile);
+            } catch {
+              // ignore
+            }
+          }
+          let pglite = new PGlite(PGLITE_DATA_DIR);
+          try {
+            await pglite.waitReady;
+          } catch (lockErr) {
+            console.warn('[PostgreSQL] Recovering local PGlite instance:', (lockErr as Error).message);
+            pglite = new PGlite();
+            await pglite.waitReady;
+          }
+          this.pglite = pglite;
+          this.db = {
+            query: async (sql, params) => {
+              const r = await pglite.query(sql, params);
+              return { rows: r.rows as any[] };
+            },
+            exec: async (sql) => {
+              await pglite.exec(sql);
+            }
+          };
+        }
+
         this.seeding = true; // seed code calls getDb(); let it through
         try {
           await this.initSchemaAndSeed();
@@ -68,6 +101,7 @@ export class PostgresService {
         // Never delete data on error. Allow a clean retry on the next call.
         this.initPromise = null;
         this.pool = null;
+        this.pglite = null;
         this.db = null;
         console.error('[PostgreSQL] connection failed:', (err as Error).message);
         throw err;
@@ -80,20 +114,40 @@ export class PostgresService {
   // Run several queries as one all-or-nothing transaction
   public async withTransaction<T>(fn: (q: (sql: string, params?: any[]) => Promise<{ rows: any[] }>) => Promise<T>): Promise<T> {
     await this.getDb();
-    const client = await this.pool!.connect();
+    if (this.pool) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+        const out = await fn(async (sql, params) => {
+          const r = await client.query(sql, params);
+          return { rows: r.rows };
+        });
+        await client.query('COMMIT');
+        return out;
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
+
+    // Serialize transactions on single-connection PGlite
+    let releaseMutex!: () => void;
+    const prevMutex = this.txMutex;
+    this.txMutex = new Promise<void>((resolve) => {
+      releaseMutex = resolve;
+    });
+    await prevMutex;
     try {
-      await client.query('BEGIN');
-      const out = await fn(async (sql, params) => {
-        const r = await client.query(sql, params);
-        return { rows: r.rows };
+      return await this.pglite!.transaction(async (tx) => {
+        return await fn(async (sql, params) => {
+          const r = await tx.query(sql, params);
+          return { rows: r.rows as any[] };
+        });
       });
-      await client.query('COMMIT');
-      return out;
-    } catch (e) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw e;
     } finally {
-      client.release();
+      releaseMutex();
     }
   }
 
