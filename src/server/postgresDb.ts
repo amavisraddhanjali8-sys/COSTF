@@ -1020,9 +1020,9 @@ export class PostgresService {
     if (appliedAny) {
       // Backfill normalized price_history_records from existing JSONB price_history / rate_history arrays
       await this.backfillPriceHistoryRecords();
-      // Backfill normalized project_plans from existing projects
-      await this.backfillProjectPlans();
     }
+    // Backfill normalized project_plans from existing projects if not yet present
+    await this.backfillProjectPlans();
   }
 
   private async backfillProjectPlans(): Promise<void> {
@@ -2504,6 +2504,11 @@ export class PostgresService {
     return parseFilterPagination(rows, opts, ['name', 'code', 'clientName', 'productCategory', 'targetProduct', 'status']);
   }
 
+  public async getProjectById(id: string): Promise<any | null> {
+    const projects = await this.getProjects();
+    return projects.find((p) => p.id === id) || null;
+  }
+
   public async createProject(data: any): Promise<any> {
     const db = await this.getDb();
     const id = data.id || `proj-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
@@ -3836,9 +3841,13 @@ export class PostgresService {
     return await this.getProjectPlanById(planId);
   }
 
-  public async archiveProjectPlan(planId: string, actor?: { id?: string; name?: string }, reason?: string): Promise<any | null> {
+  public async archiveProjectPlan(planId: string, actor?: { id?: string; name?: string; userId?: string; userName?: string }, reason?: string): Promise<any | null> {
     const existing = await this.getProjectPlanById(planId);
     if (!existing) return null;
+    const resolvedActor = actor ? {
+      id: actor.id || actor.userId,
+      name: actor.name || actor.userName
+    } : undefined;
     const updated = await this.updateProjectPlan(
       planId,
       {
@@ -3847,7 +3856,7 @@ export class PostgresService {
         bumpRevision: true,
         changeSummary: reason || 'Archived project plan'
       },
-      actor
+      resolvedActor
     );
 
     const db = await this.getDb();
@@ -3862,9 +3871,14 @@ export class PostgresService {
     return updated;
   }
 
-  public async activateProjectPlan(planId: string, actor?: { id?: string; name?: string }): Promise<any | null> {
+  public async setActiveProjectPlan(planId: string, actor?: { id?: string; name?: string; userId?: string; userName?: string }): Promise<any | null> {
+    return this.activateProjectPlan(planId, actor);
+  }
+
+  public async activateProjectPlan(planId: string, actor?: { id?: string; name?: string; userId?: string; userName?: string }): Promise<any | null> {
     const existing = await this.getProjectPlanById(planId);
     if (!existing) return null;
+    const actorName = actor?.name || actor?.userName || 'Enterprise Planner';
     await this.withTransaction(async (q) => {
       await q('UPDATE project_plans SET is_active = false WHERE project_id = $1', [existing.projectId]);
       await q(
@@ -3874,7 +3888,7 @@ export class PostgresService {
              updated_by = $1,
              updated_at = NOW()
          WHERE id = $2`,
-        [actor?.name || 'Enterprise Planner', planId]
+        [actorName, planId]
       );
       await q(
         `UPDATE projects
@@ -3898,7 +3912,7 @@ export class PostgresService {
     return await this.getProjectPlanById(planId);
   }
 
-  public async duplicateProjectPlan(planId: string, overrides?: any, actor?: { id?: string; name?: string }): Promise<any | null> {
+  public async duplicateProjectPlan(planId: string, overrides?: any, actor?: { id?: string; name?: string; userId?: string; userName?: string }): Promise<any | null> {
     const source = await this.getProjectPlanById(planId);
     if (!source) return null;
     const targetProjectId = overrides?.projectId || source.projectId;

@@ -729,6 +729,96 @@ export const api = {
     return this.calculateAnalytics(projectData);
   },
 
+  // --- Project Plans (PostgreSQL inno_cost) ---
+  async getProjectPlans(projectId: string, params?: ListQueryParams): Promise<any[]> {
+    const res = await fetch(`/api/projects/${projectId}/plans?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project plans');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
+  async getProjectPlansPaginated(projectId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<any>> {
+    const res = await fetch(`/api/projects/${projectId}/plans?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch paginated project plans');
+    return await res.json();
+  },
+
+  async getAllProjectPlans(params?: ListQueryParams): Promise<any[]> {
+    const res = await fetch(`/api/project-plans?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch all project plans');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
+  async getAllProjectPlansPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<any>> {
+    const res = await fetch(`/api/project-plans?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch paginated project plans');
+    return await res.json();
+  },
+
+  async getProjectPlanById(id: string): Promise<any> {
+    const res = await fetch(`/api/project-plans/${id}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project plan details');
+    return await res.json();
+  },
+
+  async createProjectPlan(projectId: string, planData: any): Promise<any> {
+    const res = await fetch(`/api/projects/${projectId}/plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(planData)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create project plan');
+    return await res.json();
+  },
+
+  async updateProjectPlan(id: string, planData: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(planData)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update project plan');
+    return await res.json();
+  },
+
+  async archiveProjectPlan(id: string, actor?: { id?: string; name?: string }, reason?: string): Promise<any> {
+    const res = await fetch(`/api/project-plans/${id}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: actor?.id, userName: actor?.name, reason })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to archive project plan');
+    return await res.json();
+  },
+
+  async activateProjectPlan(id: string, actor?: { id?: string; name?: string }): Promise<any> {
+    const res = await fetch(`/api/project-plans/${id}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: actor?.id, userName: actor?.name })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to activate project plan');
+    return await res.json();
+  },
+
+  async duplicateProjectPlan(id: string, overrides?: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${id}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(overrides || {})
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to duplicate project plan');
+    return await res.json();
+  },
+
+  async deleteProjectPlan(id: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete project plan');
+  },
+
   // --- Company Details (PostgreSQL inno_cost) ---
   async getCompanyDetails(): Promise<CompanyDetails> {
     const res = await fetch(`/api/company-details`);

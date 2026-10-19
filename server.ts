@@ -2073,8 +2073,8 @@ async function startServer() {
   app.post('/api/project-plans/:id/archive', async (req: any, res) => {
     try {
       const archived = await postgresService.archiveProjectPlan(req.params.id, {
-        userId: req.body?.userId || req.user?.id || 'usr-1',
-        userName: req.body?.userName || req.user?.name || 'System User'
+        id: req.body?.userId || req.user?.id || 'usr-1',
+        name: req.body?.userName || req.user?.name || 'System User'
       });
       if (!archived) {
         return res.status(404).json({ error: 'Project plan not found' });
@@ -2088,9 +2088,9 @@ async function startServer() {
 
   app.post('/api/project-plans/:id/activate', async (req: any, res) => {
     try {
-      const activated = await postgresService.setActiveProjectPlan(req.params.id, {
-        userId: req.body?.userId || req.user?.id || 'usr-1',
-        userName: req.body?.userName || req.user?.name || 'System User'
+      const activated = await postgresService.activateProjectPlan(req.params.id, {
+        id: req.body?.userId || req.user?.id || 'usr-1',
+        name: req.body?.userName || req.user?.name || 'System User'
       });
       if (!activated) {
         return res.status(404).json({ error: 'Project plan not found' });

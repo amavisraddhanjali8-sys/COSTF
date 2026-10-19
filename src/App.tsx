@@ -10,6 +10,7 @@ import { ProjectsView } from './components/ProjectsView';
 import { DirectoryCardsHubView } from './components/DirectoryCardsHubView';
 import { MasterDataGridCatalog } from './components/MasterDataGridCatalog';
 import { ProjectHomeView } from './components/ProjectHomeView';
+import { PlanDetailsPage } from './components/project/PlanDetailsPage';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
 import { LoginPage } from './components/LoginPage';
@@ -172,6 +173,7 @@ export default function App() {
   // Static & Stable persistent central database initialization
   const [projects, setProjects] = useState<Project[]>(() => persistentDatabase.getProjects([]));
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => persistentDatabase.getProjects([])[0]?.id || '');
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
   const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials([]));
   const [produceItems, setProduceItems] = useState<ProduceItem[]>(() => persistentDatabase.getProduceItems([]));
@@ -1253,6 +1255,10 @@ export default function App() {
             onRefreshAnalytics={handleRefreshAnalytics}
             onExportPDF={() => handleExportPDF(selectedProject || undefined)}
             onNavigateBack={() => setActiveTab('directory-hub')}
+            onViewPlanDetails={(pId) => {
+              setSelectedPlanId(pId);
+              setActiveTab('plan-details');
+            }}
           />
         )}
 
@@ -1643,6 +1649,20 @@ export default function App() {
               } catch {
                 setAuditLogs(getStoredAuditLogs());
               }
+            }}
+            showToast={showToast}
+          />
+        )}
+
+        {activeTab === 'plan-details' && selectedPlanId && (
+          <PlanDetailsPage
+            planId={selectedPlanId}
+            projectId={selectedProjectId}
+            onNavigateBack={() => setActiveTab('project-home')}
+            onPlanUpdated={handleRefreshAnalytics}
+            onOpenProject={(projId) => {
+              setSelectedProjectId(projId);
+              setActiveTab('project-home');
             }}
             showToast={showToast}
           />

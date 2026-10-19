@@ -80,7 +80,8 @@ export type ActiveTab =
   | 'inventory'
   | 'projects'
   | 'audit-log'
-  | 'settings';
+  | 'settings'
+  | 'plan-details';
 
 interface TopNavbarProps {
   activeTab: ActiveTab;
