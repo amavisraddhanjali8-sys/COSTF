@@ -2372,6 +2372,249 @@ async function startServer() {
     }
   });
 
+  // ============================================================================
+  // REVENUE CATALOGUE, PLAN BOQ & HISTORICAL COMMERCIAL RATE TRACKING (TASK 3)
+  // ============================================================================
+
+  // --- Revenue Categories & Subcategories ---
+  app.get('/api/revenue-categories', async (_req, res) => {
+    try {
+      const cats = await postgresService.getRevenueCategories();
+      res.json(cats);
+    } catch (e: any) {
+      console.error('Failed to get revenue categories:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue categories', details: e?.message });
+    }
+  });
+
+  app.post('/api/revenue-categories', async (req, res) => {
+    try {
+      if (!req.body?.name) {
+        return res.status(400).json({ error: 'Category name is required' });
+      }
+      const created = await postgresService.createRevenueCategory(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create revenue category:', e);
+      res.status(500).json({ error: 'Failed to create revenue category', details: e?.message });
+    }
+  });
+
+  app.get('/api/revenue-subcategories', async (req, res) => {
+    try {
+      const categoryId = req.query.categoryId ? String(req.query.categoryId) : undefined;
+      const subcats = await postgresService.getRevenueSubcategories(categoryId);
+      res.json(subcats);
+    } catch (e: any) {
+      console.error('Failed to get revenue subcategories:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue subcategories', details: e?.message });
+    }
+  });
+
+  app.post('/api/revenue-subcategories', async (req, res) => {
+    try {
+      if (!req.body?.name) {
+        return res.status(400).json({ error: 'Subcategory name is required' });
+      }
+      const created = await postgresService.createRevenueSubcategory(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create revenue subcategory:', e);
+      res.status(500).json({ error: 'Failed to create revenue subcategory', details: e?.message });
+    }
+  });
+
+  // --- Centralized Revenue Items Catalogue ---
+  app.get('/api/revenue-items', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getRevenueItemsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to get revenue catalogue items:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue catalogue items', details: e?.message });
+    }
+  });
+
+  app.get('/api/revenue-items/:id', async (req, res) => {
+    try {
+      const item = await postgresService.getRevenueItemById(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: 'Revenue catalogue item not found' });
+      }
+      res.json(item);
+    } catch (e: any) {
+      console.error('Failed to get revenue catalogue item details:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue item details', details: e?.message });
+    }
+  });
+
+  app.post('/api/revenue-items', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createRevenueItem(req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to create revenue item:', e);
+      res.status(500).json({ error: 'Failed to create revenue catalogue item', details: e?.message });
+    }
+  });
+
+  app.put('/api/revenue-items/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateRevenueItem(req.params.id, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!updated) return res.status(404).json({ error: 'Revenue item not found' });
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update revenue item:', e);
+      res.status(500).json({ error: 'Failed to update revenue catalogue item', details: e?.message });
+    }
+  });
+
+  app.delete('/api/revenue-items/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const ok = await postgresService.deleteRevenueItem(req.params.id, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!ok) return res.status(404).json({ error: 'Revenue item not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete revenue item:', e);
+      res.status(500).json({ error: 'Failed to delete revenue catalogue item', details: e?.message });
+    }
+  });
+
+  // --- Plan BOQ Line Items ---
+  const planBoqRoutes = [
+    '/api/project-plans/:planId/boq-items',
+    '/api/plans/:planId/boq-items'
+  ];
+
+  const planBoqItemRoutes = [
+    '/api/project-plans/:planId/boq-items/:boqItemId',
+    '/api/plans/:planId/boq-items/:boqItemId'
+  ];
+
+  app.get(planBoqRoutes, async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const items = await postgresService.getPlanBoqItems(req.params.planId, opts);
+      res.json(items);
+    } catch (e: any) {
+      console.error('Failed to get plan BOQ items:', e);
+      res.status(500).json({ error: 'Failed to fetch plan BOQ items', details: e?.message });
+    }
+  });
+
+  app.get(planBoqItemRoutes, async (req, res) => {
+    try {
+      const item = await postgresService.getPlanBoqItemById(req.params.planId, req.params.boqItemId);
+      if (!item) return res.status(404).json({ error: 'Plan BOQ item not found' });
+      res.json(item);
+    } catch (e: any) {
+      console.error('Failed to get plan BOQ item details:', e);
+      res.status(500).json({ error: 'Failed to fetch plan BOQ item details', details: e?.message });
+    }
+  });
+
+  app.post(planBoqRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.addRevenueItemToPlan(req.params.planId, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to add BOQ item to plan:', e);
+      res.status(500).json({ error: 'Failed to add BOQ item to plan', details: e?.message });
+    }
+  });
+
+  app.put(planBoqItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.updatePlanBoqItem(req.params.planId, req.params.boqItemId, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update plan BOQ item:', e);
+      res.status(500).json({ error: 'Failed to update plan BOQ item', details: e?.message });
+    }
+  });
+
+  app.delete(planBoqItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const ok = await postgresService.deletePlanBoqItem(req.params.planId, req.params.boqItemId, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!ok) return res.status(404).json({ error: 'Plan BOQ item not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete plan BOQ item:', e);
+      res.status(500).json({ error: 'Failed to delete plan BOQ item', details: e?.message });
+    }
+  });
+
+  // --- Historical Commercial Rate Tracking ---
+  app.get(['/api/revenue-rate-history', '/api/revenue/rate-history'], async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getRevenueRateHistory(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch revenue rate history:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue rate history', details: e?.message });
+    }
+  });
+
+  app.get('/api/revenue-items/:id/rate-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getRevenueItemRateHistory(req.params.id, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch revenue item rate history:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue item rate history', details: e?.message });
+    }
+  });
+
+  app.get('/api/projects/:projectId/commercial-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getProjectCommercialHistory(req.params.projectId, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch project commercial history:', e);
+      res.status(500).json({ error: 'Failed to fetch project commercial history', details: e?.message });
+    }
+  });
+
   // Calculate ad-hoc scenario with Python Analytics
   app.post('/api/analytics/calculate', (req, res) => {
     const results = runPythonAnalytics(req.body);

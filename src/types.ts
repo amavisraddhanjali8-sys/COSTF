@@ -591,19 +591,27 @@ export interface ProjectPlanBoqItem {
   projectId?: string;
   sectionId?: string;
   phaseId?: string;
-  type: 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'other';
+  type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'other';
   itemId?: string;
   itemCode?: string;
+  revenueItemId?: string;
   name: string;
   category?: string;
+  subCategory?: string;
   supplierOrProvider: string;
+  description?: string;
   quantity: number;
   unit: string;
   unitCost: number;
   discountPct: number;
+  rate?: number; // selling rate per unit in plan
+  sellingRate?: number;
+  billableRate?: number;
+  taxTreatment?: string;
+  taxRatePct?: number;
+  taxAmount?: number;
   totalCost: number;
   markupPct?: number;
-  billableRate?: number;
   totalRevenue?: number;
   grossProfit?: number;
   currency?: string;
@@ -611,6 +619,10 @@ export interface ProjectPlanBoqItem {
   consumptionRate?: number;
   notes?: string;
   lineOrder?: number;
+  snapshotData?: any;
+  commercialContext?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ProjectPlanResource {
@@ -951,4 +963,85 @@ export interface ProjectMilestone {
   budget?: number;
   description?: string;
 }
+
+// ============================================================================
+// Centralized Revenue Catalogue & Commercial Rate Tracking (TASK 3)
+// ============================================================================
+
+export interface RevenueCategory {
+  id: string;
+  code: string;
+  name: string;
+  type?: 'product' | 'service' | 'both';
+  description?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RevenueSubcategory {
+  id: string;
+  categoryId: string;
+  categoryName?: string;
+  code: string;
+  name: string;
+  description?: string;
+  sortOrder?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RevenueItem {
+  id: string;
+  code: string;
+  barcode?: string;
+  name: string;
+  type: 'product' | 'service';
+  category: string;
+  subCategory?: string;
+  description?: string;
+  unit: string;
+  defaultRate: number; // default selling rate
+  costPrice?: number;
+  currency?: string;
+  taxTreatment?: string;
+  taxRatePct?: number;
+  status: 'Active' | 'Inactive' | 'Archived';
+  createdAt?: string;
+  updatedAt?: string;
+  linkedPlansCount?: number;
+  totalQuotedRevenue?: number;
+}
+
+export interface RevenueRateHistoryRecord {
+  id: string;
+  revenueItemId: string;
+  revenueItemCode?: string;
+  revenueItemName?: string;
+  revenueItemType?: 'product' | 'service';
+  projectId: string;
+  projectCode?: string;
+  projectName?: string;
+  projectPlanId: string;
+  planNumber?: string;
+  planName?: string;
+  planBoqItemId: string;
+  previousUnit?: string | null;
+  newUnit: string;
+  previousQuantity?: number | null;
+  newQuantity: number;
+  previousRate?: number | null;
+  newRate: number;
+  changeType: 'initial_addition' | 'rate_change' | 'quantity_change' | 'unit_change' | 'rate_and_quantity_change' | 'commercial_terms_update' | string;
+  fieldsChanged: string[];
+  effectiveDate: string;
+  recordedAt: string;
+  changedBy: string;
+  changeReason?: string;
+  commercialContext?: string;
+  idempotencyKey?: string;
+}
+
 

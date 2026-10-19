@@ -42,6 +42,11 @@ import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 import { calculatePlanFinancials } from '../../utils/planCalculationService';
 import { AddOverheadToPlanModal } from '../overhead/AddOverheadToPlanModal';
 import { EditPlanOverheadAllocationModal } from '../overhead/EditPlanOverheadAllocationModal';
+import { AddRevenueItemToPlanModal } from '../revenue/AddRevenueItemToPlanModal';
+import { EditPlanBoqItemModal } from '../revenue/EditPlanBoqItemModal';
+import { RevenueItemRateHistoryModal } from '../revenue/RevenueItemRateHistoryModal';
+import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHistoryModal';
+import { RevenueItem, ProjectPlanBoqItem } from '../../types';
 
 interface PlanDetailsPageProps {
   planId: string;
@@ -86,6 +91,15 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [selectedAllocationToEdit, setSelectedAllocationToEdit] = useState<any | null>(null);
   const [recalculatingOverheads, setRecalculatingOverheads] = useState(false);
   const [deletingAllocationId, setDeletingAllocationId] = useState<string | null>(null);
+
+  // Revenue and BOQ modals state (Task 3)
+  const [isAddRevenueItemModalOpen, setIsAddRevenueItemModalOpen] = useState(false);
+  const [isEditBoqItemModalOpen, setIsEditBoqItemModalOpen] = useState(false);
+  const [selectedBoqItemToEdit, setSelectedBoqItemToEdit] = useState<ProjectPlanBoqItem | null>(null);
+  const [isProjectCommercialHistoryModalOpen, setIsProjectCommercialHistoryModalOpen] = useState(false);
+  const [isItemHistoryModalOpen, setIsItemHistoryModalOpen] = useState(false);
+  const [historyTargetRevenueItem, setHistoryTargetRevenueItem] = useState<RevenueItem | null>(null);
+  const [deletingBoqItemId, setDeletingBoqItemId] = useState<string | null>(null);
 
   const activeCurrency = plan?.currency || getStoredCurrency();
 
@@ -140,6 +154,22 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       onPlanUpdated?.();
     } catch (err: any) {
       showToast?.({ message: err?.message || 'Failed to archive plan', type: 'error' });
+    }
+  };
+
+  const handleDeleteBoqItem = async (boqItemId: string, itemName: string) => {
+    if (!plan) return;
+    if (!window.confirm(`Are you sure you want to remove "${itemName}" from this plan's BOQ?`)) return;
+    setDeletingBoqItemId(boqItemId);
+    try {
+      await api.deletePlanBoqItem(plan.id, boqItemId);
+      showToast?.({ message: `Removed "${itemName}" from plan BOQ.`, type: 'info' });
+      await loadPlan();
+      onPlanUpdated?.();
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to remove BOQ item', type: 'error' });
+    } finally {
+      setDeletingBoqItemId(null);
     }
   };
 
@@ -517,6 +547,28 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Add Revenue Item Button */}
+              <button
+                type="button"
+                onClick={() => setIsAddRevenueItemModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center space-x-1 cursor-pointer shadow-xs"
+                title="Add a revenue product or service from catalogue to plan BOQ"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Revenue Item</span>
+              </button>
+
+              {/* Project Commercial History */}
+              <button
+                type="button"
+                onClick={() => setIsProjectCommercialHistoryModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center space-x-1 cursor-pointer"
+                title="View project commercial audit history across all plans"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Commercial History</span>
+              </button>
+
               {/* Type Filter */}
               <select
                 value={boqTypeFilter}
@@ -524,6 +576,8 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                 className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 bg-white dark:bg-slate-800"
               >
                 <option value="ALL">All Types</option>
+                <option value="product">Products Sold</option>
+                <option value="service">Services Provided</option>
                 <option value="material">Materials</option>
                 <option value="subcontractor">Subcontractor Trades</option>
                 <option value="outsourced">Outsourced Services</option>
@@ -539,7 +593,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                   placeholder="Filter BOQ items..."
                   value={boqSearch}
                   onChange={(e) => setBoqSearch(e.target.value)}
-                  className="pl-8 pr-3 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 w-48"
+                  className="pl-8 pr-3 py-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 w-44"
                 />
               </div>
             </div>
@@ -552,15 +606,14 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                   <th className="py-2.5 px-3 font-semibold">#</th>
                   <th className="py-2.5 px-3 font-semibold">Type</th>
                   <th className="py-2.5 px-3 font-semibold">Code</th>
-                  <th className="py-2.5 px-3 font-semibold">Name & Category</th>
-                  <th className="py-2.5 px-3 font-semibold">Supplier / Vendor</th>
+                  <th className="py-2.5 px-3 font-semibold">Name & Scope</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Quantity</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Selling Rate</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Unit Cost</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Disc %</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Total Cost</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Markup %</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Total Revenue</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Gross Profit</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
@@ -568,6 +621,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                   const lineCost = Number(item.totalCost || 0);
                   const rev = Number(item.totalRevenue || 0);
                   const profit = Number(item.grossProfit || rev - lineCost);
+                  const sellingRate = Number(item.rate ?? item.billableRate ?? item.sellingRate ?? 0);
 
                   return (
                     <tr key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors">
@@ -575,49 +629,108 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                       <td className="py-2 px-3">
                         <span
                           className={`px-1.5 py-0.5 text-[9px] uppercase font-bold rounded ${
-                            item.type === 'subcontractor'
+                            item.type === 'service'
+                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                              : item.type === 'product'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                              : item.type === 'subcontractor'
                               ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                               : item.type === 'outsourced'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
-                              : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                              ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                              : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
                           }`}
                         >
                           {item.type}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-[#0078d4] font-semibold">{item.itemCode || item.itemId || '-'}</td>
-                      <td className="py-2 px-3 font-sans font-medium text-slate-900 dark:text-slate-100">
-                        <div>{item.name}</div>
-                        {item.category && <div className="text-[10px] text-slate-400">{item.category}</div>}
-                      </td>
-                      <td className="py-2 px-3 font-sans text-slate-600 dark:text-slate-400">
-                        {item.supplierOrProvider || '-'}
+                      <td className="py-2 px-3 text-[#0078d4] font-semibold">{item.itemCode || item.revenueItemCode || item.itemId || '-'}</td>
+                      <td className="py-2 px-3 font-sans font-medium text-slate-900 dark:text-slate-100 max-w-[220px]">
+                        <div className="truncate font-semibold">{item.name}</div>
+                        {item.description && item.description !== item.name && (
+                          <div className="text-[10px] text-slate-400 truncate">{item.description}</div>
+                        )}
+                        {item.category && <div className="text-[10px] text-slate-500 italic">{item.category}</div>}
                       </td>
                       <td className="py-2 px-3 text-right">
                         {Number(item.quantity || 0).toLocaleString()} <span className="font-sans text-[10px] text-slate-400">{item.unit || 'pcs'}</span>
                       </td>
-                      <td className="py-2 px-3 text-right">{formatCurrency(item.unitCost, activeCurrency)}</td>
+                      <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(sellingRate, activeCurrency)}
+                      </td>
+                      <td className="py-2 px-3 text-right text-slate-500">
+                        {formatCurrency(item.unitCost || 0, activeCurrency)}
+                      </td>
                       <td className="py-2 px-3 text-right text-slate-500">
                         {item.discountPct ? `${item.discountPct}%` : '0%'}
                       </td>
-                      <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(lineCost, activeCurrency)}
-                      </td>
-                      <td className="py-2 px-3 text-right text-slate-500">
-                        {item.markupPct ? `${item.markupPct}%` : '30%'}
-                      </td>
-                      <td className="py-2 px-3 text-right text-slate-800 dark:text-slate-200">
+                      <td className="py-2 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
                         {formatCurrency(rev, activeCurrency)}
                       </td>
                       <td className={`py-2 px-3 text-right font-semibold ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                         {formatCurrency(profit, activeCurrency)}
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <div className="flex items-center justify-end space-x-1 font-sans">
+                          {/* Edit commercial terms */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedBoqItemToEdit(item);
+                              setIsEditBoqItemModalOpen(true);
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Edit plan commercial terms (rate, quantity, discount, scope)"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Rate history */}
+                          {(item.revenueItemId || item.itemId) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHistoryTargetRevenueItem({
+                                  id: item.revenueItemId || item.itemId,
+                                  code: item.itemCode || item.revenueItemCode || item.name,
+                                  barcode: '',
+                                  name: item.name,
+                                  type: item.type === 'service' ? 'service' : 'product',
+                                  category: item.category || 'General',
+                                  description: item.description || '',
+                                  unit: item.unit || 'unit',
+                                  defaultRate: sellingRate,
+                                  currency: item.currency || activeCurrency,
+                                  status: 'Active',
+                                  createdAt: new Date().toISOString(),
+                                  updatedAt: new Date().toISOString()
+                                });
+                                setIsItemHistoryModalOpen(true);
+                              }}
+                              className="p-1 rounded text-slate-500 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="View commercial rate history for this item across projects/plans"
+                            >
+                              <History className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Delete item */}
+                          <button
+                            type="button"
+                            disabled={deletingBoqItemId === item.id}
+                            onClick={() => handleDeleteBoqItem(item.id, item.name)}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+                            title="Remove item from plan BOQ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
                 {filteredBoq.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="py-8 text-center text-slate-400 font-sans">
+                    <td colSpan={11} className="py-8 text-center text-slate-400 font-sans">
                       No BOQ line items match your search.
                     </td>
                   </tr>
@@ -1279,6 +1392,67 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             showToast?.({ message: 'Plan overhead allocation parameters updated.', type: 'success' });
           }}
           showToast={showToast}
+        />
+      )}
+
+      {/* Add Revenue Item to Plan Modal (Task 3) */}
+      {isAddRevenueItemModalOpen && (
+        <AddRevenueItemToPlanModal
+          isOpen={isAddRevenueItemModalOpen}
+          onClose={() => setIsAddRevenueItemModalOpen(false)}
+          onSuccess={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+            showToast?.({ message: 'Revenue item successfully added to plan BOQ.', type: 'success' });
+          }}
+          planId={plan.id}
+          projectId={plan.projectId}
+          activeCurrency={activeCurrency}
+        />
+      )}
+
+      {/* Edit Plan BOQ Item Commercial Terms Modal (Task 3) */}
+      {isEditBoqItemModalOpen && selectedBoqItemToEdit && (
+        <EditPlanBoqItemModal
+          isOpen={isEditBoqItemModalOpen}
+          onClose={() => {
+            setIsEditBoqItemModalOpen(false);
+            setSelectedBoqItemToEdit(null);
+          }}
+          onSuccess={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+            showToast?.({ message: 'Plan commercial terms and rate history updated.', type: 'success' });
+          }}
+          planId={plan.id}
+          planNumber={plan.planNumber}
+          boqItem={selectedBoqItemToEdit}
+          activeCurrency={activeCurrency}
+        />
+      )}
+
+      {/* Item Rate History Modal (Task 3) */}
+      {isItemHistoryModalOpen && historyTargetRevenueItem && (
+        <RevenueItemRateHistoryModal
+          isOpen={isItemHistoryModalOpen}
+          onClose={() => {
+            setIsItemHistoryModalOpen(false);
+            setHistoryTargetRevenueItem(null);
+          }}
+          revenueItem={historyTargetRevenueItem}
+          activeCurrency={activeCurrency}
+        />
+      )}
+
+      {/* Project Commercial History Modal (Task 3) */}
+      {isProjectCommercialHistoryModalOpen && (
+        <ProjectCommercialHistoryModal
+          isOpen={isProjectCommercialHistoryModalOpen}
+          onClose={() => setIsProjectCommercialHistoryModalOpen(false)}
+          projectId={plan.projectId}
+          projectCode={plan.projectCode}
+          projectName={plan.projectName}
+          activeCurrency={activeCurrency}
         />
       )}
     </div>

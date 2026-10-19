@@ -1023,6 +1023,210 @@ export class PostgresService {
     }
     // Backfill normalized project_plans from existing projects if not yet present
     await this.backfillProjectPlans();
+    // Ensure all overhead and revenue tables & schemas exist
+    await this.ensureOverheadAndRevenueTables();
+  }
+
+  public async ensureOverheadAndRevenueTables(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        -- Overhead Cost System
+        CREATE TABLE IF NOT EXISTS overhead_categories (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT UNIQUE NOT NULL,
+          description TEXT DEFAULT '',
+          is_default BOOLEAN DEFAULT false,
+          sort_order INT DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS overhead_items (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          barcode TEXT,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          cost_type TEXT NOT NULL DEFAULT 'Fixed',
+          default_calculation_method TEXT NOT NULL DEFAULT 'fixed_amount',
+          default_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          default_cost_base TEXT NOT NULL DEFAULT 'total_direct_cost',
+          unit_type TEXT DEFAULT 'month',
+          effective_date DATE DEFAULT CURRENT_DATE,
+          status TEXT NOT NULL DEFAULT 'Active',
+          created_by TEXT NOT NULL DEFAULT 'System',
+          updated_by TEXT NOT NULL DEFAULT 'System',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS plan_overhead_allocations (
+          id TEXT PRIMARY KEY,
+          plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          overhead_item_id TEXT REFERENCES overhead_items(id) ON DELETE RESTRICT,
+          allocation_method TEXT NOT NULL DEFAULT 'fixed_amount',
+          allocation_base TEXT NOT NULL DEFAULT 'total_direct_cost',
+          base_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+          allocation_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          unit_quantity NUMERIC(18, 4) NOT NULL DEFAULT 1,
+          allocated_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+          effective_date DATE DEFAULT CURRENT_DATE,
+          allocated_by TEXT DEFAULT 'System',
+          notes TEXT DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS overhead_audit_logs (
+          id TEXT PRIMARY KEY,
+          overhead_item_id TEXT,
+          overhead_item_code TEXT,
+          overhead_item_name TEXT,
+          plan_id TEXT,
+          plan_number TEXT,
+          allocation_id TEXT,
+          action TEXT NOT NULL,
+          actor_id TEXT,
+          actor_name TEXT,
+          actor_role TEXT,
+          previous_state JSONB,
+          new_state JSONB,
+          change_description TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        -- TASK 3: Revenue Catalogue System
+        CREATE TABLE IF NOT EXISTS revenue_categories (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT DEFAULT 'both',
+          description TEXT DEFAULT '',
+          sort_order INT DEFAULT 0,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS revenue_subcategories (
+          id TEXT PRIMARY KEY,
+          category_id TEXT REFERENCES revenue_categories(id) ON DELETE CASCADE,
+          category_name TEXT,
+          code TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          sort_order INT DEFAULT 0,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS revenue_items (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          barcode TEXT,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'product',
+          category TEXT NOT NULL,
+          sub_category TEXT DEFAULT '',
+          description TEXT DEFAULT '',
+          unit TEXT NOT NULL DEFAULT 'unit',
+          default_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          cost_price NUMERIC(18, 4) DEFAULT 0,
+          currency TEXT NOT NULL DEFAULT 'USD',
+          tax_treatment TEXT DEFAULT 'Standard (0%)',
+          tax_rate_pct NUMERIC(8, 2) DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'Active',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS revenue_item_id TEXT REFERENCES revenue_items(id) ON DELETE SET NULL;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS rate NUMERIC(18, 4) DEFAULT 0;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS tax_treatment TEXT DEFAULT 'Standard (0%)';
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS tax_rate_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS snapshot_data JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS commercial_context TEXT DEFAULT '';
+
+        CREATE OR REPLACE VIEW plan_boq_items AS SELECT * FROM project_plan_boq_items;
+
+        CREATE TABLE IF NOT EXISTS revenue_rate_history (
+          id TEXT PRIMARY KEY,
+          revenue_item_id TEXT NOT NULL REFERENCES revenue_items(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          project_plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
+          plan_boq_item_id TEXT NOT NULL,
+          previous_unit TEXT,
+          new_unit TEXT NOT NULL,
+          previous_quantity NUMERIC(18, 4),
+          new_quantity NUMERIC(18, 4) NOT NULL,
+          previous_rate NUMERIC(18, 4),
+          new_rate NUMERIC(18, 4) NOT NULL,
+          change_type TEXT NOT NULL DEFAULT 'initial_addition',
+          fields_changed JSONB DEFAULT '[]'::jsonb,
+          effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          changed_by TEXT NOT NULL DEFAULT 'System User',
+          change_reason TEXT DEFAULT '',
+          commercial_context TEXT DEFAULT '',
+          idempotency_key TEXT UNIQUE
+        );
+      `);
+
+      // Seed default categories if empty
+      const catCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_categories');
+      if (Number(catCountRes.rows[0]?.cnt || 0) === 0) {
+        await db.exec(`
+          INSERT INTO revenue_categories (id, code, name, type, description, sort_order) VALUES
+            ('revcat-01', 'CAT-ALUM', 'Architectural & Structural Aluminium', 'product', 'Manufactured aluminium architectural assemblies, doors, windows, curtain walls, and structural frames', 1),
+            ('revcat-02', 'CAT-AUTO', 'Industrial Automation & Machinery', 'product', 'Custom robotic cells, CNC automated lines, and servo-press assemblies', 2),
+            ('revcat-03', 'CAT-MECH', 'Mechanical Fabrication & Systems', 'product', 'Heavy structural frames, pressure vessels, and pre-engineered steel fabrications', 3),
+            ('revcat-04', 'CAT-ENGR', 'Engineering & Design Consultancy', 'service', 'Structural PE engineering calculations, FEA analysis, and CAD detailing', 4),
+            ('revcat-05', 'CAT-INST', 'Site Installation & Commissioning', 'service', 'Turnkey on-site mechanical erection, electrical wiring, and performance testing', 5),
+            ('revcat-06', 'CAT-MAINT', 'Facility Integration & Maintenance', 'service', 'Scheduled preventive servicing, calibration, and 24/7 SLA operational response', 6)
+          ON CONFLICT (code) DO NOTHING;
+        `);
+      }
+
+      // Seed/backfill revenue_items from produce_items where type IN ('product', 'service')
+      // STRICT REQUIREMENT: Only products sold by company and services provided by company.
+      // NEVER include outsourced third-party services.
+      const revItemCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_items');
+      if (Number(revItemCountRes.rows[0]?.cnt || 0) === 0) {
+        const prodRes = await db.query("SELECT * FROM produce_items WHERE type IN ('product', 'service')");
+        for (const p of prodRes.rows) {
+          await db.query(
+            `INSERT INTO revenue_items (
+              id, code, barcode, name, type, category, sub_category, description, unit,
+              default_rate, cost_price, currency, tax_treatment, tax_rate_pct, status, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Standard (0%)', 0, 'Active', NOW(), NOW())
+            ON CONFLICT (code) DO NOTHING`,
+            [
+              `rev-${p.id}`,
+              p.code,
+              p.barcode || `BC-${p.code}`,
+              p.name,
+              p.type || 'product',
+              p.category || 'Architectural & Structural Aluminium',
+              p.sub_category || '',
+              `Commercial product/service: ${p.name}`,
+              p.unit || 'unit',
+              round4(p.retail_price || p.cost_price || 0),
+              round4(p.cost_price || 0),
+              p.currency || 'USD'
+            ]
+          ).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn('[PostgreSQL] ensureOverheadAndRevenueTables warning:', (e as Error).message);
+    }
   }
 
   private async backfillProjectPlans(): Promise<void> {
@@ -1133,13 +1337,21 @@ export class PostgresService {
   public async clearDummyData(): Promise<void> {
     const db = await this.getDb();
     await db.exec(`
+      DELETE FROM revenue_rate_history;
       DELETE FROM project_plan_cost_summaries;
+      DELETE FROM plan_overhead_allocations;
       DELETE FROM project_plan_overhead_allocations;
       DELETE FROM project_plan_resources;
       DELETE FROM project_plan_boq_items;
       DELETE FROM project_plan_sections;
       DELETE FROM project_plan_revisions;
       DELETE FROM project_plans;
+      DELETE FROM overhead_audit_logs;
+      DELETE FROM overhead_items;
+      DELETE FROM overhead_categories;
+      DELETE FROM revenue_items;
+      DELETE FROM revenue_subcategories;
+      DELETE FROM revenue_categories;
       DELETE FROM price_history_records;
       DELETE FROM inventory_transactions;
       DELETE FROM inventory;
@@ -2711,23 +2923,33 @@ export class PostgresService {
       type: b.item_type || 'material',
       itemId: b.item_code || b.catalog_item_id || b.id,
       itemCode: b.item_code || b.catalog_item_id || b.id,
+      revenueItemId: b.revenue_item_id || undefined,
       name: b.name,
       category: b.category || '',
+      subCategory: b.sub_category || '',
       supplierOrProvider: b.supplier_or_provider || '',
+      description: b.description || '',
       quantity: round4(b.quantity ?? 1),
       unit: b.unit || 'pcs',
       unitCost: round4(b.unit_cost ?? 0),
       discountPct: round2(b.discount_pct ?? 0),
+      rate: round4(b.rate ?? b.billable_rate ?? 0),
+      sellingRate: round4(b.rate ?? b.billable_rate ?? 0),
       totalCost: round2(b.total_cost ?? 0),
       markupPct: round2(b.markup_pct ?? 0),
-      billableRate: round4(b.billable_rate ?? 0),
+      billableRate: round4(b.rate ?? b.billable_rate ?? 0),
+      taxTreatment: b.tax_treatment || 'Standard (0%)',
+      taxRatePct: round2(b.tax_rate_pct ?? 0),
+      taxAmount: round2(b.tax_amount ?? 0),
       totalRevenue: round2(b.total_revenue ?? 0),
       grossProfit: round2(b.gross_profit ?? 0),
       currency: b.currency || r.currency || 'USD',
       nativeUnitCost: b.native_unit_cost !== null && b.native_unit_cost !== undefined ? round4(b.native_unit_cost) : round4(b.unit_cost ?? 0),
       consumptionRate: round2(b.consumption_rate ?? 100),
       notes: b.notes || '',
-      lineOrder: Number(b.line_order || 1)
+      lineOrder: Number(b.line_order || 1),
+      snapshotData: typeof b.snapshot_data === 'string' ? JSON.parse(b.snapshot_data) : b.snapshot_data || {},
+      commercialContext: b.commercial_context || ''
     }));
 
     const mappedSections = sections.map((s: any) => ({
@@ -3275,17 +3497,22 @@ export class PostgresService {
         const item = calc.normalizedBoqItems[i];
         const boqId = `boq-${planId}-${i + 1}-${Math.floor(1000 + Math.random() * 9000)}`;
         const validSecId = item.sectionId && sectionIds.has(item.sectionId) ? item.sectionId : null;
+        const revenueItemId = item.revenueItemId || (item.type === 'product' || item.type === 'service' ? (item.itemId || item.itemCode) : null);
+        const rate = round4(item.rate ?? item.sellingRate ?? item.billableRate ?? 0);
+
         await q(
           `INSERT INTO project_plan_boq_items (
             id, plan_id, project_id, section_id, phase_id, item_type, catalog_item_id, item_code,
+            revenue_item_id, rate, description, tax_treatment, tax_rate_pct, tax_amount,
             name, category, supplier_or_provider, quantity, unit, unit_cost, discount_pct,
             total_cost, markup_pct, billable_rate, total_revenue, gross_profit,
-            currency, native_unit_cost, consumption_rate, notes, line_order
+            currency, native_unit_cost, consumption_rate, notes, line_order, snapshot_data, commercial_context
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8,
-            $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20,
-            $21, $22, $23, $24, $25
+            $9, $10, $11, $12, $13, $14,
+            $15, $16, $17, $18, $19, $20, $21,
+            $22, $23, $24, $25, $26,
+            $27, $28, $29, $30, $31, $32, $33
           )`,
           [
             boqId,
@@ -3296,6 +3523,12 @@ export class PostgresService {
             item.type,
             item.itemId || null,
             item.itemCode || item.itemId || `ITM-${i + 1}`,
+            revenueItemId,
+            rate,
+            item.description || '',
+            item.taxTreatment || 'Standard (0%)',
+            item.taxRatePct ?? 0,
+            item.taxAmount ?? 0,
             item.name,
             item.category || '',
             item.supplierOrProvider || '',
@@ -3305,16 +3538,50 @@ export class PostgresService {
             item.discountPct,
             item.totalCost,
             item.markupPct ?? 30,
-            item.billableRate ?? 0,
+            rate,
             item.totalRevenue ?? 0,
             item.grossProfit ?? 0,
             item.currency || data.currency || proj.currency || 'USD',
             item.nativeUnitCost ?? item.unitCost,
             item.consumptionRate ?? 100,
             item.notes || '',
-            i + 1
+            i + 1,
+            JSON.stringify(item.snapshotData || {}),
+            item.commercialContext || ''
           ]
         );
+
+        if (revenueItemId && (item.type === 'product' || item.type === 'service')) {
+          const histId = `rrh-${planId}-${i + 1}-${Date.now()}`;
+          await q(
+            `INSERT INTO revenue_rate_history (
+              id, revenue_item_id, project_id, project_plan_id, plan_boq_item_id,
+              previous_unit, new_unit, previous_quantity, new_quantity, previous_rate, new_rate,
+              change_type, fields_changed, effective_date, recorded_at, changed_by, change_reason, commercial_context, idempotency_key
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, NOW(), $15, $16, $17, $18)
+            ON CONFLICT (idempotency_key) DO NOTHING`,
+            [
+              histId,
+              revenueItemId,
+              projectId,
+              planId,
+              boqId,
+              null,
+              item.unit || 'pcs',
+              null,
+              item.quantity,
+              null,
+              rate,
+              'initial_addition',
+              JSON.stringify(['initial_addition', 'rate', 'quantity', 'unit']),
+              effectiveDate || todayIso,
+              actorName,
+              'Initial addition to project plan BOQ',
+              item.commercialContext || `Plan ${planNumber} initial allocation`,
+              `init-${planId}-${boqId}`
+            ]
+          ).catch(() => {});
+        }
       }
 
       // 7. Insert plan resources
@@ -5994,6 +6261,14 @@ export class PostgresService {
     });
   }
 
+  public async recalculatePlanFinancials(planId: string, q?: any): Promise<void> {
+    const queryFn = q || (async (sql: string, params?: any[]) => {
+      const db = await this.getDb();
+      return db.query(sql, params);
+    });
+    await this.internalRecalculatePlanCostSummary(queryFn, planId);
+  }
+
   private async internalRecalculatePlanCostSummary(q: (sql: string, params?: any[]) => Promise<{ rows: any[] }>, planId: string): Promise<void> {
     const [planRes, boqRes, resRes, secRes, ovhRes] = await Promise.all([
       q('SELECT * FROM project_plans WHERE id = $1', [planId]),
@@ -6005,10 +6280,13 @@ export class PostgresService {
     if (planRes.rows.length === 0) return;
     const plan = planRes.rows[0];
 
+    const boqTotalRevenue = boqRes.rows.reduce((sum: number, b: any) => sum + Number(b.total_revenue || 0), 0);
+    const plannedRevenue = boqTotalRevenue > 0 ? boqTotalRevenue : Number(plan.planned_revenue || 0);
+
     const calc = calculatePlanFinancials({
       planId,
       projectId: plan.project_id,
-      plannedRevenue: Number(plan.planned_revenue || 0),
+      plannedRevenue,
       targetMarginPct: Number(plan.target_margin_pct || 25),
       overheadPct: Number(plan.overhead_pct || 8.5),
       contingencyPct: Number(plan.contingency_pct || 5.0),
@@ -6065,6 +6343,26 @@ export class PostgresService {
         calc.summary.resourceCount
       ]
     );
+
+    // Update project_plans summary cache
+    await q(
+      `UPDATE project_plans SET
+        planned_revenue = $1,
+        direct_cost = $2,
+        total_planned_cost = $3,
+        gross_margin_pct = $4,
+        profit_margin_pct = $5,
+        updated_at = NOW()
+       WHERE id = $6`,
+      [
+        calc.summary.plannedRevenue,
+        calc.summary.directCost,
+        calc.summary.totalPlannedCost,
+        calc.summary.grossMarginPct,
+        calc.summary.profitMarginPct,
+        planId
+      ]
+    );
   }
 
   // --- Overhead Audit Logs (Requirement 21) ---
@@ -6119,6 +6417,923 @@ export class PostgresService {
     return { ...data, id };
   }
 
+  // ============================================================================
+  // REVENUE CATALOGUE, PLAN BOQ & COMMERCIAL RATE TRACKING (TASK 3)
+  // ============================================================================
+
+  // --- Revenue Categories ---
+  public async getRevenueCategories(): Promise<any[]> {
+    const db = await this.getDb();
+    try {
+      const res = await db.query('SELECT * FROM revenue_categories ORDER BY sort_order ASC, name ASC');
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        type: r.type || 'both',
+        description: r.description || '',
+        sortOrder: Number(r.sort_order || 0),
+        isActive: Boolean(r.is_active),
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  public async createRevenueCategory(data: any): Promise<any> {
+    const db = await this.getDb();
+    const name = String(data?.name || '').trim();
+    if (!name) {
+      throw Object.assign(new Error('Category name is required.'), { status: 400 });
+    }
+    const id = data.id || `revcat-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const code = String(data.code || `CAT-${name.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '')}`).trim();
+    const type = ['product', 'service', 'both'].includes(data.type) ? data.type : 'both';
+    await db.query(
+      `INSERT INTO revenue_categories (id, code, name, type, description, sort_order, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, sort_order = EXCLUDED.sort_order, updated_at = NOW()`,
+      [id, code, name, type, String(data.description || ''), Number(data.sortOrder || 0), data.isActive !== false]
+    );
+    return { id, code, name, type, description: data.description || '', sortOrder: Number(data.sortOrder || 0), isActive: data.isActive !== false };
+  }
+
+  public async updateRevenueCategory(id: string, data: any): Promise<any | null> {
+    const db = await this.getDb();
+    const cats = await this.getRevenueCategories();
+    const existing = cats.find((c) => c.id === id);
+    if (!existing) return null;
+    const name = data.name !== undefined ? String(data.name).trim() : existing.name;
+    const code = data.code !== undefined ? String(data.code).trim().toUpperCase() : existing.code;
+    const type = data.type !== undefined ? data.type : existing.type;
+    const desc = data.description !== undefined ? String(data.description) : existing.description;
+    const sortOrder = data.sortOrder !== undefined ? Number(data.sortOrder) : existing.sortOrder;
+    const isActive = data.isActive !== undefined ? Boolean(data.isActive) : existing.isActive;
+
+    await db.query(
+      `UPDATE revenue_categories SET code = $1, name = $2, type = $3, description = $4, sort_order = $5, is_active = $6, updated_at = NOW() WHERE id = $7`,
+      [code, name, type, desc, sortOrder, isActive, id]
+    );
+    return { ...existing, code, name, type, description: desc, sortOrder, isActive };
+  }
+
+  public async deleteRevenueCategory(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const catRes = await db.query('SELECT name FROM revenue_categories WHERE id = $1', [id]);
+    if (catRes.rows.length === 0) return false;
+    const catName = catRes.rows[0].name;
+
+    const inUse = await db.query('SELECT COUNT(*) as cnt FROM revenue_items WHERE category = $1', [catName]);
+    if (Number(inUse.rows[0]?.cnt || 0) > 0) {
+      throw Object.assign(
+        new Error(`Cannot delete category '${catName}' because it is in use by ${inUse.rows[0].cnt} revenue catalogue item(s).`),
+        { status: 400 }
+      );
+    }
+    await db.query('DELETE FROM revenue_categories WHERE id = $1', [id]);
+    return true;
+  }
+
+  // --- Revenue Subcategories ---
+  public async getRevenueSubcategories(categoryId?: string): Promise<any[]> {
+    const db = await this.getDb();
+    try {
+      const sql = categoryId
+        ? 'SELECT * FROM revenue_subcategories WHERE category_id = $1 ORDER BY sort_order ASC, name ASC'
+        : 'SELECT * FROM revenue_subcategories ORDER BY sort_order ASC, name ASC';
+      const params = categoryId ? [categoryId] : [];
+      const res = await db.query(sql, params);
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        categoryId: r.category_id,
+        categoryName: r.category_name,
+        code: r.code,
+        name: r.name,
+        description: r.description || '',
+        sortOrder: Number(r.sort_order || 0),
+        isActive: Boolean(r.is_active)
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  public async createRevenueSubcategory(data: any): Promise<any> {
+    const db = await this.getDb();
+    const name = String(data?.name || '').trim();
+    if (!name) {
+      throw Object.assign(new Error('Subcategory name is required.'), { status: 400 });
+    }
+    const id = data.id || `revsub-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const code = String(data.code || `SUB-${name.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '')}`).trim();
+    await db.query(
+      `INSERT INTO revenue_subcategories (id, category_id, category_name, code, name, description, sort_order, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
+      [id, data.categoryId || null, data.categoryName || '', code, name, String(data.description || ''), Number(data.sortOrder || 0), data.isActive !== false]
+    );
+    return { id, categoryId: data.categoryId, categoryName: data.categoryName, code, name, description: data.description || '', sortOrder: Number(data.sortOrder || 0), isActive: data.isActive !== false };
+  }
+
+  // --- Centralized Revenue Catalogue Items (Requirements 2, 3, 4, 5, 6, 20) ---
+  public async getRevenueItems(opts?: ListQueryOptions): Promise<any[]> {
+    const result = await this.getRevenueItemsPaginated({ ...(opts || {}), limit: 10000 });
+    return result.data;
+  }
+
+  public async getRevenueItemsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    // Query revenue items with active plans count and total quoted revenue aggregation
+    const res = await db.query(`
+      SELECT 
+        ri.*,
+        COUNT(DISTINCT boq.plan_id) AS linked_plans_count,
+        COALESCE(SUM(boq.total_revenue), 0) AS total_quoted_revenue
+      FROM revenue_items ri
+      LEFT JOIN project_plan_boq_items boq ON boq.revenue_item_id = ri.id
+      GROUP BY ri.id
+      ORDER BY ri.created_at DESC
+    `);
+
+    const rows = res.rows.map((r: any) => ({
+      id: r.id,
+      code: r.code,
+      barcode: r.barcode || `BC-${r.code}`,
+      name: r.name,
+      type: r.type,
+      category: r.category,
+      subCategory: r.sub_category || '',
+      description: r.description || '',
+      unit: r.unit || 'unit',
+      defaultRate: round4(Number(r.default_rate || 0)),
+      costPrice: round4(Number(r.cost_price || 0)),
+      currency: r.currency || 'USD',
+      taxTreatment: r.tax_treatment || 'Standard (0%)',
+      taxRatePct: round2(Number(r.tax_rate_pct || 0)),
+      status: r.status || 'Active',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      linkedPlansCount: Number(r.linked_plans_count || 0),
+      totalQuotedRevenue: round2(Number(r.total_quoted_revenue || 0))
+    }));
+
+    return parseFilterPagination(
+      rows,
+      opts,
+      ['name', 'code', 'barcode', 'category', 'subCategory', 'type', 'description', 'status'],
+      'name'
+    );
+  }
+
+  public async getRevenueItemById(id: string): Promise<any | null> {
+    if (!id) return null;
+    const db = await this.getDb();
+    const itemRes = await db.query(`SELECT * FROM revenue_items WHERE id = $1`, [id]);
+    if (itemRes.rows.length === 0) return null;
+    const r = itemRes.rows[0];
+
+    const [linkedPlansRes, historyRes] = await Promise.all([
+      db.query(`
+        SELECT 
+          boq.id as boq_item_id,
+          boq.plan_id,
+          pp.plan_number,
+          pp.name as plan_name,
+          boq.project_id,
+          p.code as project_code,
+          p.name as project_name,
+          boq.quantity,
+          boq.unit,
+          boq.rate,
+          boq.discount_pct,
+          boq.total_revenue,
+          boq.created_at
+        FROM project_plan_boq_items boq
+        INNER JOIN project_plans pp ON pp.id = boq.plan_id
+        INNER JOIN projects p ON p.id = boq.project_id
+        WHERE boq.revenue_item_id = $1
+        ORDER BY pp.updated_at DESC
+      `, [id]),
+      db.query(`
+        SELECT 
+          rrh.*,
+          rrh.effective_date::text AS effective_date_iso,
+          p.code AS project_code,
+          p.name AS project_name,
+          pp.plan_number,
+          pp.name AS plan_name
+        FROM revenue_rate_history rrh
+        INNER JOIN projects p ON p.id = rrh.project_id
+        INNER JOIN project_plans pp ON pp.id = rrh.project_plan_id
+        WHERE rrh.revenue_item_id = $1
+        ORDER BY rrh.recorded_at DESC
+      `, [id])
+    ]);
+
+    return {
+      id: r.id,
+      code: r.code,
+      barcode: r.barcode || `BC-${r.code}`,
+      name: r.name,
+      type: r.type,
+      category: r.category,
+      subCategory: r.sub_category || '',
+      description: r.description || '',
+      unit: r.unit || 'unit',
+      defaultRate: round4(Number(r.default_rate || 0)),
+      costPrice: round4(Number(r.cost_price || 0)),
+      currency: r.currency || 'USD',
+      taxTreatment: r.tax_treatment || 'Standard (0%)',
+      taxRatePct: round2(Number(r.tax_rate_pct || 0)),
+      status: r.status || 'Active',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      linkedPlansCount: linkedPlansRes.rows.length,
+      totalQuotedRevenue: round2(linkedPlansRes.rows.reduce((sum: number, row: any) => sum + Number(row.total_revenue || 0), 0)),
+      linkedPlans: linkedPlansRes.rows.map((row: any) => ({
+        boqItemId: row.boq_item_id,
+        planId: row.plan_id,
+        planNumber: row.plan_number,
+        planName: row.plan_name,
+        projectId: row.project_id,
+        projectCode: row.project_code,
+        projectName: row.project_name,
+        quantity: round4(row.quantity),
+        unit: row.unit,
+        rate: round4(row.rate),
+        discountPct: round2(row.discount_pct || 0),
+        totalRevenue: round2(row.total_revenue),
+        createdAt: row.created_at
+      })),
+      rateHistory: historyRes.rows.map((h: any) => ({
+        id: h.id,
+        revenueItemId: h.revenue_item_id,
+        projectId: h.project_id,
+        projectCode: h.project_code,
+        projectName: h.project_name,
+        projectPlanId: h.project_plan_id,
+        planNumber: h.plan_number,
+        planName: h.plan_name,
+        planBoqItemId: h.plan_boq_item_id,
+        previousUnit: h.previous_unit,
+        newUnit: h.new_unit,
+        previousQuantity: h.previous_quantity !== null ? round4(h.previous_quantity) : null,
+        newQuantity: round4(h.new_quantity),
+        previousRate: h.previous_rate !== null ? round4(h.previous_rate) : null,
+        newRate: round4(h.new_rate),
+        changeType: h.change_type,
+        fieldsChanged: typeof h.fields_changed === 'string' ? JSON.parse(h.fields_changed) : h.fields_changed || [],
+        effectiveDate: formatSqlDate(h.effective_date_iso || h.effective_date, ''),
+        recordedAt: h.recorded_at ? new Date(h.recorded_at).toISOString() : new Date().toISOString(),
+        changedBy: h.changed_by,
+        changeReason: h.change_reason || '',
+        commercialContext: h.commercial_context || ''
+      }))
+    };
+  }
+
+  public async createRevenueItem(data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    const db = await this.getDb();
+    const name = String(data?.name || '').trim();
+    if (!name) {
+      throw Object.assign(new Error('Revenue item name is required.'), { status: 400 });
+    }
+    const type = data.type === 'service' ? 'service' : 'product';
+    const category = String(data?.category || (type === 'service' ? 'Engineering & Design Consultancy' : 'Architectural & Structural Aluminium')).trim();
+    const id = data.id || `rev-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Auto-generate unique code if not provided
+    let code = data.code ? String(data.code).trim().toUpperCase() : '';
+    if (!code) {
+      const prefix = type === 'service' ? 'REV-SRV' : 'REV-PRD';
+      const countRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_items');
+      const seq = Number(countRes.rows[0]?.cnt || 0) + 1;
+      code = `${prefix}-${String(seq).padStart(3, '0')}`;
+      let attempt = 1;
+      while (true) {
+        const dup = await db.query('SELECT id FROM revenue_items WHERE code = $1', [code]);
+        if (dup.rows.length === 0) break;
+        attempt++;
+        code = `${prefix}-${String(seq + attempt).padStart(3, '0')}`;
+      }
+    } else {
+      const dup = await db.query('SELECT id FROM revenue_items WHERE code = $1', [code]);
+      if (dup.rows.length > 0) {
+        throw Object.assign(new Error(`Revenue item code '${code}' already exists.`), { status: 409 });
+      }
+    }
+
+    // Auto-generate barcode if not provided
+    let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
+    if (!barcode) {
+      barcode = `BC-REV-${Date.now().toString().slice(-6)}`;
+    }
+
+    const defaultRate = round4(Number(data.defaultRate ?? data.sellingRate ?? data.rate ?? 0));
+    if (!Number.isFinite(defaultRate) || defaultRate < 0) {
+      throw Object.assign(new Error('Default selling rate must be a non-negative number.'), { status: 400 });
+    }
+    const costPrice = round4(Number(data.costPrice ?? 0));
+    const unit = String(data.unit || 'unit').trim();
+    const currency = String(data.currency || 'USD').trim().toUpperCase();
+    const status = ['Active', 'Inactive', 'Archived'].includes(data.status) ? data.status : 'Active';
+
+    await db.query(
+      `INSERT INTO revenue_items (
+        id, code, barcode, name, type, category, sub_category, description, unit,
+        default_rate, cost_price, currency, tax_treatment, tax_rate_pct, status, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())`,
+      [
+        id, code, barcode, name, type, category, String(data.subCategory || ''),
+        String(data.description || ''), unit, defaultRate, costPrice, currency,
+        data.taxTreatment || 'Standard (0%)', round2(Number(data.taxRatePct ?? 0)), status
+      ]
+    );
+
+    return await this.getRevenueItemById(id);
+  }
+
+  public async updateRevenueItem(id: string, data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any | null> {
+    const db = await this.getDb();
+    const existing = await this.getRevenueItemById(id);
+    if (!existing) return null;
+
+    const name = data.name !== undefined ? String(data.name).trim() : existing.name;
+    if (!name) {
+      throw Object.assign(new Error('Revenue item name cannot be empty.'), { status: 400 });
+    }
+
+    const code = data.code !== undefined ? String(data.code).trim().toUpperCase() : existing.code;
+    if (code !== existing.code) {
+      const dup = await db.query('SELECT id FROM revenue_items WHERE code = $1 AND id != $2', [code, id]);
+      if (dup.rows.length > 0) {
+        throw Object.assign(new Error(`Revenue item code '${code}' already exists.`), { status: 409 });
+      }
+    }
+
+    const type = data.type !== undefined ? (data.type === 'service' ? 'service' : 'product') : existing.type;
+    const category = data.category !== undefined ? String(data.category).trim() : existing.category;
+    const subCategory = data.subCategory !== undefined ? String(data.subCategory) : existing.subCategory;
+    const description = data.description !== undefined ? String(data.description) : existing.description;
+    const unit = data.unit !== undefined ? String(data.unit).trim() : existing.unit;
+    const defaultRate = data.defaultRate !== undefined ? round4(Number(data.defaultRate)) : existing.defaultRate;
+    const costPrice = data.costPrice !== undefined ? round4(Number(data.costPrice)) : existing.costPrice;
+    const currency = data.currency !== undefined ? String(data.currency).trim().toUpperCase() : existing.currency;
+    const taxTreatment = data.taxTreatment !== undefined ? data.taxTreatment : existing.taxTreatment;
+    const taxRatePct = data.taxRatePct !== undefined ? round2(Number(data.taxRatePct)) : existing.taxRatePct;
+    const status = data.status !== undefined ? data.status : existing.status;
+    const barcode = data.barcode !== undefined ? String(data.barcode).trim().toUpperCase() : existing.barcode;
+
+    // Requirement 10: Changing catalogue default selling rate DOES NOT alter existing plan BOQ items
+    await db.query(
+      `UPDATE revenue_items SET
+        code = $1, barcode = $2, name = $3, type = $4, category = $5, sub_category = $6,
+        description = $7, unit = $8, default_rate = $9, cost_price = $10, currency = $11,
+        tax_treatment = $12, tax_rate_pct = $13, status = $14, updated_at = NOW()
+       WHERE id = $15`,
+      [
+        code, barcode, name, type, category, subCategory,
+        description, unit, defaultRate, costPrice, currency,
+        taxTreatment, taxRatePct, status, id
+      ]
+    );
+
+    return await this.getRevenueItemById(id);
+  }
+
+  public async deleteRevenueItem(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
+    const db = await this.getDb();
+    const existing = await this.getRevenueItemById(id);
+    if (!existing) return false;
+
+    // If linked to active plans, soft-delete by setting status = 'Archived' (to preserve historical integrity)
+    if (existing.linkedPlansCount > 0) {
+      await db.query(`UPDATE revenue_items SET status = 'Archived', updated_at = NOW() WHERE id = $1`, [id]);
+      return true;
+    }
+
+    await db.query('DELETE FROM revenue_items WHERE id = $1', [id]);
+    return true;
+  }
+
+  // --- Plan BOQ Line Items (Requirements 8, 9, 10, 11, 12, 18, 19, 22) ---
+  public async getPlanBoqItems(planId: string, opts?: ListQueryOptions): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT boq.*, ri.code as revenue_item_code, ri.name as revenue_item_name
+       FROM project_plan_boq_items boq
+       LEFT JOIN revenue_items ri ON ri.id = boq.revenue_item_id
+       WHERE boq.plan_id = $1
+       ORDER BY boq.line_order ASC, boq.created_at ASC`,
+      [planId]
+    );
+
+    const rows = res.rows.map((b: any) => ({
+      id: b.id,
+      planId: b.plan_id,
+      projectId: b.project_id,
+      sectionId: b.section_id || undefined,
+      phaseId: b.phase_id || 'phase-01',
+      type: b.item_type || 'product',
+      itemId: b.catalog_item_id || b.item_code || b.id,
+      itemCode: b.item_code || b.catalog_item_id || b.id,
+      revenueItemId: b.revenue_item_id || undefined,
+      revenueItemCode: b.revenue_item_code || undefined,
+      revenueItemName: b.revenue_item_name || undefined,
+      name: b.name,
+      category: b.category || '',
+      subCategory: b.sub_category || '',
+      supplierOrProvider: b.supplier_or_provider || '',
+      description: b.description || '',
+      quantity: round4(b.quantity ?? 1),
+      unit: b.unit || 'unit',
+      unitCost: round4(b.unit_cost ?? 0),
+      discountPct: round2(b.discount_pct ?? 0),
+      rate: round4(b.rate ?? b.billable_rate ?? 0),
+      sellingRate: round4(b.rate ?? b.billable_rate ?? 0),
+      billableRate: round4(b.rate ?? b.billable_rate ?? 0),
+      taxTreatment: b.tax_treatment || 'Standard (0%)',
+      taxRatePct: round2(b.tax_rate_pct ?? 0),
+      taxAmount: round2(b.tax_amount ?? 0),
+      totalCost: round2(b.total_cost ?? 0),
+      markupPct: round2(b.markup_pct ?? 0),
+      totalRevenue: round2(b.total_revenue ?? 0),
+      grossProfit: round2(b.gross_profit ?? 0),
+      currency: b.currency || 'USD',
+      nativeUnitCost: b.native_unit_cost !== null && b.native_unit_cost !== undefined ? round4(b.native_unit_cost) : round4(b.unit_cost ?? 0),
+      consumptionRate: round2(b.consumption_rate ?? 100),
+      notes: b.notes || '',
+      lineOrder: Number(b.line_order || 1),
+      snapshotData: typeof b.snapshot_data === 'string' ? JSON.parse(b.snapshot_data) : b.snapshot_data || {},
+      commercialContext: b.commercial_context || '',
+      createdAt: b.created_at ? new Date(b.created_at).toISOString() : new Date().toISOString()
+    }));
+
+    if (opts) {
+      return parseFilterPagination(rows, opts, ['name', 'itemCode', 'revenueItemCode', 'category', 'type', 'description'], '').data;
+    }
+    return rows;
+  }
+
+  public async getPlanBoqItemById(planId: string, boqItemId: string): Promise<any | null> {
+    const items = await this.getPlanBoqItems(planId);
+    return items.find((i) => i.id === boqItemId) || null;
+  }
+
+  public async addRevenueItemToPlan(
+    planId: string,
+    data: any,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<{ boqItem: any; historyRecord: any }> {
+    return this.withTransaction(async (q) => {
+      // 1. Validate plan exists and lock it
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1 FOR UPDATE', [planId]);
+      if (planRes.rows.length === 0) {
+        throw Object.assign(new Error(`Project plan '${planId}' does not exist.`), { status: 404 });
+      }
+      const plan = planRes.rows[0];
+      const projectId = plan.project_id;
+
+      // 2. Resolve revenue catalogue item if provided
+      let revItem: any = null;
+      const revItemId = data.revenueItemId || data.itemId;
+      if (revItemId) {
+        const itemRes = await q('SELECT * FROM revenue_items WHERE id = $1', [revItemId]);
+        if (itemRes.rows.length > 0) {
+          revItem = itemRes.rows[0];
+        }
+      }
+
+      // If item code or name is provided without revenueItemId, try lookup by code/name
+      if (!revItem && (data.code || data.itemCode || data.name)) {
+        const itemRes = await q(
+          'SELECT * FROM revenue_items WHERE (code IS NOT NULL AND LOWER(code) = LOWER($1)) OR LOWER(name) = LOWER($2)',
+          [data.code || data.itemCode || '', data.name || '']
+        );
+        if (itemRes.rows.length > 0) {
+          revItem = itemRes.rows[0];
+        }
+      }
+
+      // Snapshot original catalogue commercial details (Requirement 12)
+      const snapshotData = revItem
+        ? {
+            catalogueItemId: revItem.id,
+            catalogueCode: revItem.code,
+            catalogueName: revItem.name,
+            catalogueType: revItem.type,
+            catalogueDefaultRate: round4(revItem.default_rate),
+            catalogueUnit: revItem.unit,
+            catalogueCategory: revItem.category,
+            catalogueCurrency: revItem.currency
+          }
+        : (data.snapshotData || {});
+
+      const boqId = data.id || `boq-${planId}-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const itemType = revItem ? revItem.type : (data.type || 'product');
+      const itemCode = revItem ? revItem.code : (data.code || data.itemCode || `BOQ-${Date.now().toString().slice(-4)}`);
+      const name = String(data.name || revItem?.name || 'BOQ Item').trim();
+      if (!name) {
+        throw Object.assign(new Error('Item name is required for BOQ item.'), { status: 400 });
+      }
+
+      const description = data.description !== undefined ? String(data.description) : (revItem?.description || '');
+      const unit = String(data.unit || revItem?.unit || 'unit').trim();
+      const quantity = Math.max(0, round4(Number(data.quantity || 1)));
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw Object.assign(new Error('Quantity must be a positive number greater than 0.'), { status: 400 });
+      }
+
+      // Project-specific selling rate (Requirement 9, 10, 11)
+      const rate = round4(Number(data.rate ?? data.sellingRate ?? revItem?.default_rate ?? 0));
+      if (!Number.isFinite(rate) || rate < 0) {
+        throw Object.assign(new Error('Selling rate must be a non-negative number.'), { status: 400 });
+      }
+
+      const unitCost = round4(Number(data.unitCost ?? revItem?.cost_price ?? 0));
+      const discountPct = Math.max(0, Math.min(100, round2(Number(data.discountPct ?? 0))));
+      const { totalAmount: directCostTotal } = calcDiscountedLine(quantity, unitCost, 0);
+      const totalCost = round2(directCostTotal);
+
+      // Line Revenue calculation
+      const discountedRate = round4(decMul(rate, decSub(1, decDiv(discountPct, 100))));
+      const totalRevenue = round2(decMul(quantity, discountedRate));
+      const grossProfit = round2(decSub(totalRevenue, totalCost));
+
+      const taxTreatment = String(data.taxTreatment || revItem?.tax_treatment || 'Standard (0%)');
+      const taxRatePct = round2(Number(data.taxRatePct ?? revItem?.tax_rate_pct ?? 0));
+      const taxAmount = round2(decMul(totalRevenue, decDiv(taxRatePct, 100)));
+
+      // Line order
+      const lineOrder = Number(data.lineOrder || (await q('SELECT COUNT(*) as cnt FROM project_plan_boq_items WHERE plan_id = $1', [planId])).rows[0]?.cnt || 0) + 1;
+
+      // Insert BOQ Item
+      await q(
+        `INSERT INTO project_plan_boq_items (
+          id, plan_id, project_id, section_id, phase_id, item_type, catalog_item_id, item_code,
+          revenue_item_id, rate, description, tax_treatment, tax_rate_pct, tax_amount,
+          name, category, supplier_or_provider, quantity, unit, unit_cost, discount_pct,
+          total_cost, markup_pct, billable_rate, total_revenue, gross_profit,
+          currency, native_unit_cost, consumption_rate, notes, line_order, snapshot_data, commercial_context
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20, $21,
+          $22, $23, $24, $25, $26,
+          $27, $28, $29, $30, $31, $32, $33
+        )`,
+        [
+          boqId,
+          planId,
+          projectId,
+          data.sectionId || null,
+          data.phaseId || 'phase-01',
+          itemType,
+          revItem ? revItem.id : (data.catalogItemId || null),
+          itemCode,
+          revItem ? revItem.id : null,
+          rate,
+          description,
+          taxTreatment,
+          taxRatePct,
+          taxAmount,
+          name,
+          data.category || revItem?.category || 'General',
+          data.supplierOrProvider || 'Company Direct',
+          quantity,
+          unit,
+          unitCost,
+          discountPct,
+          totalCost,
+          round2(Number(data.markupPct || 30)),
+          rate,
+          totalRevenue,
+          grossProfit,
+          data.currency || plan.currency || 'USD',
+          unitCost,
+          round2(Number(data.consumptionRate || 100)),
+          String(data.notes || ''),
+          lineOrder,
+          JSON.stringify(snapshotData),
+          String(data.commercialContext || `Initial plan commercial terms`)
+        ]
+      );
+
+      // Record initial historical commercial rate record in revenue_rate_history (Requirement 13, 14, 18)
+      const histId = data.historyId || `rrh-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const effectiveDate = formatSqlDate(data.effectiveDate, todayIso);
+      const actorName = actor?.name || data.changedBy || 'System User';
+      const commercialContext = String(data.commercialContext || `Initial addition to Plan ${plan.plan_number || plan.name}`);
+      const changeReason = String(data.changeReason || 'Initial BOQ commercial term assignment');
+
+      let historyRecord: any = null;
+      if (revItem || data.revenueItemId) {
+        const targetRevId = revItem ? revItem.id : data.revenueItemId;
+        await q(
+          `INSERT INTO revenue_rate_history (
+            id, revenue_item_id, project_id, project_plan_id, plan_boq_item_id,
+            previous_unit, new_unit, previous_quantity, new_quantity, previous_rate, new_rate,
+            change_type, fields_changed, effective_date, recorded_at, changed_by, change_reason, commercial_context, idempotency_key
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, NOW(), $15, $16, $17, $18)
+          ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            histId,
+            targetRevId,
+            projectId,
+            planId,
+            boqId,
+            null,
+            unit,
+            null,
+            quantity,
+            null,
+            rate,
+            'initial_addition',
+            JSON.stringify(['initial_addition', 'rate', 'quantity', 'unit']),
+            effectiveDate,
+            actorName,
+            changeReason,
+            commercialContext,
+            data.idempotencyKey || `init-${planId}-${boqId}`
+          ]
+        );
+
+        historyRecord = {
+          id: histId,
+          revenueItemId: targetRevId,
+          projectId,
+          projectPlanId: planId,
+          planBoqItemId: boqId,
+          previousUnit: null,
+          newUnit: unit,
+          previousQuantity: null,
+          newQuantity: quantity,
+          previousRate: null,
+          newRate: rate,
+          changeType: 'initial_addition',
+          fieldsChanged: ['initial_addition', 'rate', 'quantity', 'unit'],
+          effectiveDate,
+          changedBy: actorName,
+          changeReason,
+          commercialContext
+        };
+      }
+
+      // Recalculate plan financials
+      await this.recalculatePlanFinancials(planId, q);
+
+      const boqRow = await q('SELECT * FROM project_plan_boq_items WHERE id = $1', [boqId]);
+      return {
+        boqItem: boqRow.rows[0],
+        historyRecord
+      };
+    });
+  }
+
+  public async updatePlanBoqItem(
+    planId: string,
+    boqItemId: string,
+    data: any,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<{ boqItem: any; historyRecord?: any }> {
+    return this.withTransaction(async (q) => {
+      const boqRes = await q('SELECT * FROM project_plan_boq_items WHERE id = $1 AND plan_id = $2 FOR UPDATE', [boqItemId, planId]);
+      if (boqRes.rows.length === 0) {
+        throw Object.assign(new Error(`BOQ item '${boqItemId}' not found in plan '${planId}'.`), { status: 404 });
+      }
+      const existing = boqRes.rows[0];
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+      const plan = planRes.rows[0];
+      const projectId = existing.project_id || plan.project_id;
+
+      const oldRate = round4(existing.rate ?? existing.billable_rate ?? 0);
+      const oldQty = round4(existing.quantity ?? 1);
+      const oldUnit = String(existing.unit || 'unit');
+
+      const newRate = data.rate !== undefined
+        ? round4(Number(data.rate))
+        : (data.sellingRate !== undefined ? round4(Number(data.sellingRate)) : oldRate);
+      if (!Number.isFinite(newRate) || newRate < 0) {
+        throw Object.assign(new Error('Selling rate must be a non-negative number.'), { status: 400 });
+      }
+
+      const newQty = data.quantity !== undefined ? round4(Number(data.quantity)) : oldQty;
+      if (!Number.isFinite(newQty) || newQty <= 0) {
+        throw Object.assign(new Error('Quantity must be greater than 0.'), { status: 400 });
+      }
+
+      const newUnit = data.unit !== undefined ? String(data.unit).trim() : oldUnit;
+      const newDiscountPct = data.discountPct !== undefined ? Math.max(0, Math.min(100, round2(Number(data.discountPct)))) : round2(existing.discount_pct || 0);
+      const newDescription = data.description !== undefined ? String(data.description) : (existing.description || '');
+      const newTaxTreatment = data.taxTreatment !== undefined ? String(data.taxTreatment) : (existing.tax_treatment || 'Standard (0%)');
+      const newTaxRatePct = data.taxRatePct !== undefined ? round2(Number(data.taxRatePct)) : round2(existing.tax_rate_pct || 0);
+
+      const rateChanged = newRate !== oldRate;
+      const qtyChanged = newQty !== oldQty;
+      const unitChanged = newUnit !== oldUnit;
+      const discountChanged = newDiscountPct !== round2(existing.discount_pct || 0);
+
+      const fieldsChanged: string[] = [];
+      if (rateChanged) fieldsChanged.push('rate');
+      if (qtyChanged) fieldsChanged.push('quantity');
+      if (unitChanged) fieldsChanged.push('unit');
+      if (discountChanged) fieldsChanged.push('discount_pct');
+
+      const changeType =
+        rateChanged && qtyChanged ? 'rate_and_quantity_change' :
+        rateChanged ? 'rate_change' :
+        qtyChanged ? 'quantity_change' :
+        unitChanged ? 'unit_change' :
+        'commercial_terms_update';
+
+      // Financial line recalculation
+      const unitCost = round4(existing.unit_cost || 0);
+      const { totalAmount: directCostTotal } = calcDiscountedLine(newQty, unitCost, 0);
+      const totalCost = round2(directCostTotal);
+      const discountedRate = round4(decMul(newRate, decSub(1, decDiv(newDiscountPct, 100))));
+      const totalRevenue = round2(decMul(newQty, discountedRate));
+      const grossProfit = round2(decSub(totalRevenue, totalCost));
+      const taxAmount = round2(decMul(totalRevenue, decDiv(newTaxRatePct, 100)));
+
+      // Update project_plan_boq_items
+      await q(
+        `UPDATE project_plan_boq_items SET
+          quantity = $1, unit = $2, rate = $3, billable_rate = $3, discount_pct = $4,
+          description = $5, tax_treatment = $6, tax_rate_pct = $7, tax_amount = $8,
+          total_cost = $9, total_revenue = $10, gross_profit = $11, updated_at = NOW()
+         WHERE id = $12`,
+        [
+          newQty, newUnit, newRate, newDiscountPct,
+          newDescription, newTaxTreatment, newTaxRatePct, taxAmount,
+          totalCost, totalRevenue, grossProfit, boqItemId
+        ]
+      );
+
+      // Record in revenue_rate_history (Requirement 13, 14, 15, 16, 17)
+      let historyRecord: any = null;
+      const revenueItemId = existing.revenue_item_id || data.revenueItemId;
+      if (revenueItemId && (fieldsChanged.length > 0 || data.changeReason)) {
+        const histId = data.historyId || `rrh-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const effectiveDate = formatSqlDate(data.effectiveDate, todayIso);
+        const actorName = actor?.name || data.changedBy || 'System User';
+        const changeReason = String(data.changeReason || `Commercial terms update (${fieldsChanged.join(', ') || 'details'})`);
+        const commercialContext = String(data.commercialContext || `Plan ${plan.plan_number || plan.name} commercial terms revised`);
+
+        await q(
+          `INSERT INTO revenue_rate_history (
+            id, revenue_item_id, project_id, project_plan_id, plan_boq_item_id,
+            previous_unit, new_unit, previous_quantity, new_quantity, previous_rate, new_rate,
+            change_type, fields_changed, effective_date, recorded_at, changed_by, change_reason, commercial_context, idempotency_key
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, NOW(), $15, $16, $17, $18)
+          ON CONFLICT (idempotency_key) DO NOTHING`,
+          [
+            histId,
+            revenueItemId,
+            projectId,
+            planId,
+            boqItemId,
+            oldUnit,
+            newUnit,
+            oldQty,
+            newQty,
+            oldRate,
+            newRate,
+            changeType,
+            JSON.stringify(fieldsChanged),
+            effectiveDate,
+            actorName,
+            changeReason,
+            commercialContext,
+            data.idempotencyKey || null
+          ]
+        );
+
+        historyRecord = {
+          id: histId,
+          revenueItemId,
+          projectId,
+          projectPlanId: planId,
+          planBoqItemId: boqItemId,
+          previousUnit: oldUnit,
+          newUnit: newUnit,
+          previousQuantity: oldQty,
+          newQuantity: newQty,
+          previousRate: oldRate,
+          newRate: newRate,
+          changeType,
+          fieldsChanged,
+          effectiveDate,
+          changedBy: actorName,
+          changeReason,
+          commercialContext
+        };
+      }
+
+      // Recalculate plan financials
+      await this.recalculatePlanFinancials(planId, q);
+
+      const updatedRow = await q('SELECT * FROM project_plan_boq_items WHERE id = $1', [boqItemId]);
+      return {
+        boqItem: updatedRow.rows[0],
+        historyRecord
+      };
+    });
+  }
+
+  public async deletePlanBoqItem(
+    planId: string,
+    boqItemId: string,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<boolean> {
+    const db = await this.getDb();
+    return this.withTransaction(async (q) => {
+      const boqRes = await q('SELECT * FROM project_plan_boq_items WHERE id = $1 AND plan_id = $2 FOR UPDATE', [boqItemId, planId]);
+      if (boqRes.rows.length === 0) return false;
+      await q('DELETE FROM project_plan_boq_items WHERE id = $1', [boqItemId]);
+      await this.recalculatePlanFinancials(planId, q);
+      return true;
+    });
+  }
+
+  // --- Historical Commercial Rate Tracking (Requirements 13, 14, 15, 16, 20, 21) ---
+  public async getRevenueRateHistory(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    const res = await db.query(`
+      SELECT 
+        rrh.*,
+        rrh.effective_date::text AS effective_date_iso,
+        ri.code AS revenue_item_code,
+        ri.name AS revenue_item_name,
+        ri.type AS revenue_item_type,
+        p.code AS project_code,
+        p.name AS project_name,
+        pp.plan_number,
+        pp.name AS plan_name
+      FROM revenue_rate_history rrh
+      INNER JOIN revenue_items ri ON ri.id = rrh.revenue_item_id
+      INNER JOIN projects p ON p.id = rrh.project_id
+      INNER JOIN project_plans pp ON pp.id = rrh.project_plan_id
+      ORDER BY rrh.recorded_at DESC, rrh.effective_date DESC
+    `);
+
+    let rows: any[] = res.rows.map((r: any) => ({
+      id: r.id,
+      revenueItemId: r.revenue_item_id,
+      revenueItemCode: r.revenue_item_code,
+      revenueItemName: r.revenue_item_name,
+      revenueItemType: r.revenue_item_type,
+      projectId: r.project_id,
+      projectCode: r.project_code,
+      projectName: r.project_name,
+      projectPlanId: r.project_plan_id,
+      planNumber: r.plan_number,
+      planName: r.plan_name,
+      planBoqItemId: r.plan_boq_item_id,
+      previousUnit: r.previous_unit,
+      newUnit: r.new_unit,
+      previousQuantity: r.previous_quantity !== null ? round4(r.previous_quantity) : null,
+      newQuantity: round4(r.new_quantity),
+      previousRate: r.previous_rate !== null ? round4(r.previous_rate) : null,
+      newRate: round4(r.new_rate),
+      changeType: r.change_type,
+      fieldsChanged: typeof r.fields_changed === 'string' ? JSON.parse(r.fields_changed) : r.fields_changed || [],
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, ''),
+      recordedAt: r.recorded_at ? new Date(r.recorded_at).toISOString() : new Date().toISOString(),
+      changedBy: r.changed_by,
+      changeReason: r.change_reason || '',
+      commercialContext: r.commercial_context || '',
+      idempotencyKey: r.idempotency_key || undefined
+    }));
+
+    if (opts) {
+      if (opts.entityId || opts.materialId) {
+        const id = opts.entityId || opts.materialId;
+        rows = rows.filter((r) => r.revenueItemId === id || r.planBoqItemId === id);
+      }
+      if (opts.projectId && opts.projectId !== 'ALL') {
+        rows = rows.filter((r) => r.projectId === opts.projectId);
+      }
+    }
+
+    return parseFilterPagination(
+      rows,
+      opts,
+      ['revenueItemCode', 'revenueItemName', 'projectName', 'projectCode', 'planNumber', 'planName', 'changedBy', 'changeReason', 'changeType'],
+      ''
+    );
+  }
+
+  public async getProjectCommercialHistory(projectId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    return this.getRevenueRateHistory({ ...(opts || {}), projectId });
+  }
+
+  public async getRevenueItemRateHistory(revenueItemId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    return this.getRevenueRateHistory({ ...(opts || {}), entityId: revenueItemId });
+  }
+
   // --- Database Status ---
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
@@ -6127,6 +7342,7 @@ export class PostgresService {
       'project_plan_sections', 'project_plan_boq_items', 'project_plan_resources',
       'project_plan_overhead_allocations', 'project_plan_cost_summaries',
       'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
+      'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',
       'suppliers', 'materials', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'categories', 'custom_tiles', 'company_details',

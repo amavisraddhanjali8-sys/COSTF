@@ -13,7 +13,12 @@ import {
   OverheadCategory,
   OverheadItem,
   PlanOverheadAllocation,
-  OverheadAuditLog
+  OverheadAuditLog,
+  RevenueItem,
+  RevenueCategory,
+  RevenueSubcategory,
+  RevenueRateHistoryRecord,
+  ProjectPlanBoqItem
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -1176,6 +1181,152 @@ export const api = {
   async getOverheadAuditLogs(params?: ListQueryParams): Promise<PaginatedApiResponse<OverheadAuditLog>> {
     const res = await fetch(`/api/overhead-audit-logs?${buildQueryString(params, true)}`);
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch overhead audit logs');
+    return await res.json();
+  },
+
+  // ============================================================================
+  // REVENUE CATALOGUE & COMMERCIAL RATE TRACKING API (TASK 3)
+  // ============================================================================
+
+  async getRevenueCategories(): Promise<RevenueCategory[]> {
+    const res = await fetch('/api/revenue-categories');
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue categories');
+    return await res.json();
+  },
+
+  async createRevenueCategory(data: Partial<RevenueCategory>): Promise<RevenueCategory> {
+    const res = await fetch('/api/revenue-categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create revenue category');
+    return await res.json();
+  },
+
+  async getRevenueSubcategories(categoryId?: string): Promise<RevenueSubcategory[]> {
+    const url = categoryId ? `/api/revenue-subcategories?categoryId=${encodeURIComponent(categoryId)}` : '/api/revenue-subcategories';
+    const res = await fetch(url);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue subcategories');
+    return await res.json();
+  },
+
+  async createRevenueSubcategory(data: Partial<RevenueSubcategory>): Promise<RevenueSubcategory> {
+    const res = await fetch('/api/revenue-subcategories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create revenue subcategory');
+    return await res.json();
+  },
+
+  async getRevenueItems(params?: ListQueryParams): Promise<PaginatedApiResponse<RevenueItem>> {
+    const res = await fetch(`/api/revenue-items?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue items');
+    return await res.json();
+  },
+
+  async getRevenueItemsList(params?: ListQueryParams): Promise<RevenueItem[]> {
+    const res = await fetch(`/api/revenue-items?${buildQueryString(params, false)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue items');
+    return await res.json();
+  },
+
+  async getRevenueItemById(id: string): Promise<RevenueItem & { linkedPlans: any[]; rateHistory: RevenueRateHistoryRecord[] }> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(id)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue item details');
+    return await res.json();
+  },
+
+  async createRevenueItem(data: Partial<RevenueItem>): Promise<RevenueItem> {
+    const res = await fetch('/api/revenue-items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create revenue catalogue item');
+    return await res.json();
+  },
+
+  async updateRevenueItem(id: string, data: Partial<RevenueItem>): Promise<RevenueItem> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update revenue catalogue item');
+    return await res.json();
+  },
+
+  async deleteRevenueItem(id: string): Promise<void> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete revenue catalogue item');
+  },
+
+  // --- Plan BOQ Items ---
+  async getPlanBoqItems(planId: string, params?: ListQueryParams): Promise<ProjectPlanBoqItem[]> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items?${buildQueryString(params, false)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan BOQ items');
+    return await res.json();
+  },
+
+  async getPlanBoqItemById(planId: string, boqItemId: string): Promise<ProjectPlanBoqItem> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items/${encodeURIComponent(boqItemId)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan BOQ item details');
+    return await res.json();
+  },
+
+  async addRevenueItemToPlan(
+    planId: string,
+    data: any
+  ): Promise<{ boqItem: ProjectPlanBoqItem; historyRecord?: RevenueRateHistoryRecord }> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to add item to project plan BOQ');
+    return await res.json();
+  },
+
+  async updatePlanBoqItem(
+    planId: string,
+    boqItemId: string,
+    data: any
+  ): Promise<{ boqItem: ProjectPlanBoqItem; historyRecord?: RevenueRateHistoryRecord }> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items/${encodeURIComponent(boqItemId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update plan BOQ item');
+    return await res.json();
+  },
+
+  async deletePlanBoqItem(planId: string, boqItemId: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items/${encodeURIComponent(boqItemId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove plan BOQ item');
+  },
+
+  // --- Historical Rate Tracking ---
+  async getRevenueRateHistory(params?: ListQueryParams): Promise<PaginatedApiResponse<RevenueRateHistoryRecord>> {
+    const res = await fetch(`/api/revenue-rate-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue rate history');
+    return await res.json();
+  },
+
+  async getRevenueItemRateHistory(revenueItemId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<RevenueRateHistoryRecord>> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(revenueItemId)}/rate-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch item rate history');
+    return await res.json();
+  },
+
+  async getProjectCommercialHistory(projectId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<RevenueRateHistoryRecord>> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/commercial-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project commercial history');
     return await res.json();
   }
 };

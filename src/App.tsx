@@ -12,6 +12,7 @@ import { MasterDataGridCatalog } from './components/MasterDataGridCatalog';
 import { ProjectHomeView } from './components/ProjectHomeView';
 import { PlanDetailsPage } from './components/project/PlanDetailsPage';
 import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
+import { RevenueCataloguePortal } from './components/revenue/RevenueCataloguePortal';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
 import { LoginPage } from './components/LoginPage';
@@ -1664,6 +1665,18 @@ export default function App() {
               setActiveTab('plan-details');
             }}
             showToast={showToast}
+          />
+        )}
+
+        {activeTab === 'revenue-portal' && (
+          <RevenueCataloguePortal
+            activeCurrency={activeCurrency}
+            projects={projects}
+            onOpenProjectPlan={(planId) => {
+              setSelectedPlanId(planId);
+              setActiveTab('plan-details');
+            }}
+            showNotification={(msg) => showToast({ message: msg, type: 'info' })}
           />
         )}
 

@@ -57,14 +57,31 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     const lineCost = round2(totalAmount);
 
     const markupPct = round2(it.markupPct ?? 30);
-    const defaultBillableRate = round4(decMul(unitCost, decAdd(1, decDiv(markupPct, 100))));
-    const billableRate = it.billableRate !== undefined && Number(it.billableRate) > 0 ? round4(it.billableRate) : defaultBillableRate;
-    const totalRevenue = it.totalRevenue !== undefined && Number(it.totalRevenue) > 0 ? round2(it.totalRevenue) : round2(decMul(qty, billableRate));
+    const explicitRate = it.rate !== undefined && Number(it.rate) > 0
+      ? round4(it.rate)
+      : it.sellingRate !== undefined && Number(it.sellingRate) > 0
+      ? round4(it.sellingRate)
+      : it.billableRate !== undefined && Number(it.billableRate) > 0
+      ? round4(it.billableRate)
+      : round4(decMul(unitCost, decAdd(1, decDiv(markupPct, 100))));
+
+    const billableRate = explicitRate;
+    const rate = explicitRate;
+
+    // Line revenue: qty * rate discounted by discountPct
+    const calcLineRevenue = round2(decMul(qty, decMul(rate, decSub(1, decDiv(discountPct, 100)))));
+    const totalRevenue = it.totalRevenue !== undefined && Number(it.totalRevenue) > 0
+      ? round2(it.totalRevenue)
+      : calcLineRevenue;
     const grossProfit = round2(decSub(totalRevenue, lineCost));
 
     const itemTypeRaw = String(it.type || 'material').toLowerCase();
     const itemType: ProjectPlanBoqItem['type'] =
-      itemTypeRaw === 'subcontractor'
+      itemTypeRaw === 'product'
+        ? 'product'
+        : itemTypeRaw === 'service'
+        ? 'service'
+        : itemTypeRaw === 'subcontractor'
         ? 'subcontractor'
         : itemTypeRaw === 'outsourced'
         ? 'outsourced'
@@ -95,23 +112,33 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       type: itemType,
       itemId: it.itemId || it.itemCode || `ITM-${idx + 1}`,
       itemCode: it.itemCode || it.itemId || `ITM-${idx + 1}`,
+      revenueItemId: (it as any).revenueItemId || undefined,
       name: String(it.name || 'Line Item').trim(),
       category: it.category || '',
+      subCategory: (it as any).subCategory || '',
       supplierOrProvider: it.supplierOrProvider || 'Approved Vendor',
+      description: it.description || '',
       quantity: qty,
       unit: it.unit || 'pcs',
       unitCost,
       discountPct,
+      rate,
+      sellingRate: rate,
       totalCost: lineCost,
       markupPct,
       billableRate,
+      taxTreatment: (it as any).taxTreatment || 'Standard (0%)',
+      taxRatePct: round2((it as any).taxRatePct ?? 0),
+      taxAmount: round2((it as any).taxAmount ?? 0),
       totalRevenue,
       grossProfit,
       currency: it.currency || 'USD',
       nativeUnitCost: it.nativeUnitCost !== undefined ? round4(it.nativeUnitCost) : unitCost,
       consumptionRate: it.consumptionRate !== undefined ? round2(it.consumptionRate) : 100,
       notes: it.notes || '',
-      lineOrder: it.lineOrder !== undefined ? Number(it.lineOrder) : idx + 1
+      lineOrder: it.lineOrder !== undefined ? Number(it.lineOrder) : idx + 1,
+      snapshotData: (it as any).snapshotData || (it as any).snapshot_data || undefined,
+      commercialContext: (it as any).commercialContext || (it as any).commercial_context || undefined
     };
   });
 
