@@ -9,7 +9,11 @@ import {
   CompanyDetails,
   AppUser as UserAccount,
   AccountRequest,
-  AuditLogRecord as AuditLogEntry
+  AuditLogRecord as AuditLogEntry,
+  OverheadCategory,
+  OverheadItem,
+  PlanOverheadAllocation,
+  OverheadAuditLog
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -1045,5 +1049,133 @@ export const api = {
       auditLogs,
       accountRequests
     };
+  },
+
+  // --- Overhead Cost Management Portal (TASK 2) ---
+  async getOverheadCategories(): Promise<OverheadCategory[]> {
+    const res = await fetch(`/api/overhead-categories`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch overhead categories');
+    return await res.json();
+  },
+
+  async createOverheadCategory(data: Partial<OverheadCategory>): Promise<OverheadCategory> {
+    const res = await fetch(`/api/overhead-categories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create overhead category');
+    return await res.json();
+  },
+
+  async updateOverheadCategory(id: string, data: Partial<OverheadCategory>): Promise<OverheadCategory> {
+    const res = await fetch(`/api/overhead-categories/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update overhead category');
+    return await res.json();
+  },
+
+  async deleteOverheadCategory(id: string): Promise<void> {
+    const res = await fetch(`/api/overhead-categories/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete overhead category');
+  },
+
+  async getOverheadItems(params?: ListQueryParams): Promise<OverheadItem[]> {
+    const res = await fetch(`/api/overhead-items?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch overhead catalogue items');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
+  async getOverheadItemsPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<OverheadItem>> {
+    const res = await fetch(`/api/overhead-items?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch paginated overhead items');
+    return await res.json();
+  },
+
+  async getOverheadItemById(id: string): Promise<OverheadItem> {
+    const res = await fetch(`/api/overhead-items/${id}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch overhead item details');
+    return await res.json();
+  },
+
+  async createOverheadItem(data: any): Promise<OverheadItem> {
+    const res = await fetch(`/api/overhead-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create overhead catalogue item');
+    return await res.json();
+  },
+
+  async updateOverheadItem(id: string, data: any): Promise<OverheadItem> {
+    const res = await fetch(`/api/overhead-items/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update overhead catalogue item');
+    return await res.json();
+  },
+
+  async deleteOverheadItem(id: string): Promise<void> {
+    const res = await fetch(`/api/overhead-items/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete overhead catalogue item');
+  },
+
+  async getAllOverheadAllocations(params?: ListQueryParams): Promise<any[]> {
+    const res = await fetch(`/api/overhead-allocations?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch all overhead allocations');
+    return await res.json();
+  },
+
+  async getPlanOverheadAllocations(planId: string): Promise<PlanOverheadAllocation[]> {
+    const res = await fetch(`/api/project-plans/${planId}/overheads`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan overhead allocations');
+    return await res.json();
+  },
+
+  async addPlanOverheadAllocation(planId: string, data: any): Promise<PlanOverheadAllocation> {
+    const res = await fetch(`/api/project-plans/${planId}/overheads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to allocate overhead to plan');
+    return await res.json();
+  },
+
+  async updatePlanOverheadAllocation(planId: string, allocationId: string, data: any): Promise<PlanOverheadAllocation> {
+    const res = await fetch(`/api/project-plans/${planId}/overheads/${allocationId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update plan overhead allocation');
+    return await res.json();
+  },
+
+  async deletePlanOverheadAllocation(planId: string, allocationId: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${planId}/overheads/${allocationId}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove plan overhead allocation');
+  },
+
+  async recalculatePlanOverheads(planId: string): Promise<PlanOverheadAllocation[]> {
+    const res = await fetch(`/api/project-plans/${planId}/recalculate-overheads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to recalculate plan overheads');
+    return await res.json();
+  },
+
+  async getOverheadAuditLogs(params?: ListQueryParams): Promise<PaginatedApiResponse<OverheadAuditLog>> {
+    const res = await fetch(`/api/overhead-audit-logs?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch overhead audit logs');
+    return await res.json();
   }
 };

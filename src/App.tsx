@@ -11,6 +11,7 @@ import { DirectoryCardsHubView } from './components/DirectoryCardsHubView';
 import { MasterDataGridCatalog } from './components/MasterDataGridCatalog';
 import { ProjectHomeView } from './components/ProjectHomeView';
 import { PlanDetailsPage } from './components/project/PlanDetailsPage';
+import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
 import { LoginPage } from './components/LoginPage';
@@ -1654,6 +1655,18 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'overhead-portal' && (
+          <OverheadCostPortal
+            currentUser={currentUser}
+            projects={projects}
+            onOpenPlan={(planId) => {
+              setSelectedPlanId(planId);
+              setActiveTab('plan-details');
+            }}
+            showToast={showToast}
+          />
+        )}
+
         {activeTab === 'plan-details' && selectedPlanId && (
           <PlanDetailsPage
             planId={selectedPlanId}
@@ -1664,6 +1677,7 @@ export default function App() {
               setSelectedProjectId(projId);
               setActiveTab('project-home');
             }}
+            onOpenOverheadPortal={() => setActiveTab('overhead-portal')}
             showToast={showToast}
           />
         )}

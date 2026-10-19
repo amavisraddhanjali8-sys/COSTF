@@ -16,7 +16,7 @@ import {
 import { INITIAL_CLIENT_PROFILES } from '../data/categoriesAndProfiles';
 import { buildDefaultCategories } from '../services/persistentDatabase';
 import { INITIAL_USERS, INITIAL_COMPANY_DETAILS, INITIAL_AUDIT_LOGS } from '../data/userAndAuditData';
-import { round2, round4, calcDiscountedLine, calcPctChange, decAdd, decSub } from '../utils/decimalMath';
+import { round2, round4, calcDiscountedLine, calcPctChange, decAdd, decSub, decMul, decDiv } from '../utils/decimalMath';
 import { calculatePlanFinancials } from '../utils/planCalculationService';
 
 // Parse PostgreSQL INT8 (OID 20), NUMERIC (OID 1700), and DATE (OID 1082)
@@ -2769,11 +2769,23 @@ export class PostgresService {
       id: ovh.id,
       planId: ovh.plan_id,
       projectId: ovh.project_id,
-      category: ovh.category,
-      allocationType: ovh.allocation_type || 'percentage',
-      ratePct: round2(ovh.rate_pct ?? 0),
+      overheadItemId: ovh.overhead_item_id || undefined,
+      overheadItemCode: ovh.overhead_item_code || ovh.code || undefined,
+      overheadItemName: ovh.overhead_item_name || ovh.name || ovh.category || 'Overhead Item',
+      barcode: ovh.barcode || undefined,
+      costType: ovh.cost_type || 'Fixed',
+      unitType: ovh.unit_type || 'month',
+      category: ovh.category || 'General Overhead',
+      allocationMethod: ovh.allocation_method || (ovh.allocation_type === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base'),
+      allocationType: (ovh.allocation_method === 'fixed_amount' || ovh.allocation_type === 'fixed') ? 'fixed' : 'percentage',
+      allocationBase: ovh.allocation_base || 'total_direct_cost',
+      allocationRate: round4(ovh.allocation_rate ?? ovh.rate_pct ?? 0),
+      ratePct: round2(ovh.rate_pct ?? ovh.allocation_rate ?? 0),
+      unitQuantity: round4(ovh.unit_quantity ?? 1),
       baseAmount: round2(ovh.base_amount ?? 0),
       allocatedAmount: round2(ovh.allocated_amount ?? 0),
+      effectiveDate: formatSqlDate(ovh.effective_date_iso || ovh.effective_date, ''),
+      allocatedBy: ovh.allocated_by || 'System',
       notes: ovh.notes || ''
     }));
 
@@ -2924,7 +2936,23 @@ export class PostgresService {
       db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_sections ORDER BY sequence_order ASC'),
       db.query('SELECT * FROM project_plan_boq_items ORDER BY line_order ASC, created_at ASC'),
       db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_resources ORDER BY created_at ASC'),
-      db.query('SELECT * FROM project_plan_overhead_allocations ORDER BY created_at ASC'),
+      db.query(
+        `SELECT
+          poa.*,
+          poa.effective_date::text AS effective_date_iso,
+          oi.code AS overhead_item_code,
+          oi.name AS overhead_item_name,
+          oi.barcode,
+          oi.category,
+          oi.cost_type,
+          oi.unit_type
+        FROM plan_overhead_allocations poa
+        LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+        ORDER BY poa.created_at ASC`
+      ).then(async (r) => {
+        if (r.rows.length > 0) return r;
+        return await db.query('SELECT * FROM project_plan_overhead_allocations ORDER BY created_at ASC');
+      }).catch(() => db.query('SELECT * FROM project_plan_overhead_allocations ORDER BY created_at ASC')),
       db.query('SELECT *, effective_date::text AS effective_date_iso FROM project_plan_revisions ORDER BY revision_number DESC, created_at DESC')
     ]);
 
@@ -3004,7 +3032,25 @@ export class PostgresService {
       db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [planId]),
       db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC, created_at ASC', [planId]),
       db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]),
-      db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [planId]),
+      db.query(
+        `SELECT
+          poa.*,
+          poa.effective_date::text AS effective_date_iso,
+          oi.code AS overhead_item_code,
+          oi.name AS overhead_item_name,
+          oi.barcode,
+          oi.category,
+          oi.cost_type,
+          oi.unit_type
+        FROM plan_overhead_allocations poa
+        LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+        WHERE poa.plan_id = $1
+        ORDER BY poa.created_at ASC`,
+        [planId]
+      ).then(async (r) => {
+        if (r.rows.length > 0) return r;
+        return await db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [planId]);
+      }).catch(() => db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [planId])),
       db.query('SELECT *, effective_date::text AS effective_date_iso FROM project_plan_revisions WHERE plan_id = $1 ORDER BY revision_number DESC, created_at DESC', [planId])
     ]);
 
@@ -4939,6 +4985,1140 @@ export class PostgresService {
     return { ...data, id, timestamp };
   }
 
+  // ============================================================================
+  // OVERHEAD COST MANAGEMENT PORTAL & ALLOCATION METHODS (TASK 2)
+  // ============================================================================
+
+  // --- Overhead Categories (Requirement 5) ---
+  public async getOverheadCategories(): Promise<any[]> {
+    const db = await this.getDb();
+    try {
+      const res = await db.query('SELECT * FROM overhead_categories ORDER BY sort_order ASC, name ASC');
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        description: r.description || '',
+        isDefault: Boolean(r.is_default),
+        sortOrder: Number(r.sort_order || 0),
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  public async createOverheadCategory(data: any): Promise<any> {
+    const db = await this.getDb();
+    const name = String(data?.name || '').trim();
+    if (!name) {
+      throw Object.assign(new Error('Category name is required'), { status: 400 });
+    }
+    const id = data.id || `ovh-cat-${Date.now()}`;
+    const code = String(data.code || `CAT-${name.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, '')}`).trim();
+    await db.query(
+      `INSERT INTO overhead_categories (id, code, name, description, is_default, sort_order, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, sort_order = EXCLUDED.sort_order`,
+      [id, code, name, String(data.description || ''), Boolean(data.isDefault), Number(data.sortOrder || 0)]
+    );
+    return { id, code, name, description: data.description || '', isDefault: Boolean(data.isDefault), sortOrder: Number(data.sortOrder || 0) };
+  }
+
+  public async updateOverheadCategory(id: string, data: any): Promise<any | null> {
+    const db = await this.getDb();
+    const cats = await this.getOverheadCategories();
+    const existing = cats.find((c) => c.id === id);
+    if (!existing) return null;
+    const name = String(data.name || existing.name).trim();
+    const code = String(data.code || existing.code).trim();
+    const desc = data.description !== undefined ? String(data.description) : existing.description;
+    const sortOrder = data.sortOrder !== undefined ? Number(data.sortOrder) : existing.sortOrder;
+
+    await db.query(
+      `UPDATE overhead_categories SET code = $1, name = $2, description = $3, sort_order = $4 WHERE id = $5`,
+      [code, name, desc, sortOrder, id]
+    );
+    return { ...existing, code, name, description: desc, sortOrder };
+  }
+
+  public async deleteOverheadCategory(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const catRes = await db.query('SELECT name FROM overhead_categories WHERE id = $1', [id]);
+    if (catRes.rows.length === 0) return false;
+    const catName = catRes.rows[0].name;
+
+    const inUse = await db.query('SELECT COUNT(*) as cnt FROM overhead_items WHERE category = $1', [catName]);
+    if (Number(inUse.rows[0]?.cnt || 0) > 0) {
+      throw Object.assign(
+        new Error(`Cannot delete category '${catName}' because it is in use by ${inUse.rows[0].cnt} overhead catalogue item(s).`),
+        { status: 400 }
+      );
+    }
+    await db.query('DELETE FROM overhead_categories WHERE id = $1', [id]);
+    return true;
+  }
+
+  // --- Centralized Overhead Items Catalogue (Requirement 3, 4, 17) ---
+  public async getOverheadItems(opts?: ListQueryOptions): Promise<any[]> {
+    const result = await this.getOverheadItemsPaginated({ ...(opts || {}), limit: 10000 });
+    return result.data;
+  }
+
+  public async getOverheadItemsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    // Query overhead items with aggregation of active allocations across project plans
+    const res = await db.query(`
+      SELECT 
+        oi.*,
+        oi.effective_date::text AS effective_date_iso,
+        COUNT(DISTINCT poa.plan_id) AS active_allocations_count,
+        COALESCE(SUM(poa.allocated_amount), 0) AS total_allocated_amount
+      FROM overhead_items oi
+      LEFT JOIN plan_overhead_allocations poa ON poa.overhead_item_id = oi.id
+      GROUP BY oi.id
+      ORDER BY oi.created_at DESC
+    `);
+
+    const rows = res.rows.map((r: any) => ({
+      id: r.id,
+      code: r.code,
+      barcode: r.barcode || `BC-${r.code}`,
+      name: r.name,
+      category: r.category,
+      description: r.description || '',
+      costType: r.cost_type || 'Fixed',
+      defaultCalculationMethod: r.default_calculation_method || 'fixed_amount',
+      defaultRate: round4(Number(r.default_rate || 0)),
+      defaultCostBase: r.default_cost_base || 'total_direct_cost',
+      unitType: r.unit_type || 'month',
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, new Date().toISOString().slice(0, 10)),
+      status: r.status || 'Active',
+      createdBy: r.created_by || 'System',
+      updatedBy: r.updated_by || 'System',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      activeAllocationsCount: Number(r.active_allocations_count || 0),
+      totalAllocatedAmount: round2(Number(r.total_allocated_amount || 0))
+    }));
+
+    return parseFilterPagination(
+      rows,
+      opts,
+      ['name', 'code', 'barcode', 'category', 'description', 'costType', 'status'],
+      'name'
+    );
+  }
+
+  public async getOverheadItemById(id: string): Promise<any | null> {
+    if (!id) return null;
+    const db = await this.getDb();
+    const itemRes = await db.query(
+      `SELECT oi.*, oi.effective_date::text AS effective_date_iso
+       FROM overhead_items oi WHERE oi.id = $1`,
+      [id]
+    );
+    if (itemRes.rows.length === 0) return null;
+    const r = itemRes.rows[0];
+
+    // Linked plans where this item is allocated
+    const linkedPlansRes = await db.query(
+      `SELECT 
+        poa.id AS allocation_id,
+        poa.plan_id,
+        pp.plan_number,
+        pp.name AS plan_name,
+        poa.project_id,
+        p.code AS project_code,
+        p.name AS project_name,
+        poa.allocation_method,
+        poa.allocation_base,
+        poa.base_amount,
+        poa.allocation_rate,
+        poa.unit_quantity,
+        poa.allocated_amount,
+        poa.effective_date::text AS effective_date_iso,
+        poa.allocated_by,
+        poa.notes
+      FROM plan_overhead_allocations poa
+      INNER JOIN project_plans pp ON pp.id = poa.plan_id
+      INNER JOIN projects p ON p.id = poa.project_id
+      WHERE poa.overhead_item_id = $1
+      ORDER BY pp.updated_at DESC`,
+      [id]
+    );
+
+    // Recent item audit logs
+    const auditRes = await db.query(
+      `SELECT * FROM overhead_audit_logs WHERE overhead_item_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [id]
+    );
+
+    const linkedPlans = linkedPlansRes.rows.map((lp: any) => ({
+      allocationId: lp.allocation_id,
+      planId: lp.plan_id,
+      planNumber: lp.plan_number,
+      planName: lp.plan_name,
+      projectId: lp.project_id,
+      projectCode: lp.project_code,
+      projectName: lp.project_name,
+      allocationMethod: lp.allocation_method,
+      allocationBase: lp.allocation_base,
+      baseAmount: round2(Number(lp.base_amount || 0)),
+      allocationRate: round4(Number(lp.allocation_rate || 0)),
+      unitQuantity: round4(Number(lp.unit_quantity || 1)),
+      allocatedAmount: round2(Number(lp.allocated_amount || 0)),
+      effectiveDate: formatSqlDate(lp.effective_date_iso, ''),
+      allocatedBy: lp.allocated_by || 'System',
+      notes: lp.notes || ''
+    }));
+
+    const totalAllocatedAmount = round2(linkedPlans.reduce((sum, p) => decAdd(sum, p.allocatedAmount), 0));
+
+    return {
+      id: r.id,
+      code: r.code,
+      barcode: r.barcode || `BC-${r.code}`,
+      name: r.name,
+      category: r.category,
+      description: r.description || '',
+      costType: r.cost_type || 'Fixed',
+      defaultCalculationMethod: r.default_calculation_method || 'fixed_amount',
+      defaultRate: round4(Number(r.default_rate || 0)),
+      defaultCostBase: r.default_cost_base || 'total_direct_cost',
+      unitType: r.unit_type || 'month',
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, new Date().toISOString().slice(0, 10)),
+      status: r.status || 'Active',
+      createdBy: r.created_by || 'System',
+      updatedBy: r.updated_by || 'System',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      activeAllocationsCount: linkedPlans.length,
+      totalAllocatedAmount,
+      linkedPlans,
+      auditHistory: auditRes.rows.map((a: any) => ({
+        id: a.id,
+        action: a.action,
+        actorId: a.actor_id,
+        actorName: a.actor_name,
+        actorRole: a.actor_role,
+        previousState: typeof a.previous_state === 'string' ? JSON.parse(a.previous_state) : a.previous_state,
+        newState: typeof a.new_state === 'string' ? JSON.parse(a.new_state) : a.new_state,
+        changeDescription: a.change_description,
+        createdAt: a.created_at ? new Date(a.created_at).toISOString() : new Date().toISOString()
+      }))
+    };
+  }
+
+  public async createOverheadItem(data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    const db = await this.getDb();
+    const name = String(data?.name || '').trim();
+    if (!name) {
+      throw Object.assign(new Error('Overhead item name is required.'), { status: 400 });
+    }
+    const category = String(data?.category || 'Office Rent').trim();
+
+    // Check whether an equivalent item already exists (Requirement 14a, 14e)
+    const existingCheck = await db.query(
+      `SELECT * FROM overhead_items WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) OR (code IS NOT NULL AND LOWER(TRIM(code)) = LOWER(TRIM($2)))`,
+      [name, data?.code || '']
+    );
+    if (existingCheck.rows.length > 0) {
+      if (data?.reuseIfExisting) {
+        return await this.getOverheadItemById(existingCheck.rows[0].id);
+      }
+      throw Object.assign(
+        new Error(`An equivalent overhead item with name '${existingCheck.rows[0].name}' or code '${existingCheck.rows[0].code}' already exists in the centralized catalogue.`),
+        { status: 409, existingItem: existingCheck.rows[0] }
+      );
+    }
+
+    const id = data.id || `ovh-item-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Auto-generate unique code if not provided
+    let code = data.code ? String(data.code).trim().toUpperCase() : '';
+    if (!code) {
+      const catPrefix = category.slice(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const countRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_items');
+      const seq = Number(countRes.rows[0]?.cnt || 0) + 1;
+      code = `OVH-${catPrefix}-${String(seq).padStart(3, '0')}`;
+      let attempt = 1;
+      while (true) {
+        const dup = await db.query('SELECT id FROM overhead_items WHERE code = $1', [code]);
+        if (dup.rows.length === 0) break;
+        attempt++;
+        code = `OVH-${catPrefix}-${String(seq + attempt).padStart(3, '0')}`;
+      }
+    }
+
+    // Auto-generate unique barcode
+    let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
+    if (!barcode) {
+      barcode = `BC-OVH-${Date.now().toString().slice(-6)}`;
+      let barAttempt = 1;
+      while (true) {
+        const dupBar = await db.query('SELECT id FROM overhead_items WHERE barcode = $1', [barcode]);
+        if (dupBar.rows.length === 0) break;
+        barAttempt++;
+        barcode = `BC-OVH-${(Date.now() + barAttempt).toString().slice(-6)}`;
+      }
+    }
+
+    const costTypes = ['Fixed', 'Variable', 'Semi-Variable', 'Stepped'];
+    const costType = costTypes.includes(data.costType) ? data.costType : 'Fixed';
+
+    const validMethods = ['fixed_amount', 'percentage_of_cost_base', 'rate_per_unit', 'proportional_defined_base'];
+    let rawMethod = data.defaultCalculationMethod || data.defaultAllocationMethod || data.allocationMethod;
+    if (rawMethod === 'percentage') rawMethod = 'percentage_of_cost_base';
+    const defaultCalculationMethod = validMethods.includes(rawMethod)
+      ? rawMethod
+      : 'fixed_amount';
+
+    const defaultRate = round4(Number(data.defaultRate ?? data.rate ?? 0));
+    let defaultCostBase = data.defaultCostBase || data.costBase || 'total_direct_cost';
+    if (defaultCostBase === 'total_direct_costs') defaultCostBase = 'total_direct_cost';
+    const unitType = data.unitType || data.defaultUnit || 'month';
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const effectiveDate = formatSqlDate(data.effectiveDate, todayIso);
+    const status = ['Active', 'Inactive', 'Archived', 'Under Review'].includes(data.status) ? data.status : 'Active';
+    const actorName = actor?.name || data.createdBy || 'System Finance';
+
+    await db.query(
+      `INSERT INTO overhead_items (
+        id, code, barcode, name, category, description, cost_type, default_calculation_method,
+        default_rate, default_cost_base, unit_type, effective_date, status, created_by, updated_by,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, NOW(), NOW())`,
+      [
+        id, code, barcode, name, category, String(data.description || ''),
+        costType, defaultCalculationMethod, defaultRate, defaultCostBase,
+        unitType, effectiveDate, status, actorName, actorName
+      ]
+    );
+
+    // Record audit log (Requirement 21)
+    await this.createOverheadAuditLog({
+      overheadItemId: id,
+      overheadItemCode: code,
+      overheadItemName: name,
+      action: 'ITEM_CREATED',
+      actorId: actor?.id,
+      actorName,
+      actorRole: actor?.role || 'ADMIN',
+      newState: { id, code, barcode, name, category, costType, defaultCalculationMethod, defaultRate, defaultCostBase, status },
+      changeDescription: `Created centralized overhead catalogue item '${name}' (${code}) with default ${defaultCalculationMethod} rate ${defaultRate}.`
+    });
+
+    return await this.getOverheadItemById(id);
+  }
+
+  public async updateOverheadItem(id: string, data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any | null> {
+    const db = await this.getDb();
+    const existing = await this.getOverheadItemById(id);
+    if (!existing) return null;
+
+    const name = data.name !== undefined ? String(data.name).trim() : existing.name;
+    if (!name) {
+      throw Object.assign(new Error('Overhead item name cannot be empty.'), { status: 400 });
+    }
+
+    const code = data.code !== undefined ? String(data.code).trim().toUpperCase() : existing.code;
+    if (code !== existing.code) {
+      const dup = await db.query('SELECT id FROM overhead_items WHERE code = $1 AND id != $2', [code, id]);
+      if (dup.rows.length > 0) {
+        throw Object.assign(new Error(`Overhead item code '${code}' already exists.`), { status: 409 });
+      }
+    }
+
+    const barcode = data.barcode !== undefined ? String(data.barcode).trim().toUpperCase() : existing.barcode;
+    const category = data.category !== undefined ? String(data.category).trim() : existing.category;
+    const description = data.description !== undefined ? String(data.description) : existing.description;
+    const costType = data.costType !== undefined ? data.costType : existing.costType;
+    const defaultCalculationMethod = data.defaultCalculationMethod !== undefined ? data.defaultCalculationMethod : existing.defaultCalculationMethod;
+    const defaultRate = data.defaultRate !== undefined ? round4(Number(data.defaultRate)) : existing.defaultRate;
+    const defaultCostBase = data.defaultCostBase !== undefined ? data.defaultCostBase : existing.defaultCostBase;
+    const unitType = data.unitType !== undefined ? data.unitType : existing.unitType;
+    const effectiveDate = formatSqlDate(data.effectiveDate || existing.effectiveDate, existing.effectiveDate);
+    const status = data.status !== undefined ? data.status : existing.status;
+    const actorName = actor?.name || data.updatedBy || 'System Finance';
+
+    await db.query(
+      `UPDATE overhead_items SET
+        code = $1, barcode = $2, name = $3, category = $4, description = $5,
+        cost_type = $6, default_calculation_method = $7, default_rate = $8,
+        default_cost_base = $9, unit_type = $10, effective_date = $11::date,
+        status = $12, updated_by = $13, updated_at = NOW()
+       WHERE id = $14`,
+      [
+        code, barcode, name, category, description,
+        costType, defaultCalculationMethod, defaultRate,
+        defaultCostBase, unitType, effectiveDate,
+        status, actorName, id
+      ]
+    );
+
+    // Record audit log
+    await this.createOverheadAuditLog({
+      overheadItemId: id,
+      overheadItemCode: code,
+      overheadItemName: name,
+      action: 'ITEM_UPDATED',
+      actorId: actor?.id,
+      actorName,
+      actorRole: actor?.role || 'ADMIN',
+      previousState: { name: existing.name, defaultRate: existing.defaultRate, defaultCalculationMethod: existing.defaultCalculationMethod, status: existing.status },
+      newState: { name, defaultRate, defaultCalculationMethod, status },
+      changeDescription: `Updated overhead catalogue item '${name}' (${code}). Rate: ${defaultRate}, Status: ${status}.`
+    });
+
+    return await this.getOverheadItemById(id);
+  }
+
+  public async deleteOverheadItem(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
+    const db = await this.getDb();
+    const existing = await this.getOverheadItemById(id);
+    if (!existing) return false;
+
+    // Verify whether any plans are actively using this item (Requirement 17, 20)
+    const inUse = await db.query('SELECT COUNT(*) as cnt FROM plan_overhead_allocations WHERE overhead_item_id = $1', [id]);
+    const cnt = Number(inUse.rows[0]?.cnt || 0);
+    if (cnt > 0) {
+      throw Object.assign(
+        new Error(`Cannot delete overhead item '${existing.name}' (${existing.code}) because it is actively allocated in ${cnt} project plan(s). To maintain plan historical integrity, archive the item or remove the allocations first.`),
+        { status: 400, linkedPlansCount: cnt }
+      );
+    }
+
+    await db.query('DELETE FROM overhead_items WHERE id = $1', [id]);
+
+    await this.createOverheadAuditLog({
+      overheadItemId: id,
+      overheadItemCode: existing.code,
+      overheadItemName: existing.name,
+      action: 'ITEM_DELETED',
+      actorId: actor?.id,
+      actorName: actor?.name || 'System Finance',
+      actorRole: actor?.role || 'ADMIN',
+      previousState: existing,
+      changeDescription: `Deleted overhead catalogue item '${existing.name}' (${existing.code}).`
+    });
+
+    return true;
+  }
+
+  // --- Plan Overhead Allocations (Requirement 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20) ---
+  public async getPlanOverheadAllocations(planId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT 
+        poa.*,
+        poa.effective_date::text AS effective_date_iso,
+        oi.code AS overhead_item_code,
+        oi.name AS overhead_item_name,
+        oi.barcode,
+        oi.category,
+        oi.cost_type,
+        oi.unit_type
+      FROM plan_overhead_allocations poa
+      LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+      WHERE poa.plan_id = $1
+      ORDER BY poa.created_at ASC`,
+      [planId]
+    );
+
+    return res.rows.map((ovh: any) => ({
+      id: ovh.id,
+      planId: ovh.plan_id,
+      projectId: ovh.project_id,
+      overheadItemId: ovh.overhead_item_id,
+      overheadItemCode: ovh.overhead_item_code || ovh.code,
+      overheadItemName: ovh.overhead_item_name || ovh.name || ovh.category,
+      barcode: ovh.barcode,
+      category: ovh.category || 'General Overhead',
+      costType: ovh.cost_type || 'Fixed',
+      unitType: ovh.unit_type || 'month',
+      allocationMethod: ovh.allocation_method,
+      allocationType: ovh.allocation_method === 'fixed_amount' ? 'fixed' : 'percentage',
+      allocationBase: ovh.allocation_base,
+      baseAmount: round2(Number(ovh.base_amount || 0)),
+      allocationRate: round4(Number(ovh.allocation_rate || 0)),
+      ratePct: round2(Number(ovh.allocation_rate || 0)),
+      unitQuantity: round4(Number(ovh.unit_quantity || 1)),
+      allocatedAmount: round2(Number(ovh.allocated_amount || 0)),
+      effectiveDate: formatSqlDate(ovh.effective_date_iso || ovh.effective_date, ''),
+      allocatedBy: ovh.allocated_by || 'System',
+      notes: ovh.notes || '',
+      createdAt: ovh.created_at ? new Date(ovh.created_at).toISOString() : new Date().toISOString()
+    }));
+  }
+
+  public async getAllOverheadAllocations(opts?: ListQueryOptions): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(`
+      SELECT 
+        poa.*,
+        poa.effective_date::text AS effective_date_iso,
+        oi.code AS overhead_item_code,
+        oi.name AS overhead_item_name,
+        oi.barcode,
+        oi.category,
+        oi.cost_type,
+        oi.unit_type,
+        pp.plan_number,
+        pp.name AS plan_name,
+        p.code AS project_code,
+        p.name AS project_name
+      FROM plan_overhead_allocations poa
+      INNER JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+      INNER JOIN project_plans pp ON pp.id = poa.plan_id
+      INNER JOIN projects p ON p.id = poa.project_id
+      ORDER BY poa.created_at DESC
+    `);
+
+    return res.rows.map((ovh: any) => ({
+      id: ovh.id,
+      planId: ovh.plan_id,
+      planNumber: ovh.plan_number,
+      planName: ovh.plan_name,
+      projectId: ovh.project_id,
+      projectCode: ovh.project_code,
+      projectName: ovh.project_name,
+      overheadItemId: ovh.overhead_item_id,
+      overheadItemCode: ovh.overhead_item_code,
+      overheadItemName: ovh.overhead_item_name,
+      barcode: ovh.barcode,
+      category: ovh.category,
+      costType: ovh.cost_type,
+      unitType: ovh.unit_type,
+      allocationMethod: ovh.allocation_method,
+      allocationBase: ovh.allocation_base,
+      baseAmount: round2(Number(ovh.base_amount || 0)),
+      allocationRate: round4(Number(ovh.allocation_rate || 0)),
+      unitQuantity: round4(Number(ovh.unit_quantity || 1)),
+      allocatedAmount: round2(Number(ovh.allocated_amount || 0)),
+      effectiveDate: formatSqlDate(ovh.effective_date_iso, ''),
+      allocatedBy: ovh.allocated_by,
+      notes: ovh.notes || ''
+    }));
+  }
+
+  /**
+   * Adds an overhead item to a project plan.
+   * Atomically creates both the centralized overhead catalogue item (if new)
+   * and links it to the current plan in a single transaction (Requirement 14d).
+   * Checks for duplicate catalogue items (Requirement 14a,e) and prevents double-counting (Requirement 20).
+   */
+  public async addPlanOverheadAllocation(planId: string, payload: any, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    if (!planId) {
+      throw Object.assign(new Error('planId is required'), { status: 400 });
+    }
+
+    return await this.withTransaction(async (q) => {
+      // 1. Validate plan exists
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1 FOR UPDATE', [planId]);
+      if (planRes.rows.length === 0) {
+        throw Object.assign(new Error(`Project plan '${planId}' does not exist`), { status: 404 });
+      }
+      const plan = planRes.rows[0];
+      const projectId = plan.project_id;
+
+      let targetItemId = payload.overheadItemId ? String(payload.overheadItemId).trim() : '';
+      let targetItem: any = null;
+
+      // 2. Identify or create catalogue item (Requirement 14)
+      if (targetItemId) {
+        const itemRes = await q('SELECT * FROM overhead_items WHERE id = $1', [targetItemId]);
+        if (itemRes.rows.length === 0) {
+          throw Object.assign(new Error(`Overhead catalogue item '${targetItemId}' not found`), { status: 404 });
+        }
+        targetItem = itemRes.rows[0];
+      } else if (payload.newItem && String(payload.newItem.name || '').trim()) {
+        const newItemName = String(payload.newItem.name).trim();
+        // Check whether equivalent exists (Requirement 14a)
+        const eqRes = await q(
+          'SELECT * FROM overhead_items WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) OR (code IS NOT NULL AND LOWER(TRIM(code)) = LOWER(TRIM($2)))',
+          [newItemName, payload.newItem.code || '']
+        );
+        if (eqRes.rows.length > 0) {
+          // Reuse existing item! (Requirement 14b, 14e)
+          targetItem = eqRes.rows[0];
+          targetItemId = targetItem.id;
+        } else {
+          // Create new centralized overhead item in this same transaction! (Requirement 14c, 14d)
+          targetItemId = `ovh-item-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+          const cat = String(payload.newItem.category || 'Office Rent').trim();
+          const catPrefix = cat.slice(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const countRes = await q('SELECT COUNT(*) as cnt FROM overhead_items');
+          const code = payload.newItem.code
+            ? String(payload.newItem.code).trim().toUpperCase()
+            : `OVH-${catPrefix}-${String(Number(countRes.rows[0]?.cnt || 0) + 1).padStart(3, '0')}`;
+          const barcode = payload.newItem.barcode
+            ? String(payload.newItem.barcode).trim().toUpperCase()
+            : `BC-OVH-${Date.now().toString().slice(-6)}`;
+          const costType = payload.newItem.costType || 'Fixed';
+          const defaultMethod = payload.newItem.defaultCalculationMethod || payload.allocationMethod || 'fixed_amount';
+          const defaultRate = round4(Number(payload.newItem.defaultRate ?? payload.allocationRate ?? 0));
+          const defaultBase = payload.newItem.defaultCostBase || payload.allocationBase || 'total_direct_cost';
+          const unitType = payload.newItem.unitType || 'month';
+          const effectiveDate = formatSqlDate(payload.newItem.effectiveDate || payload.effectiveDate, new Date().toISOString().slice(0, 10));
+          const actorName = actor?.name || 'System Finance';
+
+          await q(
+            `INSERT INTO overhead_items (
+              id, code, barcode, name, category, description, cost_type, default_calculation_method,
+              default_rate, default_cost_base, unit_type, effective_date, status, created_by, updated_by,
+              created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, 'Active', $13, $14, NOW(), NOW())`,
+            [
+              targetItemId, code, barcode, newItemName, cat, String(payload.newItem.description || ''),
+              costType, defaultMethod, defaultRate, defaultBase, unitType, effectiveDate, actorName, actorName
+            ]
+          );
+
+          targetItem = {
+            id: targetItemId,
+            code,
+            barcode,
+            name: newItemName,
+            category: cat,
+            cost_type: costType,
+            default_calculation_method: defaultMethod,
+            default_rate: defaultRate,
+            default_cost_base: defaultBase,
+            unit_type: unitType
+          };
+
+          // Audit log for item creation
+          await q(
+            `INSERT INTO overhead_audit_logs (id, overhead_item_id, overhead_item_code, overhead_item_name, action, actor_id, actor_name, actor_role, new_state, change_description, created_at)
+             VALUES ($1, $2, $3, $4, 'ITEM_CREATED', $5, $6, $7, $8, $9, NOW())`,
+            [
+              `oal-${Date.now()}-1`, targetItemId, code, newItemName,
+              actor?.id || null, actorName, actor?.role || 'ADMIN',
+              JSON.stringify(targetItem),
+              `Created new centralized overhead catalogue item '${newItemName}' (${code}) via Plan ${plan.plan_number}.`
+            ]
+          );
+        }
+      } else {
+        throw Object.assign(new Error('Either an existing overheadItemId or newItem details must be provided.'), { status: 400 });
+      }
+
+      // 3. Prevent double-counting: Check if already allocated to this plan (Requirement 20)
+      const dupAllocCheck = await q(
+        'SELECT id FROM plan_overhead_allocations WHERE plan_id = $1 AND overhead_item_id = $2',
+        [planId, targetItemId]
+      );
+      if (dupAllocCheck.rows.length > 0) {
+        throw Object.assign(
+          new Error(`Overhead item '${targetItem.name}' (${targetItem.code}) is already allocated to plan '${plan.plan_number}'. You can edit the existing allocation parameters instead of adding a duplicate.`),
+          { status: 409, existingAllocationId: dupAllocCheck.rows[0].id }
+        );
+      }
+
+      // 4. Validate and compute allocation parameters (Requirement 10, 11)
+      const validMethods = ['fixed_amount', 'percentage_of_cost_base', 'rate_per_unit', 'proportional_defined_base'];
+      let rawMethod = payload.allocationMethod || targetItem.default_calculation_method;
+      if (rawMethod === 'percentage') rawMethod = 'percentage_of_cost_base';
+      const allocMethod = validMethods.includes(rawMethod)
+        ? rawMethod
+        : 'fixed_amount';
+
+      let rawBase = payload.allocationBase || payload.costBase || targetItem.default_cost_base || 'total_direct_cost';
+      if (rawBase === 'total_direct_costs') rawBase = 'total_direct_cost';
+      const allocBase = rawBase;
+
+      const rawRate = payload.allocationRate !== undefined
+        ? payload.allocationRate
+        : (payload.rateOrAmount !== undefined ? payload.rateOrAmount : (targetItem.default_rate || 0));
+      const allocRate = round4(Number(rawRate));
+      const unitQty = Math.max(0, round4(Number(payload.unitQuantity !== undefined ? payload.unitQuantity : 1)));
+
+      if (allocRate < 0) {
+        throw Object.assign(new Error('Allocation rate must be non-negative'), { status: 400 });
+      }
+
+      // Evaluate plan direct costs to compute accurate base amount
+      const summaryRes = await q('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]);
+      const curSummary = summaryRes.rows[0] || {};
+      const directCost = Number(curSummary.direct_cost || 0);
+      const materialCost = Number(curSummary.material_cost || 0);
+      const subCost = Number(curSummary.subcontractor_cost || 0);
+      const outCost = Number(curSummary.outsourced_cost || 0);
+      const resCost = Number(curSummary.resource_cost || 0);
+      const plannedRev = Number(curSummary.planned_revenue || plan.planned_revenue || 0);
+
+      let baseAmount = round2(Number(payload.baseAmount || 0));
+      if (allocBase === 'material_cost') {
+        baseAmount = materialCost;
+      } else if (allocBase === 'subcontractor_cost') {
+        baseAmount = subCost;
+      } else if (allocBase === 'outsourced_cost') {
+        baseAmount = outCost;
+      } else if (allocBase === 'labor_cost') {
+        baseAmount = resCost;
+      } else if (allocBase === 'planned_revenue') {
+        baseAmount = plannedRev;
+      } else if (allocBase === 'total_direct_cost' || baseAmount <= 0) {
+        baseAmount = directCost;
+      }
+
+      let allocatedAmount = 0;
+      if (allocMethod === 'fixed_amount') {
+        allocatedAmount = allocRate;
+      } else if (allocMethod === 'rate_per_unit') {
+        allocatedAmount = round2(decMul(allocRate, unitQty));
+      } else if (allocMethod === 'percentage_of_cost_base' || allocMethod === 'proportional_defined_base') {
+        allocatedAmount = round2(decDiv(decMul(baseAmount, allocRate), 100));
+      }
+
+      if (payload.allocatedAmount !== undefined && Number(payload.allocatedAmount) > 0 && allocMethod === 'fixed_amount') {
+        allocatedAmount = round2(Number(payload.allocatedAmount));
+      }
+
+      const allocationId = payload.id || `poa-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const effectiveDate = formatSqlDate(payload.effectiveDate, todayIso);
+      const actorName = actor?.name || 'System Finance';
+
+      // 5. Insert plan_overhead_allocations
+      await q(
+        `INSERT INTO plan_overhead_allocations (
+          id, plan_id, project_id, overhead_item_id, allocation_method, allocation_base,
+          base_amount, allocation_rate, unit_quantity, allocated_amount, effective_date,
+          allocated_by, notes, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date, $12, $13, NOW(), NOW())`,
+        [
+          allocationId, planId, projectId, targetItemId, allocMethod, allocBase,
+          baseAmount, allocRate, unitQty, allocatedAmount, effectiveDate,
+          actorName, String(payload.notes || '')
+        ]
+      );
+
+      // Sync into project_plan_overhead_allocations for backwards compatibility
+      await q(
+        `INSERT INTO project_plan_overhead_allocations (
+          id, plan_id, project_id, overhead_item_id, category, allocation_type, allocation_method,
+          allocation_base, allocation_rate, rate_pct, base_amount, unit_quantity, allocated_amount,
+          effective_date, allocated_by, notes, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15, $16, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          allocated_amount = EXCLUDED.allocated_amount,
+          base_amount = EXCLUDED.base_amount,
+          allocation_rate = EXCLUDED.allocation_rate`,
+        [
+          allocationId, planId, projectId, targetItemId, targetItem.category,
+          allocMethod === 'fixed_amount' ? 'fixed' : 'percentage',
+          allocMethod, allocBase, allocRate, allocRate, baseAmount, unitQty, allocatedAmount,
+          effectiveDate, actorName, String(payload.notes || '')
+        ]
+      );
+
+      // 6. Recalculate plan cost summaries
+      await this.internalRecalculatePlanCostSummary(q, planId);
+
+      // 7. Record audit log (Requirement 21)
+      await q(
+        `INSERT INTO overhead_audit_logs (
+          id, overhead_item_id, overhead_item_code, overhead_item_name, plan_id, plan_number,
+          allocation_id, action, actor_id, actor_name, actor_role, new_state, change_description, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ALLOCATION_CREATED', $8, $9, $10, $11, $12, NOW())`,
+        [
+          `oal-${Date.now()}-2`, targetItemId, targetItem.code, targetItem.name,
+          planId, plan.plan_number, allocationId,
+          actor?.id || null, actorName, actor?.role || 'ADMIN',
+          JSON.stringify({ allocationId, allocMethod, allocBase, allocRate, baseAmount, allocatedAmount }),
+          `Allocated overhead '${targetItem.name}' to Plan ${plan.plan_number} using ${allocMethod} (Allocated Amount: ${allocatedAmount}).`
+        ]
+      );
+
+      return {
+        id: allocationId,
+        planId,
+        projectId,
+        overheadItemId: targetItemId,
+        overheadItemCode: targetItem.code,
+        overheadItemName: targetItem.name,
+        barcode: targetItem.barcode,
+        category: targetItem.category,
+        costType: targetItem.cost_type,
+        unitType: targetItem.unit_type,
+        allocationMethod: allocMethod,
+        allocationType: allocMethod === 'fixed_amount' ? 'fixed' : 'percentage',
+        allocationBase: allocBase,
+        baseAmount,
+        allocationRate: allocRate,
+        ratePct: round2(allocRate),
+        unitQuantity: unitQty,
+        allocatedAmount,
+        effectiveDate,
+        allocatedBy: actorName,
+        notes: payload.notes || ''
+      };
+    });
+  }
+
+  /**
+   * Update plan-specific allocation parameters without modifying default catalogue item (Requirement 15, 18).
+   */
+  public async updatePlanOverheadAllocation(
+    planId: string,
+    allocationId: string,
+    payload: any,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<any | null> {
+    return await this.withTransaction(async (q) => {
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+      if (planRes.rows.length === 0) return null;
+      const plan = planRes.rows[0];
+
+      const allocRes = await q(
+        `SELECT poa.*, oi.name as item_name, oi.code as item_code, oi.category as item_cat
+         FROM plan_overhead_allocations poa
+         LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+         WHERE poa.id = $1 AND poa.plan_id = $2`,
+        [allocationId, planId]
+      );
+      if (allocRes.rows.length === 0) return null;
+      const existing = allocRes.rows[0];
+
+      const validMethods = ['fixed_amount', 'percentage_of_cost_base', 'rate_per_unit', 'proportional_defined_base'];
+      let rawMethod = payload.allocationMethod || existing.allocation_method;
+      if (rawMethod === 'percentage') rawMethod = 'percentage_of_cost_base';
+      const allocMethod = validMethods.includes(rawMethod) ? rawMethod : existing.allocation_method;
+
+      let rawBase = payload.allocationBase || payload.costBase || existing.allocation_base;
+      if (rawBase === 'total_direct_costs') rawBase = 'total_direct_cost';
+      const allocBase = rawBase;
+
+      const rawRate = payload.allocationRate !== undefined
+        ? payload.allocationRate
+        : (payload.rateOrAmount !== undefined ? payload.rateOrAmount : existing.allocation_rate);
+      const allocRate = round4(Number(rawRate));
+      const unitQty = payload.unitQuantity !== undefined ? Math.max(0, round4(Number(payload.unitQuantity))) : Number(existing.unit_quantity || 1);
+      const notes = payload.notes !== undefined ? String(payload.notes) : existing.notes;
+      const effectiveDate = formatSqlDate(payload.effectiveDate || existing.effective_date, existing.effective_date);
+
+      // Re-evaluate base amount if applicable
+      const summaryRes = await q('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]);
+      const curSummary = summaryRes.rows[0] || {};
+      let baseAmount = payload.baseAmount !== undefined ? round2(Number(payload.baseAmount)) : Number(existing.base_amount);
+
+      if (allocBase === 'material_cost') baseAmount = Number(curSummary.material_cost || 0);
+      else if (allocBase === 'subcontractor_cost') baseAmount = Number(curSummary.subcontractor_cost || 0);
+      else if (allocBase === 'outsourced_cost') baseAmount = Number(curSummary.outsourced_cost || 0);
+      else if (allocBase === 'labor_cost') baseAmount = Number(curSummary.resource_cost || 0);
+      else if (allocBase === 'planned_revenue') baseAmount = Number(curSummary.planned_revenue || plan.planned_revenue || 0);
+      else if (allocBase === 'total_direct_cost' || baseAmount <= 0) baseAmount = Number(curSummary.direct_cost || 0);
+
+      let allocatedAmount = 0;
+      if (allocMethod === 'fixed_amount') {
+        allocatedAmount = allocRate;
+      } else if (allocMethod === 'rate_per_unit') {
+        allocatedAmount = round2(decMul(allocRate, unitQty));
+      } else {
+        allocatedAmount = round2(decDiv(decMul(baseAmount, allocRate), 100));
+      }
+
+      if (payload.allocatedAmount !== undefined && Number(payload.allocatedAmount) > 0 && allocMethod === 'fixed_amount') {
+        allocatedAmount = round2(Number(payload.allocatedAmount));
+      }
+
+      await q(
+        `UPDATE plan_overhead_allocations SET
+          allocation_method = $1, allocation_base = $2, base_amount = $3,
+          allocation_rate = $4, unit_quantity = $5, allocated_amount = $6,
+          effective_date = $7::date, notes = $8, updated_at = NOW()
+         WHERE id = $9 AND plan_id = $10`,
+        [allocMethod, allocBase, baseAmount, allocRate, unitQty, allocatedAmount, effectiveDate, notes, allocationId, planId]
+      );
+
+      // Sync legacy table
+      await q(
+        `UPDATE project_plan_overhead_allocations SET
+          allocation_method = $1, allocation_type = $2, allocation_base = $3, base_amount = $4,
+          allocation_rate = $5, rate_pct = $6, unit_quantity = $7, allocated_amount = $8,
+          effective_date = $9::date, notes = $10
+         WHERE id = $11 AND plan_id = $12`,
+        [
+          allocMethod, allocMethod === 'fixed_amount' ? 'fixed' : 'percentage', allocBase, baseAmount,
+          allocRate, allocRate, unitQty, allocatedAmount, effectiveDate, notes, allocationId, planId
+        ]
+      );
+
+      // Recalculate plan financials
+      await this.internalRecalculatePlanCostSummary(q, planId);
+
+      // Audit log
+      await q(
+        `INSERT INTO overhead_audit_logs (
+          id, overhead_item_id, overhead_item_code, overhead_item_name, plan_id, plan_number,
+          allocation_id, action, actor_id, actor_name, actor_role, previous_state, new_state, change_description, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ALLOCATION_UPDATED', $8, $9, $10, $11, $12, $13, NOW())`,
+        [
+          `oal-${Date.now()}-3`, existing.overhead_item_id, existing.item_code, existing.item_name,
+          planId, plan.plan_number, allocationId,
+          actor?.id || null, actor?.name || 'System Finance', actor?.role || 'ADMIN',
+          JSON.stringify({ allocMethod: existing.allocation_method, allocRate: existing.allocation_rate, allocatedAmount: existing.allocated_amount }),
+          JSON.stringify({ allocMethod, allocRate, allocatedAmount }),
+          `Updated Plan ${plan.plan_number} overhead allocation for '${existing.item_name}'. New allocated amount: ${allocatedAmount}.`
+        ]
+      );
+
+      return {
+        id: allocationId,
+        planId,
+        overheadItemId: existing.overhead_item_id,
+        overheadItemCode: existing.item_code,
+        overheadItemName: existing.item_name,
+        allocationMethod: allocMethod,
+        allocationBase: allocBase,
+        baseAmount,
+        allocationRate: allocRate,
+        unitQuantity: unitQty,
+        allocatedAmount,
+        effectiveDate,
+        notes
+      };
+    });
+  }
+
+  public async deletePlanOverheadAllocation(planId: string, allocationId: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
+    return await this.withTransaction(async (q) => {
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+      if (planRes.rows.length === 0) return false;
+      const plan = planRes.rows[0];
+
+      const allocRes = await q(
+        `SELECT poa.*, oi.name as item_name, oi.code as item_code
+         FROM plan_overhead_allocations poa
+         LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
+         WHERE poa.id = $1 AND poa.plan_id = $2`,
+        [allocationId, planId]
+      );
+      if (allocRes.rows.length === 0) return false;
+      const existing = allocRes.rows[0];
+
+      await q('DELETE FROM plan_overhead_allocations WHERE id = $1 AND plan_id = $2', [allocationId, planId]);
+      await q('DELETE FROM project_plan_overhead_allocations WHERE id = $1 AND plan_id = $2', [allocationId, planId]);
+
+      // Recalculate plan financials
+      await this.internalRecalculatePlanCostSummary(q, planId);
+
+      // Audit log
+      await q(
+        `INSERT INTO overhead_audit_logs (
+          id, overhead_item_id, overhead_item_code, overhead_item_name, plan_id, plan_number,
+          allocation_id, action, actor_id, actor_name, actor_role, change_description, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ALLOCATION_REMOVED', $8, $9, $10, $11, NOW())`,
+        [
+          `oal-${Date.now()}-4`, existing.overhead_item_id, existing.item_code, existing.item_name,
+          planId, plan.plan_number, allocationId,
+          actor?.id || null, actor?.name || 'System Finance', actor?.role || 'ADMIN',
+          `Removed overhead allocation '${existing.item_name}' (${existing.item_code}) from Plan ${plan.plan_number}.`
+        ]
+      );
+
+      return true;
+    });
+  }
+
+  /**
+   * Recalculates all overhead allocations for a plan when relevant cost base changes (Requirement 19).
+   */
+  public async recalculatePlanOverheads(planId: string, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    return await this.withTransaction(async (q) => {
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+      if (planRes.rows.length === 0) {
+        throw Object.assign(new Error(`Project plan '${planId}' not found`), { status: 404 });
+      }
+      const plan = planRes.rows[0];
+
+      // Direct costs from BOQ items & resources
+      const summaryRes = await q('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]);
+      const curSummary = summaryRes.rows[0] || {};
+      const directCost = Number(curSummary.direct_cost || 0);
+      const materialCost = Number(curSummary.material_cost || 0);
+      const subCost = Number(curSummary.subcontractor_cost || 0);
+      const outCost = Number(curSummary.outsourced_cost || 0);
+      const resCost = Number(curSummary.resource_cost || 0);
+      const plannedRev = Number(curSummary.planned_revenue || plan.planned_revenue || 0);
+
+      const allocsRes = await q('SELECT * FROM plan_overhead_allocations WHERE plan_id = $1', [planId]);
+      for (const a of allocsRes.rows) {
+        let baseAmount = Number(a.base_amount || 0);
+        if (a.allocation_base === 'material_cost') baseAmount = materialCost;
+        else if (a.allocation_base === 'subcontractor_cost') baseAmount = subCost;
+        else if (a.allocation_base === 'outsourced_cost') baseAmount = outCost;
+        else if (a.allocation_base === 'labor_cost') baseAmount = resCost;
+        else if (a.allocation_base === 'planned_revenue') baseAmount = plannedRev;
+        else if (a.allocation_base === 'total_direct_cost' || baseAmount <= 0) baseAmount = directCost;
+
+        let allocatedAmount = Number(a.allocated_amount || 0);
+        const rate = Number(a.allocation_rate || 0);
+        const qty = Number(a.unit_quantity || 1);
+
+        if (a.allocation_method === 'fixed_amount') {
+          allocatedAmount = rate;
+        } else if (a.allocation_method === 'rate_per_unit') {
+          allocatedAmount = round2(decMul(rate, qty));
+        } else if (a.allocation_method === 'percentage_of_cost_base' || a.allocation_method === 'proportional_defined_base') {
+          allocatedAmount = round2(decDiv(decMul(baseAmount, rate), 100));
+        }
+
+        await q(
+          `UPDATE plan_overhead_allocations SET base_amount = $1, allocated_amount = $2, updated_at = NOW() WHERE id = $3`,
+          [baseAmount, allocatedAmount, a.id]
+        );
+        await q(
+          `UPDATE project_plan_overhead_allocations SET base_amount = $1, allocated_amount = $2 WHERE id = $3`,
+          [baseAmount, allocatedAmount, a.id]
+        );
+      }
+
+      await this.internalRecalculatePlanCostSummary(q, planId);
+
+      // Audit log
+      await q(
+        `INSERT INTO overhead_audit_logs (
+          id, plan_id, plan_number, action, actor_id, actor_name, actor_role, change_description, created_at
+        ) VALUES ($1, $2, $3, 'BASE_RECALCULATED', $4, $5, $6, $7, NOW())`,
+        [
+          `oal-${Date.now()}-5`, planId, plan.plan_number,
+          actor?.id || null, actor?.name || 'System Finance', actor?.role || 'ADMIN',
+          `Recalculated all overhead allocations on Plan ${plan.plan_number} against updated cost bases.`
+        ]
+      );
+
+      return await this.getPlanOverheadAllocations(planId);
+    });
+  }
+
+  private async internalRecalculatePlanCostSummary(q: (sql: string, params?: any[]) => Promise<{ rows: any[] }>, planId: string): Promise<void> {
+    const [planRes, boqRes, resRes, secRes, ovhRes] = await Promise.all([
+      q('SELECT * FROM project_plans WHERE id = $1', [planId]),
+      q('SELECT * FROM project_plan_boq_items WHERE plan_id = $1', [planId]),
+      q('SELECT * FROM project_plan_resources WHERE plan_id = $1', [planId]),
+      q('SELECT * FROM project_plan_sections WHERE plan_id = $1', [planId]),
+      q(`SELECT poa.*, oi.category FROM plan_overhead_allocations poa LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id WHERE poa.plan_id = $1`, [planId])
+    ]);
+    if (planRes.rows.length === 0) return;
+    const plan = planRes.rows[0];
+
+    const calc = calculatePlanFinancials({
+      planId,
+      projectId: plan.project_id,
+      plannedRevenue: Number(plan.planned_revenue || 0),
+      targetMarginPct: Number(plan.target_margin_pct || 25),
+      overheadPct: Number(plan.overhead_pct || 8.5),
+      contingencyPct: Number(plan.contingency_pct || 5.0),
+      laborBurdenPct: Number(plan.labor_burden_pct || 0),
+      boqItems: boqRes.rows,
+      sections: secRes.rows,
+      resources: resRes.rows,
+      overheadAllocations: ovhRes.rows
+    });
+
+    await q(
+      `INSERT INTO project_plan_cost_summaries (
+        plan_id, project_id, planned_revenue, material_cost, subcontractor_cost,
+        outsourced_cost, resource_cost, direct_cost, overhead_amount,
+        contingency_amount, labor_burden_amount, extra_overhead_amount,
+        allocated_overhead, total_planned_cost, gross_profit, gross_margin_pct,
+        planned_profit, profit_margin_pct, boq_item_count, section_count, resource_count, calculated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12,
+        $13, $14, $15, $16,
+        $17, $18, $19, $20, $21, NOW()
+      )
+      ON CONFLICT (plan_id) DO UPDATE SET
+        planned_revenue = EXCLUDED.planned_revenue,
+        material_cost = EXCLUDED.material_cost,
+        subcontractor_cost = EXCLUDED.subcontractor_cost,
+        outsourced_cost = EXCLUDED.outsourced_cost,
+        resource_cost = EXCLUDED.resource_cost,
+        direct_cost = EXCLUDED.direct_cost,
+        overhead_amount = EXCLUDED.overhead_amount,
+        contingency_amount = EXCLUDED.contingency_amount,
+        labor_burden_amount = EXCLUDED.labor_burden_amount,
+        extra_overhead_amount = EXCLUDED.extra_overhead_amount,
+        allocated_overhead = EXCLUDED.allocated_overhead,
+        total_planned_cost = EXCLUDED.total_planned_cost,
+        gross_profit = EXCLUDED.gross_profit,
+        gross_margin_pct = EXCLUDED.gross_margin_pct,
+        planned_profit = EXCLUDED.planned_profit,
+        profit_margin_pct = EXCLUDED.profit_margin_pct,
+        boq_item_count = EXCLUDED.boq_item_count,
+        section_count = EXCLUDED.section_count,
+        resource_count = EXCLUDED.resource_count,
+        calculated_at = NOW()`,
+      [
+        planId, plan.project_id,
+        calc.summary.plannedRevenue, calc.summary.materialCost, calc.summary.subcontractorCost,
+        calc.summary.outsourcedCost, calc.summary.resourceCost, calc.summary.directCost,
+        calc.summary.overheadAmount, calc.summary.contingencyAmount, calc.summary.laborBurdenAmount,
+        calc.summary.extraOverheadAmount, calc.summary.allocatedOverhead, calc.summary.totalPlannedCost,
+        calc.summary.grossProfit, calc.summary.grossMarginPct, calc.summary.plannedProfit,
+        calc.summary.profitMarginPct, calc.summary.boqItemCount, calc.summary.sectionCount,
+        calc.summary.resourceCount
+      ]
+    );
+  }
+
+  // --- Overhead Audit Logs (Requirement 21) ---
+  public async getOverheadAuditLogs(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    let query = `SELECT * FROM overhead_audit_logs ORDER BY created_at DESC`;
+    const res = await db.query(query);
+
+    const rows = res.rows.map((r: any) => ({
+      id: r.id,
+      overheadItemId: r.overhead_item_id,
+      overheadItemCode: r.overhead_item_code,
+      overheadItemName: r.overhead_item_name,
+      planId: r.plan_id,
+      planNumber: r.plan_number,
+      allocationId: r.allocation_id,
+      action: r.action,
+      actorId: r.actor_id,
+      actorName: r.actor_name,
+      actorRole: r.actor_role,
+      previousState: typeof r.previous_state === 'string' ? JSON.parse(r.previous_state) : r.previous_state,
+      newState: typeof r.new_state === 'string' ? JSON.parse(r.new_state) : r.new_state,
+      changeDescription: r.change_description,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+    }));
+
+    return parseFilterPagination(
+      rows,
+      opts,
+      ['overheadItemName', 'overheadItemCode', 'planNumber', 'action', 'actorName', 'changeDescription'],
+      ''
+    );
+  }
+
+  public async createOverheadAuditLog(data: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `oal-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    await db.query(
+      `INSERT INTO overhead_audit_logs (
+        id, overhead_item_id, overhead_item_code, overhead_item_name, plan_id, plan_number,
+        allocation_id, action, actor_id, actor_name, actor_role, previous_state, new_state,
+        change_description, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())`,
+      [
+        id, data.overheadItemId || null, data.overheadItemCode || null, data.overheadItemName || null,
+        data.planId || null, data.planNumber || null, data.allocationId || null,
+        data.action || 'OVERHEAD_CHANGE', data.actorId || null, data.actorName || 'System Finance',
+        data.actorRole || 'ADMIN', JSON.stringify(data.previousState || {}),
+        JSON.stringify(data.newState || {}), data.changeDescription || ''
+      ]
+    );
+    return { ...data, id };
+  }
+
   // --- Database Status ---
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
@@ -4946,6 +6126,7 @@ export class PostgresService {
       'clients', 'projects', 'project_plans', 'project_plan_revisions',
       'project_plan_sections', 'project_plan_boq_items', 'project_plan_resources',
       'project_plan_overhead_allocations', 'project_plan_cost_summaries',
+      'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
       'suppliers', 'materials', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'categories', 'custom_tiles', 'company_details',

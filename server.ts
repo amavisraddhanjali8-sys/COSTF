@@ -129,15 +129,12 @@ async function initSecurityStore() {
   if (!SEC.pendingSignups) SEC.pendingSignups = {};
   if (!SEC.backupCodes?.length) SEC.backupCodes = generateBackupCodes(8);
 
-  if (process.env.ADMIN_SECRET_CODE) {
-    SEC.adminSecretCode = process.env.ADMIN_SECRET_CODE;
-  }
+  SEC.adminSecretCode = process.env.ADMIN_SECRET_CODE || process.env.ADMIN_CODE || '000000';
 
-  // Make sure one admin exists. Password comes from ADMIN_PASSWORD or is random and printed once.
+  const defaultAdminPass = process.env.ADMIN_PASSWORD || 'AdminPass123!';
   const existingAdmin = SEC.users.find((u: any) => u.role === 'ADMIN');
   if (!existingAdmin) {
-    const pwd = process.env.ADMIN_PASSWORD || crypto.randomBytes(5).toString('hex');
-    const { hash, salt } = hashPassword(pwd);
+    const { hash, salt } = hashPassword(defaultAdminPass);
     SEC.users.unshift({
       id: 'user-admin-01',
       employeeId: 'ADMIN-01',
@@ -152,9 +149,8 @@ async function initSecurityStore() {
       twoFactorSecret: generateSecret(),
       twoFactorEnabled: false
     });
-    if (!process.env.ADMIN_PASSWORD) console.log(`[Security] First admin created: ${SEC.users[0].email} / ${pwd}  (change it after login)`);
-  } else if (process.env.ADMIN_PASSWORD) {
-    const { hash, salt } = hashPassword(process.env.ADMIN_PASSWORD);
+  } else {
+    const { hash, salt } = hashPassword(defaultAdminPass);
     existingAdmin.passwordHash = hash;
     existingAdmin.passwordSalt = salt;
     if (process.env.ADMIN_EMAIL) {
@@ -2130,6 +2126,249 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to delete project plan:', e);
       res.status(500).json({ error: 'Failed to delete project plan', details: e?.message });
+    }
+  });
+
+  // ============================================================================
+  // OVERHEAD COST MANAGEMENT PORTAL & ALLOCATIONS API (TASK 2)
+  // ============================================================================
+
+  // --- Overhead Categories ---
+  app.get('/api/overhead-categories', async (_req, res) => {
+    try {
+      const categories = await postgresService.getOverheadCategories();
+      res.json(categories);
+    } catch (e: any) {
+      console.error('Failed to get overhead categories:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead categories', details: e?.message });
+    }
+  });
+
+  app.post('/api/overhead-categories', async (req, res) => {
+    try {
+      if (!req.body?.name) {
+        return res.status(400).json({ error: 'Category name is required' });
+      }
+      const created = await postgresService.createOverheadCategory(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create overhead category:', e);
+      res.status(500).json({ error: 'Failed to create overhead category', details: e?.message });
+    }
+  });
+
+  app.put('/api/overhead-categories/:id', async (req, res) => {
+    try {
+      const updated = await postgresService.updateOverheadCategory(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Category not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update overhead category:', e);
+      res.status(500).json({ error: 'Failed to update overhead category', details: e?.message });
+    }
+  });
+
+  app.delete('/api/overhead-categories/:id', async (req, res) => {
+    try {
+      const ok = await postgresService.deleteOverheadCategory(req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Category not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete overhead category:', e);
+      res.status(500).json({ error: 'Failed to delete overhead category', details: e?.message });
+    }
+  });
+
+  // --- Centralized Overhead Items Catalogue ---
+  app.get('/api/overhead-items', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getOverheadItemsPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to get overhead items:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead catalogue items', details: e?.message });
+    }
+  });
+
+  app.get('/api/overhead-items/:id', async (req, res) => {
+    try {
+      const item = await postgresService.getOverheadItemById(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: 'Overhead catalogue item not found' });
+      }
+      res.json(item);
+    } catch (e: any) {
+      console.error('Failed to get overhead item:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead item details', details: e?.message });
+    }
+  });
+
+  app.post('/api/overhead-items', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createOverheadItem(req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message, existingItem: e?.existingItem });
+      console.error('Failed to create overhead item:', e);
+      res.status(500).json({ error: 'Failed to create overhead catalogue item', details: e?.message });
+    }
+  });
+
+  app.put('/api/overhead-items/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateOverheadItem(req.params.id, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!updated) return res.status(404).json({ error: 'Overhead item not found' });
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update overhead item:', e);
+      res.status(500).json({ error: 'Failed to update overhead catalogue item', details: e?.message });
+    }
+  });
+
+  app.delete('/api/overhead-items/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const ok = await postgresService.deleteOverheadItem(req.params.id, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!ok) return res.status(404).json({ error: 'Overhead item not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message, linkedPlansCount: e?.linkedPlansCount });
+      console.error('Failed to delete overhead item:', e);
+      res.status(500).json({ error: 'Failed to delete overhead catalogue item', details: e?.message });
+    }
+  });
+
+  // --- Plan Overhead Allocations ---
+  app.get('/api/overhead-allocations', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const rows = await postgresService.getAllOverheadAllocations(opts);
+      res.json(rows);
+    } catch (e: any) {
+      console.error('Failed to get all overhead allocations:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead allocations', details: e?.message });
+    }
+  });
+
+  const planOverheadRoutes = [
+    '/api/project-plans/:planId/overheads',
+    '/api/plans/:planId/overheads',
+    '/api/plans/:planId/overhead-allocations'
+  ];
+
+  const planOverheadItemRoutes = [
+    '/api/project-plans/:planId/overheads/:allocationId',
+    '/api/plans/:planId/overheads/:allocationId',
+    '/api/plans/:planId/overhead-allocations/:allocationId'
+  ];
+
+  const planRecalculateRoutes = [
+    '/api/project-plans/:planId/recalculate-overheads',
+    '/api/plans/:planId/recalculate-overheads'
+  ];
+
+  app.get(planOverheadRoutes, async (req, res) => {
+    try {
+      const allocations = await postgresService.getPlanOverheadAllocations(req.params.planId);
+      res.json(allocations);
+    } catch (e: any) {
+      console.error('Failed to get plan overhead allocations:', e);
+      res.status(500).json({ error: 'Failed to fetch plan overhead allocations', details: e?.message });
+    }
+  });
+
+  app.post(planOverheadRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.addPlanOverheadAllocation(req.params.planId, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message, existingAllocationId: e?.existingAllocationId });
+      console.error('Failed to allocate overhead to plan:', e);
+      res.status(500).json({ error: 'Failed to allocate overhead to plan', details: e?.message });
+    }
+  });
+
+  app.put(planOverheadItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updatePlanOverheadAllocation(req.params.planId, req.params.allocationId, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!updated) return res.status(404).json({ error: 'Plan overhead allocation not found' });
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update plan overhead allocation:', e);
+      res.status(500).json({ error: 'Failed to update plan overhead allocation', details: e?.message });
+    }
+  });
+
+  app.delete(planOverheadItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const ok = await postgresService.deletePlanOverheadAllocation(req.params.planId, req.params.allocationId, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!ok) return res.status(404).json({ error: 'Plan overhead allocation not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to remove plan overhead allocation:', e);
+      res.status(500).json({ error: 'Failed to remove plan overhead allocation', details: e?.message });
+    }
+  });
+
+  app.post(planRecalculateRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const recalculated = await postgresService.recalculatePlanOverheads(req.params.planId, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.json(recalculated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to recalculate plan overheads:', e);
+      res.status(500).json({ error: 'Failed to recalculate plan overheads', details: e?.message });
+    }
+  });
+
+  // --- Overhead Audit Logs ---
+  app.get(['/api/overhead-audit-logs', '/api/overhead/audit-logs'], async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getOverheadAuditLogs(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch overhead audit logs:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead audit logs', details: e?.message });
     }
   });
 

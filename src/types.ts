@@ -630,17 +630,117 @@ export interface ProjectPlanResource {
   notes?: string;
 }
 
-export interface ProjectPlanOverheadAllocation {
+export type OverheadCostType = 'Fixed' | 'Variable' | 'Semi-Variable' | 'Stepped';
+
+export type OverheadCalculationMethod =
+  | 'fixed_amount'
+  | 'percentage_of_cost_base'
+  | 'rate_per_unit'
+  | 'proportional_defined_base';
+
+export type OverheadCostBase =
+  | 'total_direct_cost'
+  | 'material_cost'
+  | 'labor_cost'
+  | 'subcontractor_cost'
+  | 'outsourced_cost'
+  | 'planned_revenue'
+  | 'units_produced'
+  | 'custom_base';
+
+export interface OverheadCategory {
   id: string;
-  planId?: string;
-  projectId?: string;
-  category: string;
-  allocationType: 'percentage' | 'fixed';
-  ratePct: number;
-  baseAmount: number;
-  allocatedAmount: number;
-  notes?: string;
+  code: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+  sortOrder?: number;
+  createdAt?: string;
 }
+
+export interface OverheadItem {
+  id: string;
+  code: string;
+  barcode?: string;
+  name: string;
+  category: string;
+  description?: string;
+  costType: OverheadCostType;
+  defaultCalculationMethod: OverheadCalculationMethod;
+  defaultRate: number;
+  defaultCostBase: OverheadCostBase;
+  unitType?: string;
+  effectiveDate: string;
+  status: 'Active' | 'Inactive' | 'Archived' | 'Under Review';
+  createdBy: string;
+  updatedBy: string;
+  createdAt?: string;
+  updatedAt?: string;
+  activeAllocationsCount?: number;
+  totalAllocatedAmount?: number;
+  linkedPlans?: Array<{
+    allocationId: string;
+    planId: string;
+    planNumber: string;
+    planName: string;
+    projectId: string;
+    projectCode?: string;
+    projectName?: string;
+    allocationMethod: OverheadCalculationMethod;
+    allocationBase: OverheadCostBase;
+    baseAmount: number;
+    allocationRate: number;
+    allocatedAmount: number;
+    effectiveDate?: string;
+    allocatedBy?: string;
+  }>;
+}
+
+export interface PlanOverheadAllocation {
+  id: string;
+  planId: string;
+  projectId: string;
+  overheadItemId?: string;
+  overheadItemCode?: string;
+  overheadItemName?: string;
+  barcode?: string;
+  category: string;
+  costType?: OverheadCostType;
+  unitType?: string;
+  allocationMethod: OverheadCalculationMethod;
+  allocationType?: 'percentage' | 'fixed'; // backwards compatibility
+  allocationBase: OverheadCostBase;
+  baseAmount: number;
+  allocationRate: number;
+  ratePct?: number; // backwards compatibility
+  unitQuantity?: number;
+  allocatedAmount: number;
+  effectiveDate?: string;
+  allocatedBy?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OverheadAuditLog {
+  id: string;
+  overheadItemId?: string;
+  overheadItemCode?: string;
+  overheadItemName?: string;
+  planId?: string;
+  planNumber?: string;
+  allocationId?: string;
+  action: 'ITEM_CREATED' | 'ITEM_UPDATED' | 'ITEM_DELETED' | 'ALLOCATION_CREATED' | 'ALLOCATION_UPDATED' | 'ALLOCATION_REMOVED' | 'BASE_RECALCULATED' | string;
+  actorId?: string;
+  actorName?: string;
+  actorRole?: string;
+  previousState?: any;
+  newState?: any;
+  changeDescription: string;
+  createdAt: string;
+}
+
+export interface ProjectPlanOverheadAllocation extends PlanOverheadAllocation {}
 
 export interface ProjectPlanCostSummary {
   planId?: string;

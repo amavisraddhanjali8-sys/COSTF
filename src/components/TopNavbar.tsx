@@ -79,6 +79,7 @@ export type ActiveTab =
   | 'subcontractors'
   | 'inventory'
   | 'projects'
+  | 'overhead-portal'
   | 'audit-log'
   | 'settings'
   | 'plan-details';
@@ -389,6 +390,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
         return 'Resource Allocation';
       case 'audit-log':
         return 'Enterprise Audit Trail';
+      case 'overhead-portal':
+        return 'Overhead Cost Portal';
       case 'settings':
         return 'System Settings';
       default:
@@ -1088,6 +1091,21 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           >
             <Boxes className="w-3.5 h-3.5" />
             <span>Inventory</span>
+          </button>
+
+          {/* Overhead Cost Management Portal (TASK 2) */}
+          <button
+            type="button"
+            id="nav-tab-overhead-portal"
+            onClick={() => onSelectTab('overhead-portal')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'overhead-portal'
+                ? 'bg-[#003049] text-white shadow-2xs'
+                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-amber-400" />
+            <span>Overheads</span>
           </button>
 
           {/* Audit Log (Admin Only) */}

@@ -28,11 +28,20 @@ import {
   Filter,
   SlidersHorizontal,
   ChevronRight,
-  ExternalLink
+  ExternalLink,
+  Plus,
+  Trash2,
+  Edit2,
+  Calculator,
+  Barcode as BarcodeIcon,
+  Tag,
+  Info
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 import { calculatePlanFinancials } from '../../utils/planCalculationService';
+import { AddOverheadToPlanModal } from '../overhead/AddOverheadToPlanModal';
+import { EditPlanOverheadAllocationModal } from '../overhead/EditPlanOverheadAllocationModal';
 
 interface PlanDetailsPageProps {
   planId: string;
@@ -40,6 +49,7 @@ interface PlanDetailsPageProps {
   onNavigateBack: () => void;
   onPlanUpdated?: () => void;
   onOpenProject?: (projectId: string) => void;
+  onOpenOverheadPortal?: () => void;
   showToast?: (msg: string | { message: string; type?: string }) => void;
 }
 
@@ -69,6 +79,13 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [editContingencyPct, setEditContingencyPct] = useState(5.0);
   const [editLaborBurdenPct, setEditLaborBurdenPct] = useState(0);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Overhead allocation management state
+  const [isAddOverheadModalOpen, setIsAddOverheadModalOpen] = useState(false);
+  const [isEditOverheadModalOpen, setIsEditOverheadModalOpen] = useState(false);
+  const [selectedAllocationToEdit, setSelectedAllocationToEdit] = useState<any | null>(null);
+  const [recalculatingOverheads, setRecalculatingOverheads] = useState(false);
+  const [deletingAllocationId, setDeletingAllocationId] = useState<string | null>(null);
 
   const activeCurrency = plan?.currency || getStoredCurrency();
 
@@ -135,6 +152,37 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       onNavigateBack();
     } catch (err: any) {
       showToast?.({ message: err?.message || 'Failed to duplicate plan', type: 'error' });
+    }
+  };
+
+  const handleRecalculateOverheads = async () => {
+    if (!plan) return;
+    setRecalculatingOverheads(true);
+    try {
+      await api.recalculatePlanOverheads(plan.id);
+      await loadPlan();
+      onPlanUpdated?.();
+      showToast?.({ message: 'Overhead allocations recalculated against current cost bases.', type: 'success' });
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to recalculate overheads', type: 'error' });
+    } finally {
+      setRecalculatingOverheads(false);
+    }
+  };
+
+  const handleDeleteAllocation = async (allocationId: string, itemName: string) => {
+    if (!plan) return;
+    if (!window.confirm(`Are you sure you want to remove overhead allocation '${itemName}' from this plan?`)) return;
+    setDeletingAllocationId(allocationId);
+    try {
+      await api.deletePlanOverheadAllocation(plan.id, allocationId);
+      await loadPlan();
+      onPlanUpdated?.();
+      showToast?.({ message: `Overhead allocation '${itemName}' removed.`, type: 'info' });
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to remove overhead allocation', type: 'error' });
+    } finally {
+      setDeletingAllocationId(null);
     }
   };
 
@@ -701,48 +749,282 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         </div>
       )}
 
-      {/* 4D. OVERHEAD ALLOCATIONS */}
+      {/* 4D. OVERHEAD ALLOCATIONS (TASK 2) */}
       {activeTab === 'overheads' && (
-        <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-            <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100">Overhead & Burden Allocations (project_plan_overhead_allocations)</h2>
+        <div className="space-y-4">
+          {/* Overhead Overview Metric Tiles */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Allocated Overhead</span>
+              <div className="text-lg font-bold text-[#0078d4] dark:text-sky-400 font-mono mt-0.5">
+                {formatCurrency(plan.summary?.allocatedOverhead || 0, activeCurrency)}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                <Layers className="w-3 h-3 text-[#0078d4]" />
+                <span>Centralized & custom overheads</span>
+              </div>
+            </div>
+
+            <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Direct Cost Base</span>
+              <div className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
+                {formatCurrency(plan.summary?.directCost || 0, activeCurrency)}
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                BOQ direct materials + subs + services
+              </div>
+            </div>
+
+            <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Overhead / Direct Ratio</span>
+              <div className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
+                {Number(plan.summary?.directCost || 0) > 0
+                  ? ((Number(plan.summary?.allocatedOverhead || 0) / Number(plan.summary?.directCost)) * 100).toFixed(1)
+                  : '0.0'}%
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                Effective burden on project direct cost
+              </div>
+            </div>
+
+            <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Allocations</span>
+              <div className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
+                {(plan.overheadAllocations || []).length} Items
+              </div>
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Individually allocated to this plan</span>
+              </div>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
-              <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
-                <tr>
-                  <th className="py-2.5 px-3 font-semibold">Category</th>
-                  <th className="py-2.5 px-3 font-semibold">Allocation Type</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Rate %</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Base Amount</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Allocated Amount</th>
-                  <th className="py-2.5 px-3 font-semibold">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-                {(plan.overheadAllocations || []).map((ovh: any) => (
-                  <tr key={ovh.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60">
-                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-slate-100">{ovh.category}</td>
-                    <td className="py-2.5 px-3 font-sans capitalize text-slate-600 dark:text-slate-400">{ovh.allocationType}</td>
-                    <td className="py-2.5 px-3 text-right">{ovh.ratePct ? `${ovh.ratePct}%` : '-'}</td>
-                    <td className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">
-                      {formatCurrency(ovh.baseAmount, activeCurrency)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-[#0078d4] dark:text-sky-400">
-                      {formatCurrency(ovh.allocatedAmount, activeCurrency)}
-                    </td>
-                    <td className="py-2.5 px-3 font-sans text-[10px] text-slate-500">{ovh.notes || '-'}</td>
-                  </tr>
-                ))}
-                {(plan.overheadAllocations || []).length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans">
-                      No customized overhead allocations recorded. Using default plan percentages.
-                    </td>
-                  </tr>
+
+          {/* Allocation Actions & Table */}
+          <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-[#0078d4]" />
+                  <span>Plan Overhead Allocations (plan_overhead_allocations)</span>
+                </h2>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Connect centralized overhead items to this plan with custom rates, bases, or fixed amounts.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {onOpenOverheadPortal && (
+                  <button
+                    type="button"
+                    onClick={onOpenOverheadPortal}
+                    className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer transition-colors shadow-2xs"
+                    title="Open Centralized Overhead Catalogue"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Catalogue Portal</span>
+                  </button>
                 )}
-              </tbody>
-            </table>
+
+                <button
+                  type="button"
+                  onClick={handleRecalculateOverheads}
+                  disabled={recalculatingOverheads}
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer transition-colors shadow-2xs disabled:opacity-50"
+                  title="Recalculate allocations against latest project cost bases"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${recalculatingOverheads ? 'animate-spin text-[#0078d4]' : ''}`} />
+                  <span>{recalculatingOverheads ? 'Recalculating...' : 'Recalculate'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-add-overhead-item"
+                  onClick={() => setIsAddOverheadModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Overhead Item</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
+                <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
+                  <tr>
+                    <th className="py-2.5 px-3 font-semibold">Code & Barcode</th>
+                    <th className="py-2.5 px-3 font-semibold">Overhead Item & Category</th>
+                    <th className="py-2.5 px-3 font-semibold">Allocation Method</th>
+                    <th className="py-2.5 px-3 font-semibold">Allocation Base</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Rate / Pct</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Base Amount</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Allocated Amount</th>
+                    <th className="py-2.5 px-3 font-semibold">Effective Date</th>
+                    <th className="py-2.5 px-3 font-semibold">Notes</th>
+                    <th className="py-2.5 px-3 font-semibold text-center w-20">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                  {(plan.overheadAllocations || []).map((ovh: any) => {
+                    const method = ovh.allocationMethod || (ovh.allocationType === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base');
+                    const base = ovh.allocationBase || 'total_direct_cost';
+                    const code = ovh.overheadItemCode || ovh.code || '-';
+                    const barcode = ovh.barcode;
+                    const name = ovh.overheadItemName || ovh.name || ovh.category;
+
+                    return (
+                      <tr key={ovh.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors">
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-[#0078d4] dark:text-sky-400">{code}</div>
+                          {barcode && (
+                            <div className="text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                              <BarcodeIcon className="w-3 h-3 text-slate-400" />
+                              <span>{barcode}</span>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-3 font-sans">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{name}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="px-1.5 py-0.2 rounded text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              {ovh.category}
+                            </span>
+                            {ovh.costType && (
+                              <span className="text-[9px] text-slate-400 font-mono">• {ovh.costType}</span>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-2.5 px-3 font-sans">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              method === 'fixed_amount'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : method === 'rate_per_unit'
+                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                                : method === 'proportional_defined_base'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                            }`}
+                          >
+                            {method === 'fixed_amount'
+                              ? 'Fixed Amount'
+                              : method === 'rate_per_unit'
+                              ? 'Rate per Unit'
+                              : method === 'proportional_defined_base'
+                              ? 'Proportional Base'
+                              : '% of Cost Base'}
+                          </span>
+                        </td>
+
+                        <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                          {method === 'fixed_amount' ? (
+                            <span className="text-slate-400 italic">Not applicable</span>
+                          ) : (
+                            <span className="capitalize">
+                              {base.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-right">
+                          {method === 'fixed_amount' ? (
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {formatCurrency(ovh.allocationRate || ovh.allocatedAmount, activeCurrency)}
+                            </span>
+                          ) : method === 'rate_per_unit' ? (
+                            <span>
+                              {formatCurrency(ovh.allocationRate, activeCurrency)} / {ovh.unitType || 'unit'}
+                              {ovh.unitQuantity && <span className="text-[10px] text-slate-400 ml-1">×{ovh.unitQuantity}</span>}
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">
+                              {Number(ovh.allocationRate ?? ovh.ratePct ?? 0).toFixed(2)}%
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">
+                          {method === 'fixed_amount' ? '-' : formatCurrency(ovh.baseAmount, activeCurrency)}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-right font-bold text-[#0078d4] dark:text-sky-400 text-xs">
+                          {formatCurrency(ovh.allocatedAmount, activeCurrency)}
+                        </td>
+
+                        <td className="py-2.5 px-3 font-sans text-slate-500 text-[10px]">
+                          {ovh.effectiveDate || '-'}
+                        </td>
+
+                        <td className="py-2.5 px-3 font-sans text-slate-500 text-[10px] max-w-[120px] truncate" title={ovh.notes}>
+                          {ovh.notes || '-'}
+                        </td>
+
+                        <td className="py-2.5 px-3 text-center">
+                          <div className="flex items-center justify-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedAllocationToEdit(ovh);
+                                setIsEditOverheadModalOpen(true);
+                              }}
+                              className="p-1 text-slate-500 hover:text-[#0078d4] dark:hover:text-sky-400 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                              title="Edit plan-specific allocation parameters"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAllocation(ovh.id, name)}
+                              disabled={deletingAllocationId === ovh.id}
+                              className="p-1 text-slate-500 hover:text-rose-600 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition-colors disabled:opacity-50"
+                              title="Remove allocation from this plan"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {(plan.overheadAllocations || []).length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="py-12 text-center text-slate-400 font-sans">
+                        <Layers className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
+                        <div className="font-semibold text-slate-700 dark:text-slate-300">No overhead items allocated to this plan yet.</div>
+                        <div className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                          Click "Add Overhead Item" above to select from the centralized catalogue or create a new overhead cost for this plan.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddOverheadModalOpen(true)}
+                          className="mt-3 inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add First Overhead Allocation</span>
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+
+                {(plan.overheadAllocations || []).length > 0 && (
+                  <tfoot className="bg-slate-50 dark:bg-slate-900/90 font-mono border-t-2 border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <td colSpan={6} className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-slate-100 text-right">
+                        Total Allocated Plan Overhead:
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-sm text-[#0078d4] dark:text-sky-400">
+                        {formatCurrency(plan.summary?.allocatedOverhead || 0, activeCurrency)}
+                      </td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -942,6 +1224,62 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add Overhead Item to Plan Modal */}
+      {isAddOverheadModalOpen && (
+        <AddOverheadToPlanModal
+          isOpen={isAddOverheadModalOpen}
+          onClose={() => setIsAddOverheadModalOpen(false)}
+          planId={plan.id}
+          planNumber={plan.planNumber}
+          planName={plan.name}
+          planFinancials={{
+            plannedRevenue: Number(plan.summary?.plannedRevenue || plan.plannedRevenue || 0),
+            directCost: Number(plan.summary?.directCost || 0),
+            materialCost: Number(plan.summary?.materialCost || 0),
+            subcontractorCost: Number(plan.summary?.subcontractorCost || 0),
+            outsourcedCost: Number(plan.summary?.outsourcedCost || 0),
+            resourceCost: Number(plan.summary?.resourceCost || 0)
+          }}
+          existingAllocatedItemIds={(plan.overheadAllocations || [])
+            .map((o: any) => o.overheadItemId)
+            .filter(Boolean)}
+          onAllocationAdded={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+            showToast?.({ message: 'Overhead item successfully allocated to plan.', type: 'success' });
+          }}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Edit Plan Overhead Allocation Modal */}
+      {isEditOverheadModalOpen && selectedAllocationToEdit && (
+        <EditPlanOverheadAllocationModal
+          isOpen={isEditOverheadModalOpen}
+          onClose={() => {
+            setIsEditOverheadModalOpen(false);
+            setSelectedAllocationToEdit(null);
+          }}
+          planId={plan.id}
+          planNumber={plan.planNumber}
+          allocation={selectedAllocationToEdit}
+          planFinancials={{
+            plannedRevenue: Number(plan.summary?.plannedRevenue || plan.plannedRevenue || 0),
+            directCost: Number(plan.summary?.directCost || 0),
+            materialCost: Number(plan.summary?.materialCost || 0),
+            subcontractorCost: Number(plan.summary?.subcontractorCost || 0),
+            outsourcedCost: Number(plan.summary?.outsourcedCost || 0),
+            resourceCost: Number(plan.summary?.resourceCost || 0)
+          }}
+          onAllocationUpdated={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+            showToast?.({ message: 'Plan overhead allocation parameters updated.', type: 'success' });
+          }}
+          showToast={showToast}
+        />
       )}
     </div>
   );

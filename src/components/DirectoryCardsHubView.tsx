@@ -1255,6 +1255,18 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               </button>
             );
           })}
+
+          {/* Quick Access to Dedicated Overhead Cost Management Portal (TASK 2) */}
+          <button
+            type="button"
+            id="tab-overhead-portal-link"
+            onClick={() => onNavigateTab('overhead-portal')}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs transition-all font-semibold whitespace-nowrap text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 border border-amber-300/60 dark:border-amber-800 ml-auto cursor-pointer shadow-2xs"
+            title="Open Centralized Overhead Cost Portal"
+          >
+            <Layers className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span>Overhead Portal</span>
+          </button>
         </div>
       </div>
 

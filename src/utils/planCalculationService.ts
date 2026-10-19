@@ -157,29 +157,78 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   const customOverheads = rawOverheads.filter(
     (o) =>
       o &&
-      o.category &&
-      !['General Overhead', 'Contingency Reserve', 'Labor Burden'].includes(String(o.category))
+      (o.category || o.overheadItemName || o.overheadItemId) &&
+      !['General Overhead', 'Contingency Reserve', 'Labor Burden'].includes(String(o.category || ''))
   );
 
   let extraOverheadAmount = 0;
   const normalizedCustomOverheads: ProjectPlanOverheadAllocation[] = customOverheads.map((o, idx) => {
-    const allocType = o.allocationType === 'fixed' ? 'fixed' : 'percentage';
-    const ratePct = round2(o.ratePct ?? 0);
-    const baseAmount = o.baseAmount !== undefined && Number(o.baseAmount) > 0 ? round2(o.baseAmount) : effectiveDirectBase;
-    const allocatedAmount =
-      allocType === 'fixed'
-        ? round2(o.allocatedAmount ?? 0)
-        : round2(decDiv(decMul(baseAmount, ratePct), 100));
+    const rawMethod = String(o.allocationMethod || (o.allocationType === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base'));
+    const method: ProjectPlanOverheadAllocation['allocationMethod'] =
+      rawMethod === 'rate_per_unit'
+        ? 'rate_per_unit'
+        : rawMethod === 'fixed_amount' || rawMethod === 'fixed'
+        ? 'fixed_amount'
+        : rawMethod === 'proportional_defined_base'
+        ? 'proportional_defined_base'
+        : 'percentage_of_cost_base';
+
+    const allocBase: ProjectPlanOverheadAllocation['allocationBase'] = (o.allocationBase as any) || 'total_direct_cost';
+    const rate = round4(Number(o.allocationRate ?? o.ratePct ?? 0));
+    const unitQty = Math.max(0, round4(Number(o.unitQuantity ?? 1)));
+
+    // Determine relevant base dynamically based on allocation base
+    let baseAmount = round2(Number(o.baseAmount || 0));
+    if (allocBase === 'material_cost') {
+      baseAmount = materialCost;
+    } else if (allocBase === 'subcontractor_cost') {
+      baseAmount = subcontractorCost;
+    } else if (allocBase === 'outsourced_cost') {
+      baseAmount = outsourcedCost;
+    } else if (allocBase === 'labor_cost') {
+      baseAmount = round2(decAdd(resourceCost, laborBurdenAmount));
+    } else if (allocBase === 'planned_revenue') {
+      baseAmount = round2(input.plannedRevenue ?? input.projectQuotedPrice ?? 0);
+    } else if (allocBase === 'total_direct_cost') {
+      baseAmount = effectiveDirectBase;
+    } else if (baseAmount <= 0) {
+      baseAmount = effectiveDirectBase;
+    }
+
+    let allocatedAmount = 0;
+    if (method === 'fixed_amount') {
+      allocatedAmount = round2(o.allocatedAmount !== undefined && Number(o.allocatedAmount) > 0 ? Number(o.allocatedAmount) : rate);
+    } else if (method === 'rate_per_unit') {
+      allocatedAmount = round2(decMul(rate, unitQty));
+    } else if (method === 'percentage_of_cost_base' || method === 'proportional_defined_base') {
+      allocatedAmount = round2(decDiv(decMul(baseAmount, rate), 100));
+    } else {
+      allocatedAmount = round2(decDiv(decMul(baseAmount, rate), 100));
+    }
+
     extraOverheadAmount = round2(decAdd(extraOverheadAmount, allocatedAmount));
+
     return {
       id: o.id || `ovh-custom-${Date.now()}-${idx}`,
-      planId: input.planId,
-      projectId: input.projectId,
-      category: String(o.category || 'Custom Overhead'),
-      allocationType: allocType,
-      ratePct,
+      planId: input.planId || '',
+      projectId: input.projectId || '',
+      overheadItemId: o.overheadItemId,
+      overheadItemCode: o.overheadItemCode,
+      overheadItemName: o.overheadItemName,
+      barcode: o.barcode,
+      category: String(o.category || o.overheadItemName || 'General Overhead'),
+      costType: o.costType || 'Fixed',
+      unitType: o.unitType || 'month',
+      allocationMethod: method,
+      allocationType: method === 'fixed_amount' ? 'fixed' : 'percentage',
+      allocationBase: allocBase,
       baseAmount,
+      allocationRate: rate,
+      ratePct: round2(rate),
+      unitQuantity: unitQty,
       allocatedAmount,
+      effectiveDate: o.effectiveDate || new Date().toISOString().slice(0, 10),
+      allocatedBy: o.allocatedBy || 'System',
       notes: o.notes || ''
     };
   });
@@ -187,24 +236,36 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   const standardOverheads: ProjectPlanOverheadAllocation[] = [
     {
       id: `ovh-std-overhead-${input.planId || 'plan'}`,
-      planId: input.planId,
-      projectId: input.projectId,
+      planId: input.planId || '',
+      projectId: input.projectId || '',
       category: 'General Overhead',
+      allocationMethod: 'percentage_of_cost_base',
       allocationType: 'percentage',
+      allocationBase: 'total_direct_cost',
+      allocationRate: overheadPct,
       ratePct: overheadPct,
+      unitQuantity: 1,
       baseAmount: effectiveDirectBase,
       allocatedAmount: overheadAmount,
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      allocatedBy: 'System',
       notes: 'Standard corporate & administrative overhead allocation'
     },
     {
       id: `ovh-std-contingency-${input.planId || 'plan'}`,
-      planId: input.planId,
-      projectId: input.projectId,
+      planId: input.planId || '',
+      projectId: input.projectId || '',
       category: 'Contingency Reserve',
+      allocationMethod: 'percentage_of_cost_base',
       allocationType: 'percentage',
+      allocationBase: 'total_direct_cost',
+      allocationRate: contingencyPct,
       ratePct: contingencyPct,
+      unitQuantity: 1,
       baseAmount: effectiveDirectBase,
       allocatedAmount: contingencyAmount,
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      allocatedBy: 'System',
       notes: 'Risk & price escalation contingency reserve'
     }
   ];
@@ -212,13 +273,19 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   if (laborBurdenPct > 0 || laborBurdenAmount > 0) {
     standardOverheads.push({
       id: `ovh-std-burden-${input.planId || 'plan'}`,
-      planId: input.planId,
-      projectId: input.projectId,
+      planId: input.planId || '',
+      projectId: input.projectId || '',
       category: 'Labor Burden',
+      allocationMethod: 'percentage_of_cost_base',
       allocationType: 'percentage',
+      allocationBase: 'total_direct_cost',
+      allocationRate: laborBurdenPct,
       ratePct: laborBurdenPct,
+      unitQuantity: 1,
       baseAmount: directCost,
       allocatedAmount: laborBurdenAmount,
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      allocatedBy: 'System',
       notes: 'Payroll taxes, benefits & statutory labor burden'
     });
   }
