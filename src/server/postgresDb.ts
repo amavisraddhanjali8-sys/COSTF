@@ -3243,17 +3243,117 @@ export class PostgresService {
         cs.profit_margin_pct,
         cs.calculated_at
       FROM project_plans pp
-      INNER JOIN projects p ON p.id = pp.project_id
+      LEFT JOIN projects p ON p.id = pp.project_id
       LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
       WHERE pp.id = $1`,
       [planId]
     );
+
+    // Fallback 1: If not found by planId, check if planId was a projectId (e.g. caller passed project ID)
+    if (planRes.rows.length === 0) {
+      planRes = await db.query(
+        `SELECT
+          pp.*,
+          pp.effective_date::text AS effective_date_iso,
+          pp.approval_date::text AS approval_date_iso,
+          p.code AS project_code,
+          p.name AS project_name,
+          p.client_name AS client_name,
+          p.quoted_price AS project_quoted_price,
+          cs.planned_revenue AS summary_planned_revenue,
+          cs.material_cost,
+          cs.subcontractor_cost,
+          cs.outsourced_cost,
+          cs.resource_cost,
+          cs.direct_cost,
+          cs.overhead_amount,
+          cs.contingency_amount,
+          cs.labor_burden_amount,
+          cs.extra_overhead_amount,
+          cs.allocated_overhead,
+          cs.total_planned_cost,
+          cs.gross_profit,
+          cs.gross_margin_pct,
+          cs.planned_profit,
+          cs.profit_margin_pct,
+          cs.calculated_at
+        FROM project_plans pp
+        LEFT JOIN projects p ON p.id = pp.project_id
+        LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
+        WHERE pp.project_id = $1
+        ORDER BY pp.is_active DESC, pp.is_baseline DESC, pp.created_at DESC
+        LIMIT 1`,
+        [planId]
+      );
+    }
+
+    // Fallback 2: If still not found, check if a project exists with this ID in projects table, and auto-initialize its baseline plan
+    if (planRes.rows.length === 0) {
+      const prjRes = await db.query('SELECT * FROM projects WHERE id = $1 OR code = $1 LIMIT 1', [planId]);
+      if (prjRes.rows.length > 0) {
+        const prj = prjRes.rows[0];
+        const newPlanId = `plan-${prj.id}-baseline`;
+        await this.createProjectPlan({
+          id: newPlanId,
+          planNumber: `PLN-${String(prj.code || prj.id).toUpperCase().replace(/[^A-Z0-9-]/g, '')}-01`,
+          projectId: prj.id,
+          name: 'Plan A: Certified Enterprise Sourcing (Baseline)',
+          description: 'Initial project baseline plan created automatically.',
+          planType: 'Baseline',
+          status: 'Active',
+          revisionNumber: 1,
+          versionLabel: 'v1.0',
+          isBaseline: true,
+          isActive: true,
+          currency: prj.currency || 'USD',
+          plannedRevenue: Number(prj.quoted_price || 0),
+          targetMarginPct: Number(prj.target_margin_pct || 25),
+          overheadPct: Number(prj.overhead_pct || 8.5),
+          contingencyPct: Number(prj.contingency_pct || 5.0)
+        }).catch(() => {});
+
+        planRes = await db.query(
+          `SELECT
+            pp.*,
+            pp.effective_date::text AS effective_date_iso,
+            pp.approval_date::text AS approval_date_iso,
+            p.code AS project_code,
+            p.name AS project_name,
+            p.client_name AS client_name,
+            p.quoted_price AS project_quoted_price,
+            cs.planned_revenue AS summary_planned_revenue,
+            cs.material_cost,
+            cs.subcontractor_cost,
+            cs.outsourced_cost,
+            cs.resource_cost,
+            cs.direct_cost,
+            cs.overhead_amount,
+            cs.contingency_amount,
+            cs.labor_burden_amount,
+            cs.extra_overhead_amount,
+            cs.allocated_overhead,
+            cs.total_planned_cost,
+            cs.gross_profit,
+            cs.gross_margin_pct,
+            cs.planned_profit,
+            cs.profit_margin_pct,
+            cs.calculated_at
+          FROM project_plans pp
+          LEFT JOIN projects p ON p.id = pp.project_id
+          LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
+          WHERE pp.id = $1`,
+          [newPlanId]
+        );
+      }
+    }
+
     if (planRes.rows.length === 0) return null;
+    const actualPlanId = planRes.rows[0].id;
 
     const [sectionsRes, boqRes, resourcesRes, overheadsRes, revisionsRes] = await Promise.all([
-      db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [planId]),
-      db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC, created_at ASC', [planId]),
-      db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]),
+      db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [actualPlanId]),
+      db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC, created_at ASC', [actualPlanId]),
+      db.query('SELECT *, start_date::text AS start_date_iso, end_date::text AS end_date_iso FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [actualPlanId]),
       db.query(
         `SELECT
           poa.*,
@@ -3268,12 +3368,12 @@ export class PostgresService {
         LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id
         WHERE poa.plan_id = $1
         ORDER BY poa.created_at ASC`,
-        [planId]
+        [actualPlanId]
       ).then(async (r) => {
         if (r.rows.length > 0) return r;
-        return await db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [planId]);
-      }).catch(() => db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [planId])),
-      db.query('SELECT *, effective_date::text AS effective_date_iso FROM project_plan_revisions WHERE plan_id = $1 ORDER BY revision_number DESC, created_at DESC', [planId])
+        return await db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [actualPlanId]);
+      }).catch(() => db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1 ORDER BY created_at ASC', [actualPlanId])),
+      db.query('SELECT *, effective_date::text AS effective_date_iso FROM project_plan_revisions WHERE plan_id = $1 ORDER BY revision_number DESC, created_at DESC', [actualPlanId])
     ]);
 
     return this.mapPlanRowToRecord(

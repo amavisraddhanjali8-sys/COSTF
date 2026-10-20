@@ -177,6 +177,7 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => persistentDatabase.getProjects([])[0]?.id || '');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
+  const activeCurrency = selectedProject?.currency || companyDetails?.currency || 'USD';
   const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials([]));
   const [produceItems, setProduceItems] = useState<ProduceItem[]>(() => persistentDatabase.getProduceItems([]));
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => persistentDatabase.getSuppliers([]));

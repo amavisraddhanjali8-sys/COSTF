@@ -42,6 +42,13 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
   const [rate, setRate] = useState<number | ''>(0);
   const [unitQuantity, setUnitQuantity] = useState<number | ''>(1);
   const [notes, setNotes] = useState('');
+  const [mode, setMode] = useState<'select_existing' | 'create_new'>('select_existing');
+  const [newItemCode, setNewItemCode] = useState(() => `OVH-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemCategory, setNewItemCategory] = useState('Facilities & Site Operations');
+  const [newItemCostType, setNewItemCostType] = useState<'Fixed' | 'Variable' | 'Semi-Variable'>('Fixed');
+  const [newItemUnitType, setNewItemUnitType] = useState('monthly');
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,6 +66,8 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
           setOverheadItems(available);
           if (available.length > 0 && !selectedItemId) {
             applySelectedItem(available[0]);
+          } else if (available.length === 0) {
+            setMode('create_new');
           }
         }
       } catch (e: any) {
@@ -103,21 +112,45 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedItemId) {
-      setError('Please select an overhead item to allocate.');
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
+      let targetItemId = selectedItemId;
+
+      if (mode === 'create_new') {
+        if (!newItemName.trim()) {
+          throw new Error('Please enter a name for the new overhead cost item.');
+        }
+        // Requirement 2: Creating a new cost item in the overhead portal database
+        const createdItem = await api.createOverheadItem({
+          code: newItemCode.trim(),
+          name: newItemName.trim(),
+          category: newItemCategory,
+          costType: newItemCostType,
+          defaultCalculationMethod: allocationMethod,
+          defaultCostBase: allocationBase,
+          defaultRate: rateNum,
+          unitType: newItemUnitType,
+          description: notes.trim() || `Overhead created via Project Plan ${planNumber || planName}`,
+          status: 'Active'
+        });
+        targetItemId = createdItem.id;
+        showToast?.({ message: `Created new overhead item "${createdItem.name}" in portal database.`, type: 'success' });
+      }
+
+      if (!targetItemId) {
+        throw new Error('Please select or create an overhead item.');
+      }
+
       await api.addPlanOverheadAllocation(planId, {
-        overheadItemId: selectedItemId,
+        overheadItemId: targetItemId,
         allocationMethod,
         allocationBase,
         allocationRate: rateNum,
         unitQuantity: qtyNum,
         notes: notes.trim()
       });
+
       onAllocationAdded();
       onClose();
     } catch (err: any) {
@@ -137,7 +170,7 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Allocate Overhead to Plan</h2>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Add Overhead Cost to Plan</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Plan {planNumber || planName}
               </p>
@@ -152,6 +185,32 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
           </button>
         </div>
 
+        {/* Mode Selector Tabs */}
+        <div className="px-4 pt-3 flex items-center space-x-2 border-b border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setMode('select_existing')}
+            className={`pb-2 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+              mode === 'select_existing'
+                ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            Select Existing Item ({overheadItems.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('create_new')}
+            className={`pb-2 px-3 text-xs font-semibold border-b-2 transition-colors cursor-pointer ${
+              mode === 'create_new'
+                ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            + Create New Cost Item in Portal
+          </button>
+        </div>
+
         {error && (
           <div className="p-3 mx-4 mt-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-center space-x-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
@@ -160,29 +219,96 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Item Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Select Overhead Catalogue Item <span className="text-rose-500">*</span>
-            </label>
-            <select
-              required
-              value={selectedItemId}
-              onChange={(e) => {
-                const item = overheadItems.find((i) => i.id === e.target.value);
-                if (item) applySelectedItem(item);
-                else setSelectedItemId(e.target.value);
-              }}
-              className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
-            >
-              <option value="">-- Choose Catalogue Item --</option>
-              {overheadItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  [{item.code}] {item.name} ({item.category}) - Def: {item.defaultRate} ({item.defaultCalculationMethod})
-                </option>
-              ))}
-            </select>
-          </div>
+          {mode === 'create_new' ? (
+            <div className="space-y-3 bg-amber-50/40 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+              <div className="text-[11px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+                New Cost Item Definition (Saved in Overhead Portal)
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Cost Item Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Site Quality & Safety Engineering"
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Code
+                  </label>
+                  <input
+                    type="text"
+                    value={newItemCode}
+                    onChange={(e) => setNewItemCode(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Overhead Category
+                  </label>
+                  <select
+                    value={newItemCategory}
+                    onChange={(e) => setNewItemCategory(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  >
+                    <option value="Facilities & Site Operations">Facilities & Site Operations</option>
+                    <option value="Engineering & Design Supervision">Engineering & Design Supervision</option>
+                    <option value="Quality Assurance & ASME Compliance">Quality Assurance & ASME Compliance</option>
+                    <option value="Logistics, Packaging & Freight">Logistics, Packaging & Freight</option>
+                    <option value="Tooling, Calibrations & Machinery Depreciation">Tooling, Calibrations & Depreciation</option>
+                    <option value="Corporate Governance & Administration">Corporate Governance & Administration</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Cost Type
+                  </label>
+                  <select
+                    value={newItemCostType}
+                    onChange={(e) => setNewItemCostType(e.target.value as any)}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  >
+                    <option value="Fixed">Fixed Cost</option>
+                    <option value="Variable">Variable Cost</option>
+                    <option value="Semi-Variable">Semi-Variable</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Select Overhead Catalogue Item <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={selectedItemId}
+                onChange={(e) => {
+                  const item = overheadItems.find((i) => i.id === e.target.value);
+                  if (item) applySelectedItem(item);
+                  else setSelectedItemId(e.target.value);
+                }}
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-amber-500"
+              >
+                <option value="">-- Choose Catalogue Item --</option>
+                {overheadItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    [{item.code}] {item.name} ({item.category}) - Def: {item.defaultRate} ({item.defaultCalculationMethod})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Allocation Method */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -276,11 +402,11 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={saving || !selectedItemId}
+            disabled={saving || (mode === 'select_existing' && !selectedItemId) || (mode === 'create_new' && !newItemName.trim())}
             className="px-5 py-2 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>{saving ? 'Allocating...' : 'Allocate to Plan'}</span>
+            <span>{saving ? 'Saving...' : mode === 'create_new' ? 'Create & Allocate Overhead' : 'Allocate to Plan'}</span>
           </button>
         </div>
       </div>
