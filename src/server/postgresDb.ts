@@ -1190,11 +1190,25 @@ export class PostgresService {
     const db = this.db!;
     try {
       await db.exec(`
-        -- Ensure project_plans has summary cache columns
+        -- Ensure project_plans has full financial metric columns
         ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS direct_cost NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS allocated_overhead NUMERIC(18, 2) DEFAULT 0;
         ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS total_planned_cost NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS gross_profit NUMERIC(18, 2) DEFAULT 0;
         ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS gross_margin_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS planned_profit NUMERIC(18, 2) DEFAULT 0;
         ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS profit_margin_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS markup_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS direct_cost_markup_pct NUMERIC(8, 2) DEFAULT 0;
+
+        -- Ensure project_plan_cost_summaries has markup, variance, and actuals columns
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS markup_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS direct_cost_markup_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS total_budget NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS budget_variance NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS budget_variance_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS actual_cost NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plan_cost_summaries ADD COLUMN IF NOT EXISTS remaining_budget NUMERIC(18, 2) DEFAULT 0;
 
         -- Ensure project_plan_overhead_allocations has backwards-compatibility columns
         ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS overhead_item_id TEXT;
@@ -3856,11 +3870,6 @@ export class PostgresService {
     }
   }
 
-  public async deleteProject(id: string): Promise<boolean> {
-    const db = await this.getDb();
-    await db.query('DELETE FROM projects WHERE id=$1', [id]);
-    return true;
-  }
 
   // --- Project Plans Normalized Relational CRUD ---
   private mapPlanRowToRecord(
@@ -7462,16 +7471,16 @@ export class PostgresService {
       const fixedCharge = resolvedVersion.fixedCharge || 0;
 
       if (resolvedVersion.calculationMethod === 'percentage') {
-        calculatedTariffAmount = round2(decMul(baseAmount, decDiv(rate, 100)));
+        calculatedTariffAmount = round2(decAdd(decMul(baseAmount, decDiv(rate, 100)), fixedCharge));
       } else if (resolvedVersion.calculationMethod === 'unit_rate') {
         const qty = Number(data.quantity || baseAmount || 1);
-        calculatedTariffAmount = round2(decMul(qty, rate));
+        calculatedTariffAmount = round2(decAdd(decMul(qty, rate), fixedCharge));
       } else if (resolvedVersion.calculationMethod === 'fixed_charge') {
         calculatedTariffAmount = round2(fixedCharge);
       } else if (resolvedVersion.calculationMethod === 'hybrid') {
         calculatedTariffAmount = round2(decAdd(fixedCharge, decMul(baseAmount, decDiv(rate, 100))));
       } else {
-        calculatedTariffAmount = round2(decMul(baseAmount, decDiv(rate, 100)));
+        calculatedTariffAmount = round2(decAdd(decMul(baseAmount, decDiv(rate, 100)), fixedCharge));
       }
 
       const planTariffId = data.id || `plt-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
@@ -11228,7 +11237,7 @@ export class PostgresService {
       // For remaining projects with no matching client, insert canonical clients (one per unique client_name)
       await db.query(`
         INSERT INTO clients (id, client_code, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, created_at, created_at_ts, updated_at_ts)
-        SELECT
+        SELECT DISTINCT
           'cli-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 8),
           'CLI-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 6),
           TRIM(p.client_name),
@@ -11239,14 +11248,13 @@ export class PostgresService {
           0,
           0,
           'Account Director',
-          'contact@' || LOWER(REGEXP_REPLACE(p.client_name, '[^a-zA-Z0-9]', '', 'g')) || '.com',
+          'contact@' || LOWER(REGEXP_REPLACE(TRIM(p.client_name), '[^a-zA-Z0-9]', '', 'g')) || '.com',
           NOW()::text,
           NOW(),
           NOW()
         FROM projects p
         WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = p.client_id))
           AND p.client_name IS NOT NULL AND TRIM(p.client_name) != ''
-        GROUP BY TRIM(p.client_name)
         ON CONFLICT (id) DO NOTHING
       `);
 

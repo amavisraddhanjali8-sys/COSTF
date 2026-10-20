@@ -1,9 +1,49 @@
 /**
- * Unified Project Plan Financial Calculation Service
- * Single source of truth for calculating plan BOQ line totals, direct costs,
- * overhead allocations, total planned cost, planned profit, and profit margins.
- * Used across both the PostgreSQL backend and frontend views to prevent duplicate
- * or inconsistent calculations (Requirement 21).
+ * Unified Project Plan Financial Calculation and Cost Control Service (TASK 11)
+ *
+ * Single authoritative calculation service across backend (PostgreSQL) and frontend.
+ * Defines standard commercial financial metrics, prevents double-counting, enforces
+ * decimal-safe BigInt arithmetic (via decimalMath.ts), and provides zero-division safety.
+ *
+ * FINANCIAL METRICS DEFINITIONS & FORMULAS:
+ * 1. Direct Costs:
+ *    - Direct Material Costs: Sum of material, produce, and hardware lines.
+ *    - Subcontractor Costs: Sum of subcontractor trade rates & external contract trades.
+ *    - Outsourced Service Costs: Sum of third-party logistics, inspection, and utility contracts.
+ *    - Direct Labour Costs: Sum of in-house team member allocated hours * hourly rate.
+ *    - Other Direct Costs: Direct equipment rentals, site plant, and specialized direct expenses.
+ *    - Total Direct Cost = Material + Subcontractor + Outsourced + Labour + Other Direct.
+ *      (Strict rule: No double-counting between direct cost categories or into overhead).
+ *
+ * 2. Allocated Overhead:
+ *    - Calculated strictly according to configured allocation method:
+ *      * fixed_amount: Fixed monetary sum (e.g., LKR 10,000).
+ *      * rate_per_unit: rate * unitQuantity.
+ *      * percentage_of_cost_base / proportional_defined_base: baseAmount * (allocationRate / 100).
+ *      * Standard statutory burden, corporate overhead, and contingency when configured.
+ *
+ * 3. Total Planned Cost:
+ *    - Total Planned Cost = Total Direct Cost + Allocated Overhead.
+ *
+ * 4. Revenue & Profits:
+ *    - Total Planned Revenue = Sum of BOQ line revenues (quantity * rate * (1 - discountPct / 100))
+ *      or explicit project plan revenue.
+ *    - Gross Profit = Total Planned Revenue - Total Direct Cost.
+ *    - Gross Profit Margin (%) = (Gross Profit / Total Planned Revenue) * 100.
+ *    - Planned Profit (Operating / Net Planned Profit) = Total Planned Revenue - Total Planned Cost.
+ *    - Planned Profit Margin (%) = (Planned Profit / Total Planned Revenue) * 100.
+ *      (Strict rule: If revenue <= 0, Profit Margin is 0% / N/A without division-by-zero).
+ *
+ * 5. Markup (Strictly distinguished from Margin):
+ *    - Profit Margin = Profit / Revenue * 100.
+ *    - Total Cost Markup (%) = Profit / Total Planned Cost * 100.
+ *    - Direct Cost Markup (%) = Gross Profit / Total Direct Cost * 100.
+ *      (Strict rule: If Cost == 0, markup is 0% if profit == 0, else 100% or pure-margin).
+ *
+ * 6. Budgets & Variance:
+ *    - Budget Variance = Total Planned Budget - Total Planned Cost (positive = under budget).
+ *    - Actual vs Planned Cost = Comparison of incurred cost against planned budget.
+ *    - Remaining Budget = Total Planned Budget - Actual Cost.
  */
 
 import {
@@ -25,6 +65,8 @@ export interface PlanCalculationInput {
   overheadPct?: number;
   contingencyPct?: number;
   laborBurdenPct?: number;
+  directCost?: number;
+  allocatedOverhead?: number;
   boqItems?: Array<Partial<ProjectPlanBoqItem & ProjectCostItem>>;
   sections?: Array<Partial<ProjectPlanSection>>;
   resources?: Array<Partial<ProjectPlanResource>>;
@@ -38,6 +80,192 @@ export interface NormalizedPlanCalculationResult {
   normalizedOverheadAllocations: ProjectPlanOverheadAllocation[];
 }
 
+/**
+ * 1. BOQ Line Total Cost calculation:
+ * subtotal = quantity * unitCost
+ * discountAmount = subtotal * (discountPct / 100)
+ * totalCost = subtotal - discountAmount (ROUND_HALF_UP 2 decimal places)
+ */
+export function calculateBoqLineTotal(
+  quantity: number | string | null | undefined,
+  unitCost: number | string | null | undefined,
+  discountPct: number | string | null | undefined = 0
+): { subtotal: number; discountAmount: number; totalCost: number } {
+  const safeQty = Math.max(0, round4(quantity));
+  const safeUnitCost = Math.max(0, round4(unitCost));
+  const safeDisc = Math.max(0, Math.min(100, round2(discountPct)));
+  const { subtotal, discountAmount, totalAmount } = calcDiscountedLine(safeQty, safeUnitCost, safeDisc);
+  return {
+    subtotal: round2(subtotal),
+    discountAmount: round2(discountAmount),
+    totalCost: round2(totalAmount)
+  };
+}
+
+/**
+ * 2. BOQ Line Total Revenue calculation:
+ * lineRevenue = quantity * rate * (1 - discountPct / 100)
+ */
+export function calculateBoqLineRevenue(
+  quantity: number | string | null | undefined,
+  rate: number | string | null | undefined,
+  discountPct: number | string | null | undefined = 0
+): number {
+  const safeQty = Math.max(0, round4(quantity));
+  const safeRate = Math.max(0, round4(rate));
+  const safeDisc = Math.max(0, Math.min(100, round2(discountPct)));
+  const discountedRate = round4(decMul(safeRate, decSub(1, decDiv(safeDisc, 100))));
+  return round2(decMul(safeQty, discountedRate));
+}
+
+/**
+ * 3. Gross Profit calculation:
+ * Gross Profit = Planned Revenue - Direct Cost
+ */
+export function calculateGrossProfit(
+  revenue: number | string | null | undefined,
+  directCost: number | string | null | undefined
+): number {
+  return round2(decSub(round2(revenue), round2(directCost)));
+}
+
+/**
+ * 4. Gross Profit Margin (%):
+ * Gross Margin % = (Gross Profit / Planned Revenue) * 100
+ * Division-by-zero rule: If revenue <= 0, returns 0.
+ */
+export function calculateGrossMarginPct(
+  grossProfit: number | string | null | undefined,
+  revenue: number | string | null | undefined
+): number {
+  const rev = round2(revenue);
+  if (rev <= 0) return 0;
+  return round2(decDiv(decMul(round2(grossProfit), 100), rev));
+}
+
+/**
+ * 5. Planned / Net Profit calculation:
+ * Planned Profit = Planned Revenue - Total Planned Cost
+ */
+export function calculateNetProfit(
+  revenue: number | string | null | undefined,
+  totalPlannedCost: number | string | null | undefined
+): number {
+  return round2(decSub(round2(revenue), round2(totalPlannedCost)));
+}
+
+/**
+ * 6. Profit Margin (%):
+ * Profit Margin % = (Profit / Revenue) * 100
+ * Division-by-zero rule: If revenue <= 0, returns 0.
+ * NOTE: Strictly distinguished from Markup.
+ */
+export function calculateProfitMarginPct(
+  profit: number | string | null | undefined,
+  revenue: number | string | null | undefined
+): number {
+  const rev = round2(revenue);
+  if (rev <= 0) return 0;
+  return round2(decDiv(decMul(round2(profit), 100), rev));
+}
+
+/**
+ * 7. Markup on Total Cost (%):
+ * Markup % = (Profit / Total Cost) * 100
+ * Division-by-zero business rule:
+ * - If cost <= 0 and profit <= 0 => 0%
+ * - If cost <= 0 and profit > 0 => 100% (pure profit)
+ * NOTE: Strictly distinguished from Margin.
+ */
+export function calculateMarkupPct(
+  profit: number | string | null | undefined,
+  totalCost: number | string | null | undefined
+): number {
+  const cost = round2(totalCost);
+  const p = round2(profit);
+  if (cost <= 0) {
+    return p > 0 ? 100 : 0;
+  }
+  return round2(decDiv(decMul(p, 100), cost));
+}
+
+/**
+ * 8. Direct Cost Markup (%):
+ * Direct Cost Markup % = (Gross Profit / Total Direct Cost) * 100
+ */
+export function calculateDirectCostMarkupPct(
+  grossProfit: number | string | null | undefined,
+  directCost: number | string | null | undefined
+): number {
+  const cost = round2(directCost);
+  const p = round2(grossProfit);
+  if (cost <= 0) {
+    return p > 0 ? 100 : 0;
+  }
+  return round2(decDiv(decMul(p, 100), cost));
+}
+
+/**
+ * 9. Overhead Allocation calculation by configured method:
+ * - fixed_amount: returns allocatedAmount or rate
+ * - rate_per_unit: rate * unitQuantity
+ * - percentage_of_cost_base / proportional_defined_base: baseAmount * (rate / 100)
+ */
+export function calculateOverheadAllocation(
+  method: 'fixed_amount' | 'rate_per_unit' | 'percentage_of_cost_base' | 'proportional_defined_base' | string,
+  rate: number | string | null | undefined,
+  baseAmount: number | string | null | undefined,
+  unitQuantity: number | string | null | undefined = 1,
+  explicitAllocatedAmount?: number | string | null | undefined
+): number {
+  const safeRate = Math.max(0, round4(rate));
+  const safeBase = Math.max(0, round2(baseAmount));
+  const safeQty = Math.max(0, round4(unitQuantity));
+
+  if (method === 'fixed_amount' || method === 'fixed') {
+    if (explicitAllocatedAmount !== undefined && explicitAllocatedAmount !== null && Number(explicitAllocatedAmount) > 0) {
+      return round2(Number(explicitAllocatedAmount));
+    }
+    return round2(safeRate > 0 ? safeRate : Number(explicitAllocatedAmount || 0));
+  }
+  if (method === 'rate_per_unit') {
+    return round2(decMul(safeRate, safeQty));
+  }
+  // percentage_of_cost_base or proportional_defined_base
+  return round2(decDiv(decMul(safeBase, safeRate), 100));
+}
+
+/**
+ * 10. Budget Variance:
+ * Budget Variance = Planned Budget - Actual / Planned Cost
+ * (Positive = Under Budget, Negative = Over Budget)
+ */
+export function calculateBudgetVariance(
+  budget: number | string | null | undefined,
+  cost: number | string | null | undefined
+): number {
+  return round2(decSub(round2(budget), round2(cost)));
+}
+
+export function calculateBudgetVariancePct(
+  variance: number | string | null | undefined,
+  budget: number | string | null | undefined
+): number {
+  const b = round2(budget);
+  if (b <= 0) return 0;
+  return round2(decDiv(decMul(round2(variance), 100), b));
+}
+
+export function calculateRemainingBudget(
+  budget: number | string | null | undefined,
+  actualCost: number | string | null | undefined
+): number {
+  return round2(decSub(round2(budget), round2(actualCost)));
+}
+
+/**
+ * Authoritative plan calculation function.
+ */
 export function calculatePlanFinancials(input: PlanCalculationInput): NormalizedPlanCalculationResult {
   const rawItems = Array.isArray(input.boqItems) ? input.boqItems : [];
   const rawResources = Array.isArray(input.resources) ? input.resources : [];
@@ -47,8 +275,10 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   let materialCost = 0;
   let subcontractorCost = 0;
   let outsourcedCost = 0;
+  let otherDirectCost = 0;
   let itemsBilledRevenue = 0;
 
+  // 1. Process BOQ Line Items
   const normalizedBoqItems: ProjectPlanBoqItem[] = rawItems.map((it, idx) => {
     const qty = Math.max(0, round4(it.quantity ?? 1));
     const unitCost = Math.max(0, round4(it.unitCost ?? (it as any).unit_cost ?? 0));
@@ -99,10 +329,13 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
         ? 'other'
         : 'material';
 
+    // Categorize direct costs without double counting
     if (itemType === 'subcontractor') {
       subcontractorCost = round2(decAdd(subcontractorCost, lineCost));
     } else if (itemType === 'outsourced') {
       outsourcedCost = round2(decAdd(outsourcedCost, lineCost));
+    } else if (itemType === 'equipment' || itemType === 'other') {
+      otherDirectCost = round2(decAdd(otherDirectCost, lineCost));
     } else {
       materialCost = round2(decAdd(materialCost, lineCost));
     }
@@ -148,7 +381,9 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     };
   });
 
+  // 2. Process Assigned Resources (Direct Labour, Subcontractor, Equipment)
   let resourceCost = 0;
+  let labourCost = 0;
   const normalizedResources: ProjectPlanResource[] = rawResources.map((r, idx) => {
     const allocatedHours = Math.max(0, round2(r.allocatedHours ?? (r as any).allocated_hours ?? 0));
     const hourlyRate = Math.max(0, round4(r.hourlyRate ?? (r as any).hourly_rate ?? 0));
@@ -157,14 +392,30 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       : (r as any).total_cost !== undefined && Number((r as any).total_cost) > 0
       ? round2((r as any).total_cost)
       : round2(decMul(allocatedHours, hourlyRate));
+
+    const rType = r.resourceType === 'team_member' || (r as any).resource_type === 'team_member'
+      ? 'team_member'
+      : r.resourceType === 'equipment' || (r as any).resource_type === 'equipment'
+      ? 'equipment'
+      : 'subcontractor';
+
+    if (rType === 'team_member') {
+      labourCost = round2(decAdd(labourCost, totalCost));
+    } else if (rType === 'equipment') {
+      otherDirectCost = round2(decAdd(otherDirectCost, totalCost));
+    } else {
+      subcontractorCost = round2(decAdd(subcontractorCost, totalCost));
+    }
+
     resourceCost = round2(decAdd(resourceCost, totalCost));
+
     return {
       id: r.id || `res-${Date.now()}-${idx}`,
       planId: input.planId,
       projectId: input.projectId,
       sectionId: r.sectionId || (r as any).section_id,
       resourceId: r.resourceId || (r as any).resource_id || `R-${idx + 1}`,
-      resourceType: (r.resourceType === 'team_member' || (r as any).resource_type === 'team_member' || r.resourceType === 'equipment' || (r as any).resource_type === 'equipment' ? (r.resourceType || (r as any).resource_type) : 'subcontractor'),
+      resourceType: rType,
       name: String(r.name || 'Assigned Resource').trim(),
       roleOrTrade: r.roleOrTrade || (r as any).role_or_trade || 'Specialist',
       allocatedHours,
@@ -176,7 +427,12 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     };
   });
 
-  const directCost = round2(decAdd(decAdd(decAdd(materialCost, subcontractorCost), outsourcedCost), resourceCost));
+  // Total Direct Cost (Prevent double counting)
+  let directCost = round2(decAdd(decAdd(decAdd(materialCost, subcontractorCost), outsourcedCost), decAdd(otherDirectCost, labourCost)));
+  if (directCost === 0 && (input.directCost !== undefined || (input as any).direct_cost !== undefined)) {
+    directCost = Math.max(0, round2(Number(input.directCost ?? (input as any).direct_cost ?? 0)));
+    materialCost = directCost;
+  }
 
   const overheadPct = round2(input.overheadPct ?? 8.5);
   const contingencyPct = round2(input.contingencyPct ?? 5.0);
@@ -188,11 +444,11 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   const overheadAmount = round2(decDiv(decMul(effectiveDirectBase, overheadPct), 100));
   const contingencyAmount = round2(decDiv(decMul(effectiveDirectBase, contingencyPct), 100));
 
-  // Build normalized overhead allocations (preserve explicit custom allocations + standard allocations)
+  // 3. Process Overhead Allocations
   const customOverheads = rawOverheads.filter(
     (o) =>
       o &&
-      (o.category || o.overheadItemName || o.overheadItemId || o.overhead_item_name || o.overhead_item_id)
+      (o.category || o.overheadItemName || o.overheadItemId || o.overhead_item_name || o.overhead_item_id || o.allocatedAmount !== undefined || o.allocated_amount !== undefined)
   );
 
   let extraOverheadAmount = 0;
@@ -211,12 +467,12 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
         : 'percentage_of_cost_base';
 
     const allocBase: ProjectPlanOverheadAllocation['allocationBase'] =
-      (o.allocationBase || o.allocation_base as any) || 'total_direct_cost';
-    const rate = round4(Number(o.allocationRate ?? o.allocation_rate ?? o.ratePct ?? o.rate_pct ?? 0));
-    const unitQty = Math.max(0, round4(Number(o.unitQuantity ?? o.unit_quantity ?? 1)));
+      (o.allocationBase || (o as any).allocation_base) || 'total_direct_cost';
+    const rate = round4(Number(o.allocationRate ?? (o as any).allocation_rate ?? o.ratePct ?? (o as any).rate_pct ?? 0));
+    const unitQty = Math.max(0, round4(Number(o.unitQuantity ?? (o as any).unit_quantity ?? 1)));
 
     // Determine relevant base dynamically based on allocation base
-    let baseAmount = round2(Number(o.baseAmount ?? o.base_amount ?? 0));
+    let baseAmount = round2(Number(o.baseAmount ?? (o as any).base_amount ?? 0));
     if (allocBase === 'material_cost') {
       baseAmount = materialCost;
     } else if (allocBase === 'subcontractor_cost') {
@@ -224,7 +480,7 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     } else if (allocBase === 'outsourced_cost') {
       baseAmount = outsourcedCost;
     } else if (allocBase === 'labor_cost') {
-      baseAmount = round2(decAdd(resourceCost, laborBurdenAmount));
+      baseAmount = round2(decAdd(labourCost, laborBurdenAmount));
     } else if (allocBase === 'planned_revenue') {
       baseAmount = round2(input.plannedRevenue ?? input.projectQuotedPrice ?? 0);
     } else if (allocBase === 'total_direct_cost') {
@@ -234,9 +490,9 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     }
 
     let allocatedAmount = 0;
-    const existingAlloc = o.allocatedAmount !== undefined ? o.allocatedAmount : o.allocated_amount;
+    const existingAlloc = o.allocatedAmount !== undefined ? o.allocatedAmount : (o as any).allocated_amount;
     if (method === 'fixed_amount') {
-      allocatedAmount = round2(existingAlloc !== undefined && Number(existingAlloc) > 0 ? Number(existingAlloc) : rate);
+      allocatedAmount = round2(existingAlloc !== undefined && Number(existingAlloc) > 0 ? Number(existingAlloc) : (rate > 0 ? rate : Number(existingAlloc || 0)));
     } else if (method === 'rate_per_unit') {
       allocatedAmount = round2(decMul(rate, unitQty));
     } else if (method === 'percentage_of_cost_base' || method === 'proportional_defined_base') {
@@ -251,13 +507,13 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       id: o.id || `ovh-custom-${Date.now()}-${idx}`,
       planId: input.planId || '',
       projectId: input.projectId || '',
-      overheadItemId: o.overheadItemId || o.overhead_item_id,
-      overheadItemCode: o.overheadItemCode || o.overhead_item_code,
-      overheadItemName: o.overheadItemName || o.overhead_item_name,
+      overheadItemId: o.overheadItemId || (o as any).overhead_item_id,
+      overheadItemCode: o.overheadItemCode || (o as any).overhead_item_code,
+      overheadItemName: o.overheadItemName || (o as any).overhead_item_name,
       barcode: o.barcode,
-      category: String(o.category || o.overheadItemName || o.overhead_item_name || 'General Overhead'),
-      costType: o.costType || o.cost_type || 'Fixed',
-      unitType: o.unitType || o.unit_type || 'month',
+      category: String(o.category || o.overheadItemName || (o as any).overhead_item_name || 'General Overhead'),
+      costType: o.costType || (o as any).cost_type || 'Fixed',
+      unitType: o.unitType || (o as any).unit_type || 'month',
       allocationMethod: method,
       allocationType: method === 'fixed_amount' ? 'fixed' : 'percentage',
       allocationBase: allocBase,
@@ -266,8 +522,8 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       ratePct: round2(rate),
       unitQuantity: unitQty,
       allocatedAmount,
-      effectiveDate: o.effectiveDate || o.effective_date_iso || o.effective_date || new Date().toISOString().slice(0, 10),
-      allocatedBy: o.allocatedBy || o.allocated_by || 'System',
+      effectiveDate: o.effectiveDate || (o as any).effective_date_iso || (o as any).effective_date || new Date().toISOString().slice(0, 10),
+      allocatedBy: o.allocatedBy || (o as any).allocated_by || 'System',
       notes: o.notes || ''
     };
   });
@@ -330,21 +586,53 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   }
 
   const hasCustomOverheads = normalizedCustomOverheads.length > 0;
-  const isExplicitEmptyOverheads = Array.isArray(input.overheadAllocations) && input.overheadAllocations.length === 0;
-  const normalizedOverheadAllocations = hasCustomOverheads
-    ? normalizedCustomOverheads
-    : (isExplicitEmptyOverheads ? [] : standardOverheads);
+  const isExplicitAllocatedOverhead =
+    (input.allocatedOverhead !== undefined && input.allocatedOverhead !== null && Number(input.allocatedOverhead) >= 0) ||
+    ((input as any).allocated_overhead !== undefined && (input as any).allocated_overhead !== null && Number((input as any).allocated_overhead) >= 0);
+  const isExplicitEmptyOverheads = Array.isArray(input.overheadAllocations) && input.overheadAllocations.length === 0 && !isExplicitAllocatedOverhead;
 
-  const allocatedOverhead = hasCustomOverheads
-    ? round2(decAdd(extraOverheadAmount, laborBurdenAmount))
-    : (isExplicitEmptyOverheads ? 0 : round2(decAdd(decAdd(overheadAmount, contingencyAmount), laborBurdenAmount)));
+  let allocatedOverhead = 0;
+  let normalizedOverheadAllocations: ProjectPlanOverheadAllocation[] = [];
+
+  if (hasCustomOverheads) {
+    allocatedOverhead = round2(decAdd(extraOverheadAmount, laborBurdenAmount));
+    normalizedOverheadAllocations = normalizedCustomOverheads;
+  } else if (isExplicitAllocatedOverhead) {
+    allocatedOverhead = round2(Number(input.allocatedOverhead ?? (input as any).allocated_overhead));
+    normalizedOverheadAllocations = [
+      {
+        id: `ovh-fixed-${input.planId || 'plan'}`,
+        planId: input.planId || '',
+        projectId: input.projectId || '',
+        category: 'Allocated Overhead',
+        allocationMethod: 'fixed_amount',
+        allocationType: 'fixed',
+        allocationBase: 'total_direct_cost',
+        allocationRate: allocatedOverhead,
+        ratePct: 0,
+        unitQuantity: 1,
+        baseAmount: directCost,
+        allocatedAmount: allocatedOverhead,
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        allocatedBy: 'System',
+        notes: 'Direct allocated overhead'
+      }
+    ];
+  } else if (isExplicitEmptyOverheads) {
+    allocatedOverhead = 0;
+    normalizedOverheadAllocations = [];
+  } else {
+    allocatedOverhead = round2(decAdd(decAdd(overheadAmount, contingencyAmount), laborBurdenAmount));
+    normalizedOverheadAllocations = standardOverheads;
+  }
+
   const totalPlannedCost = round2(decAdd(directCost, allocatedOverhead));
 
-  // Determine plannedRevenue:
-  // 1. Explicit plannedRevenue if > 0
-  // 2. Else projectQuotedPrice if > 0
-  // 3. Else if totalPlannedCost > 0 and targetMarginPct > 0, compute recommended selling price: totalPlannedCost / (1 - targetMarginPct/100)
-  let plannedRevenue = round2(input.plannedRevenue ?? 0);
+  // 4. Determine Planned Revenue
+  let plannedRevenue = round2(input.plannedRevenue ?? (input as any).planned_revenue ?? 0);
+  if (plannedRevenue <= 0 && itemsBilledRevenue > 0) {
+    plannedRevenue = round2(itemsBilledRevenue);
+  }
   if (plannedRevenue <= 0 && (input.projectQuotedPrice ?? 0) > 0) {
     plannedRevenue = round2(input.projectQuotedPrice);
   }
@@ -352,19 +640,42 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     plannedRevenue = round2(decDiv(totalPlannedCost, decSub(1, decDiv(targetMarginPct, 100))));
   }
 
-  const grossProfit = round2(decSub(plannedRevenue, directCost));
-  const grossMarginPct = plannedRevenue > 0 ? round2(decDiv(decMul(grossProfit, 100), plannedRevenue)) : 0;
+  // 5. Calculate Gross Profit & Margin
+  const grossProfit = calculateGrossProfit(plannedRevenue, directCost);
+  const grossMarginPct = calculateGrossMarginPct(grossProfit, plannedRevenue);
 
-  const plannedProfit = round2(decSub(plannedRevenue, totalPlannedCost));
-  const profitMarginPct = plannedRevenue > 0 ? round2(decDiv(decMul(plannedProfit, 100), plannedRevenue)) : 0;
+  // 6. Calculate Planned Profit after Overhead & Profit Margin
+  // Strictly defined: Profit Margin = Profit / Revenue * 100
+  const plannedProfit = calculateNetProfit(plannedRevenue, totalPlannedCost);
+  const profitMarginPct = calculateProfitMarginPct(plannedProfit, plannedRevenue);
+
+  // 7. Calculate Markups (Strictly distinguished from Profit Margin)
+  // Total Cost Markup (%) = Planned Profit / Total Planned Cost * 100
+  const markupPct = calculateMarkupPct(plannedProfit, totalPlannedCost);
+
+  // Direct Cost Markup (%) = Gross Profit / Total Direct Cost * 100
+  const directCostMarkupPct = calculateDirectCostMarkupPct(grossProfit, directCost);
+
+  // 8. Sections Planned Budget & Actual Cost
+  let totalBudget = 0;
+  let actualCost = 0;
+  for (const s of rawSections) {
+    totalBudget = round2(decAdd(totalBudget, Number(s.plannedBudget ?? (s as any).budget ?? 0)));
+    actualCost = round2(decAdd(actualCost, Number(s.actualCost ?? (s as any).actual_cost ?? 0)));
+  }
+  const budgetVariance = round2(decSub(totalBudget, totalPlannedCost));
+  const budgetVariancePct = totalBudget > 0 ? round2(decDiv(decMul(budgetVariance, 100), totalBudget)) : 0;
+  const remainingBudget = round2(decSub(totalBudget, actualCost));
 
   const summary: ProjectPlanCostSummary = {
     planId: input.planId,
     projectId: input.projectId,
     plannedRevenue,
     materialCost,
+    labourCost,
     subcontractorCost,
     outsourcedCost,
+    otherDirectCost,
     resourceCost,
     directCost,
     overheadAmount,
@@ -375,8 +686,16 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     totalPlannedCost,
     grossProfit,
     grossMarginPct,
+    netPlannedProfit: plannedProfit,
     plannedProfit,
     profitMarginPct,
+    markupPct,
+    directCostMarkupPct,
+    totalBudget,
+    budgetVariance,
+    budgetVariancePct,
+    actualCost,
+    remainingBudget,
     boqItemCount: normalizedBoqItems.length,
     sectionCount: rawSections.length,
     resourceCount: normalizedResources.length,

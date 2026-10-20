@@ -783,8 +783,10 @@ export interface ProjectPlanCostSummary {
   projectId?: string;
   plannedRevenue: number;
   materialCost: number;
+  labourCost?: number;
   subcontractorCost: number;
   outsourcedCost: number;
+  otherDirectCost?: number;
   resourceCost: number;
   directCost: number;
   overheadAmount: number;
@@ -795,8 +797,16 @@ export interface ProjectPlanCostSummary {
   totalPlannedCost: number;
   grossProfit: number;
   grossMarginPct: number;
+  netPlannedProfit?: number;
   plannedProfit: number;
   profitMarginPct: number;
+  markupPct?: number;
+  directCostMarkupPct?: number;
+  totalBudget?: number;
+  budgetVariance?: number;
+  budgetVariancePct?: number;
+  actualCost?: number;
+  remainingBudget?: number;
   boqItemCount: number;
   sectionCount: number;
   resourceCount: number;

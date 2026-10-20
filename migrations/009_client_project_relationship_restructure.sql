@@ -90,7 +90,7 @@ WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c2 WHERE c2.id =
 
 -- For remaining projects with no matching client in clients table, insert canonical clients (one per unique client_name)
 INSERT INTO clients (id, client_code, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, created_at, created_at_ts, updated_at_ts)
-SELECT
+SELECT DISTINCT
   'cli-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 8),
   'CLI-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 6),
   TRIM(p.client_name),
@@ -101,14 +101,13 @@ SELECT
   0,
   0,
   'Account Director',
-  'contact@' || LOWER(REGEXP_REPLACE(p.client_name, '[^a-zA-Z0-9]', '', 'g')) || '.com',
+  'contact@' || LOWER(REGEXP_REPLACE(TRIM(p.client_name), '[^a-zA-Z0-9]', '', 'g')) || '.com',
   NOW()::text,
   NOW(),
   NOW()
 FROM projects p
 WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = p.client_id))
   AND p.client_name IS NOT NULL AND TRIM(p.client_name) != ''
-GROUP BY TRIM(p.client_name)
 ON CONFLICT (id) DO NOTHING;
 
 -- Now link those remaining projects to the newly created canonical clients
