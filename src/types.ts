@@ -41,6 +41,7 @@ export interface Supplier {
   country: string;
   city: string;
   code?: string;
+  barcode?: string;
   leadTimeDays?: number;
   vendorTaxId?: string;
   certifications?: string[];
@@ -205,6 +206,7 @@ export interface MaterialItem {
 export interface OutsourcedService {
   id: EntityId;
   code?: string;
+  barcode?: string;
   name: string;
   providerId: EntityId;
   providerName: string;
@@ -252,6 +254,7 @@ export type ProjectItem = ProjectCostItem;
 export interface SubcontractorRateItem {
   id: EntityId;
   code?: string;
+  barcode?: string;
   name?: string;
   subcontractorId: EntityId;
   subcontractorName: string;
@@ -614,6 +617,7 @@ export interface ProjectPlanBoqItem {
   type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'other';
   itemId?: string;
   itemCode?: string;
+  barcode?: string;
   revenueItemId?: string;
   name: string;
   category?: string;
@@ -1134,5 +1138,72 @@ export interface PriceComparisonSummary {
   latestRecord?: ProcurementPriceRecord;
   history: ProcurementPriceRecord[];
 }
+
+// ============================================================================
+// SYSTEM-WIDE BARCODE REGISTRY & SCANNING INTERFACES (TASK 7)
+// ============================================================================
+
+export type BarcodeEntityType =
+  | 'material'
+  | 'revenue_product'
+  | 'revenue_service'
+  | 'overhead_item'
+  | 'supplier'
+  | 'outsourced_service'
+  | 'subcontractor'
+  | 'produce_item'
+  | 'inventory_item'
+  | 'client';
+
+export interface BarcodeRegistryEntry {
+  barcode: string;
+  entityType: BarcodeEntityType;
+  entityId: string;
+  entityCode: string;
+  entityName: string;
+  category?: string;
+  subCategory?: string;
+  unit?: string;
+  unitCost?: number;
+  sellingRate?: number;
+  currency?: string;
+  isCostEligible: boolean;
+  isBoqEligible: boolean;
+  isDirectoryOnly?: boolean;
+  metadata?: any;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BarcodeLookupResult {
+  found: boolean;
+  exactBarcodeMatch?: boolean;
+  matchType?: 'exact_barcode' | 'entity_code' | 'name_fallback' | 'multiple_matches';
+  barcode?: string;
+  entityType?: BarcodeEntityType;
+  entityId?: string;
+  entityCode?: string;
+  entityName?: string;
+  category?: string;
+  subCategory?: string;
+  unit?: string;
+  unitCost?: number;
+  sellingRate?: number;
+  currency?: string;
+  isCostEligible?: boolean;
+  isBoqEligible?: boolean;
+  isDirectoryOnly?: boolean;
+  rawRecord?: any;
+  message?: string;
+  code?: string;
+  otherMatches?: Array<{
+    barcode: string;
+    entityType: BarcodeEntityType;
+    entityId: string;
+    entityCode: string;
+    entityName: string;
+  }>;
+}
+
 
 

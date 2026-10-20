@@ -2737,6 +2737,67 @@ async function startServer() {
     res.json(results);
   });
 
+  // ============================================================================
+  // SYSTEM-WIDE BARCODE REGISTRY & SCANNING API (TASK 7)
+  // ============================================================================
+  app.get(['/api/barcodes/lookup', '/api/barcodes/lookup/:code'], async (req, res) => {
+    try {
+      const code = String(req.query.code || req.query.barcode || req.params.code || '').trim();
+      if (!code) {
+        return res.status(400).json({ found: false, error: 'Barcode or code query parameter is required.' });
+      }
+      const result = await postgresService.lookupBarcode(code);
+      if (!result.found) {
+        return res.status(404).json(result);
+      }
+      res.json(result);
+    } catch (e: any) {
+      console.error('Barcode lookup failed:', e);
+      res.status(500).json({ error: 'Failed to lookup barcode', details: e?.message });
+    }
+  });
+
+  app.get('/api/barcodes/search', async (req, res) => {
+    try {
+      const q = String(req.query.q || req.query.query || '').trim();
+      const entityType = req.query.entityType ? String(req.query.entityType) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const offset = req.query.offset ? Number(req.query.offset) : 0;
+      const results = await postgresService.searchBarcodes(q, { entityType, limit, offset });
+      res.json(results);
+    } catch (e: any) {
+      console.error('Barcode search failed:', e);
+      res.status(500).json({ error: 'Failed to search barcodes', details: e?.message });
+    }
+  });
+
+  app.post('/api/barcodes/generate', async (req, res) => {
+    try {
+      const entityType = String(req.body?.entityType || 'material');
+      const baseCode = req.body?.baseCode ? String(req.body.baseCode) : undefined;
+      const barcode = await postgresService.generateUniqueBarcode(entityType, baseCode);
+      res.json({ barcode, entityType });
+    } catch (e: any) {
+      console.error('Barcode generation failed:', e);
+      res.status(500).json({ error: 'Failed to generate unique barcode', details: e?.message });
+    }
+  });
+
+  app.post('/api/barcodes/register', async (req, res) => {
+    try {
+      const barcode = String(req.body?.barcode || '').trim().toUpperCase();
+      if (!barcode) {
+        return res.status(400).json({ error: 'Barcode is required.' });
+      }
+      await postgresService.registerBarcode(req.body);
+      res.status(201).json({ success: true, barcode });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message, conflictEntity: e.conflictEntity });
+      console.error('Barcode registration failed:', e);
+      res.status(500).json({ error: 'Failed to register barcode', details: e?.message });
+    }
+  });
+
   // --- Categories API (PostgreSQL inno_cost) ---
   app.get('/api/categories', async (req, res) => {
     try {

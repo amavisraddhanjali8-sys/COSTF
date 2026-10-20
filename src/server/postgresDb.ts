@@ -1090,6 +1090,8 @@ export class PostgresService {
     await this.ensureProcurementPriceTables();
     // Ensure material catalogue and category restructure exist (Task 6)
     await this.ensureMaterialCatalogueSchema();
+    // Ensure system-wide barcode registry exists (Task 7)
+    await this.ensureBarcodeRegistrySchema();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -1548,6 +1550,7 @@ export class PostgresService {
     const rows = res.rows.map((r: any) => ({
       id: r.id,
       code: r.code,
+      barcode: r.barcode || '',
       name: r.name,
       category: r.category,
       supplyScope: r.supply_scope,
@@ -1572,7 +1575,7 @@ export class PostgresService {
       customGradient: r.custom_gradient,
       createdAt: r.created_at
     }));
-    return parseFilterPagination(rows, opts, ['name', 'code', 'category', 'city', 'country', 'contactPerson', 'email']);
+    return parseFilterPagination(rows, opts, ['name', 'code', 'barcode', 'category', 'city', 'country', 'contactPerson', 'email']);
   }
 
   public async createSupplier(data: any): Promise<any> {
@@ -1588,12 +1591,18 @@ export class PostgresService {
       // ignore
     }
 
+    let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
+    if (!barcode) {
+      barcode = await this.generateUniqueBarcode('supplier', code);
+    }
+
     await db.query(
-      `INSERT INTO suppliers (id, code, name, category, supply_scope, rating, on_time_delivery_pct, quality_score_pct, lead_time_days, payment_terms, city, country, address, contact_person, email, phone, credit_limit, currency, status, certifications, contract_history, notes, theme_id, custom_gradient, created_at, updated_at_ts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW())
+      `INSERT INTO suppliers (id, code, barcode, name, category, supply_scope, rating, on_time_delivery_pct, quality_score_pct, lead_time_days, payment_terms, city, country, address, contact_person, email, phone, credit_limit, currency, status, certifications, contract_history, notes, theme_id, custom_gradient, created_at, updated_at_ts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          code = EXCLUDED.code,
+         barcode = EXCLUDED.barcode,
          category = EXCLUDED.category,
          supply_scope = EXCLUDED.supply_scope,
          contact_person = EXCLUDED.contact_person,
@@ -1612,6 +1621,7 @@ export class PostgresService {
       [
         id,
         code,
+        barcode,
         data.name || 'New Supplier',
         data.category || 'Materials',
         data.supplyScope || 'materials',
@@ -1637,7 +1647,19 @@ export class PostgresService {
         new Date().toISOString()
       ]
     );
-    return { ...data, id, code };
+
+    await this.registerBarcode({
+      barcode,
+      entityType: 'supplier',
+      entityId: id,
+      entityCode: code,
+      entityName: data.name || 'New Supplier',
+      category: data.category || 'Materials',
+      isCostEligible: false,
+      isBoqEligible: false
+    }).catch((err) => console.warn('[Barcode] Register supplier barcode warning:', err?.message));
+
+    return { ...data, id, code, barcode };
   }
 
   public async updateSupplier(id: string, data: any): Promise<any> {
@@ -1645,10 +1667,13 @@ export class PostgresService {
     const existing = (await this.getSuppliers()).find((s) => s.id === id);
     if (!existing) return null;
     const merged = { ...existing, ...data };
+    const barcode = (merged.barcode || existing.barcode || '').trim().toUpperCase();
+
     await db.query(
-      `UPDATE suppliers SET code=$1, name=$2, category=$3, supply_scope=$4, rating=$5, on_time_delivery_pct=$6, quality_score_pct=$7, lead_time_days=$8, payment_terms=$9, city=$10, country=$11, address=$12, contact_person=$13, email=$14, phone=$15, credit_limit=$16, currency=$17, status=$18, certifications=$19, contract_history=$20, notes=$21, theme_id=$22, custom_gradient=$23, updated_at_ts=NOW() WHERE id=$24`,
+      `UPDATE suppliers SET code=$1, barcode=$2, name=$3, category=$4, supply_scope=$5, rating=$6, on_time_delivery_pct=$7, quality_score_pct=$8, lead_time_days=$9, payment_terms=$10, city=$11, country=$12, address=$13, contact_person=$14, email=$15, phone=$16, credit_limit=$17, currency=$18, status=$19, certifications=$20, contract_history=$21, notes=$22, theme_id=$23, custom_gradient=$24, updated_at_ts=NOW() WHERE id=$25`,
       [
         merged.code,
+        barcode,
         merged.name,
         merged.category,
         merged.supplyScope,
@@ -1674,7 +1699,21 @@ export class PostgresService {
         id
       ]
     );
-    return merged;
+
+    if (barcode) {
+      await this.registerBarcode({
+        barcode,
+        entityType: 'supplier',
+        entityId: id,
+        entityCode: merged.code,
+        entityName: merged.name,
+        category: merged.category || 'Materials',
+        isCostEligible: false,
+        isBoqEligible: false
+      }).catch((err) => console.warn('[Barcode] Update supplier barcode warning:', err?.message));
+    }
+
+    return { ...merged, barcode };
   }
 
   public async deleteSupplier(id: string): Promise<boolean> {
@@ -1814,7 +1853,10 @@ export class PostgresService {
     }
 
     const effectiveDate = (data.effectiveDate || data.lastUpdated || new Date().toISOString()).slice(0, 10);
-    const barcode = (data.barcode || code).trim();
+    let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
+    if (!barcode) {
+      barcode = await this.generateUniqueBarcode('material', code);
+    }
     const description = (data.description || '').trim();
     const unit = (data.unit || 'pcs').trim();
     const defaultUnitId = data.defaultUnitId || null;
@@ -1893,6 +1935,22 @@ export class PostgresService {
         data.classificationReviewNotes || ''
       ]
     );
+
+    await this.registerBarcode({
+      barcode,
+      entityType: 'material',
+      entityId: id,
+      entityCode: code,
+      entityName: data.name || 'New Material',
+      category: categoryName,
+      subCategory: subCategoryName,
+      unit,
+      unitCost: price,
+      sellingRate: price,
+      currency: data.currency || 'USD',
+      isCostEligible: true,
+      isBoqEligible: true
+    }).catch((err) => console.warn('[Barcode] Register material barcode warning:', err?.message));
 
     return {
       ...data,
@@ -2005,6 +2063,24 @@ export class PostgresService {
         id
       ]
     );
+
+    if (barcode) {
+      await this.registerBarcode({
+        barcode,
+        entityType: 'material',
+        entityId: id,
+        entityCode: merged.code,
+        entityName: merged.name,
+        category: categoryName,
+        subCategory: subCategoryName,
+        unit,
+        unitCost: price,
+        sellingRate: price,
+        currency: merged.currency || 'USD',
+        isCostEligible: true,
+        isBoqEligible: true
+      }).catch((err) => console.warn('[Barcode] Update material barcode warning:', err?.message));
+    }
 
     return {
       ...merged,
@@ -5878,14 +5954,7 @@ export class PostgresService {
     // Auto-generate unique barcode
     let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
     if (!barcode) {
-      barcode = `BC-OVH-${Date.now().toString().slice(-6)}`;
-      let barAttempt = 1;
-      while (true) {
-        const dupBar = await db.query('SELECT id FROM overhead_items WHERE barcode = $1', [barcode]);
-        if (dupBar.rows.length === 0) break;
-        barAttempt++;
-        barcode = `BC-OVH-${(Date.now() + barAttempt).toString().slice(-6)}`;
-      }
+      barcode = await this.generateUniqueBarcode('overhead_item', code);
     }
 
     const costTypes = ['Fixed', 'Variable', 'Semi-Variable', 'Stepped'];
@@ -5932,6 +6001,20 @@ export class PostgresService {
       newState: { id, code, barcode, name, category, costType, defaultCalculationMethod, defaultRate, defaultCostBase, status },
       changeDescription: `Created centralized overhead catalogue item '${name}' (${code}) with default ${defaultCalculationMethod} rate ${defaultRate}.`
     });
+
+    await this.registerBarcode({
+      barcode,
+      entityType: 'overhead_item',
+      entityId: id,
+      entityCode: code,
+      entityName: name,
+      category,
+      unitCost: defaultRate,
+      sellingRate: defaultRate,
+      currency: 'USD',
+      isCostEligible: false,
+      isBoqEligible: false
+    }).catch((err) => console.warn('[Barcode] Register overhead barcode warning:', err?.message));
 
     return await this.getOverheadItemById(id);
   }
@@ -5994,6 +6077,22 @@ export class PostgresService {
       newState: { name, defaultRate, defaultCalculationMethod, status },
       changeDescription: `Updated overhead catalogue item '${name}' (${code}). Rate: ${defaultRate}, Status: ${status}.`
     });
+
+    if (barcode) {
+      await this.registerBarcode({
+        barcode,
+        entityType: 'overhead_item',
+        entityId: id,
+        entityCode: code,
+        entityName: name,
+        category,
+        unitCost: defaultRate,
+        sellingRate: defaultRate,
+        currency: 'USD',
+        isCostEligible: false,
+        isBoqEligible: false
+      }).catch((err) => console.warn('[Barcode] Update overhead barcode warning:', err?.message));
+    }
 
     return await this.getOverheadItemById(id);
   }
@@ -7082,9 +7181,10 @@ export class PostgresService {
     }
 
     // Auto-generate barcode if not provided
+    const eType = type === 'service' ? 'revenue_service' : 'revenue_product';
     let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
     if (!barcode) {
-      barcode = `BC-REV-${Date.now().toString().slice(-6)}`;
+      barcode = await this.generateUniqueBarcode(eType, code);
     }
 
     const defaultRate = round4(Number(data.defaultRate ?? data.sellingRate ?? data.rate ?? 0));
@@ -7107,6 +7207,22 @@ export class PostgresService {
         data.taxTreatment || 'Standard (0%)', round2(Number(data.taxRatePct ?? 0)), status
       ]
     );
+
+    await this.registerBarcode({
+      barcode,
+      entityType: eType,
+      entityId: id,
+      entityCode: code,
+      entityName: name,
+      category,
+      subCategory: String(data.subCategory || ''),
+      unit,
+      unitCost: costPrice,
+      sellingRate: defaultRate,
+      currency,
+      isCostEligible: false,
+      isBoqEligible: true
+    }).catch((err) => console.warn('[Barcode] Register revenue barcode warning:', err?.message));
 
     return await this.getRevenueItemById(id);
   }
@@ -7155,6 +7271,24 @@ export class PostgresService {
         taxTreatment, taxRatePct, status, id
       ]
     );
+
+    if (barcode) {
+      await this.registerBarcode({
+        barcode,
+        entityType: type === 'service' ? 'revenue_service' : 'revenue_product',
+        entityId: id,
+        entityCode: code,
+        entityName: name,
+        category,
+        subCategory,
+        unit,
+        unitCost: costPrice,
+        sellingRate: defaultRate,
+        currency,
+        isCostEligible: false,
+        isBoqEligible: true
+      }).catch((err) => console.warn('[Barcode] Update revenue barcode warning:', err?.message));
+    }
 
     return await this.getRevenueItemById(id);
   }
@@ -7321,6 +7455,68 @@ export class PostgresService {
       const taxTreatment = String(data.taxTreatment || revItem?.tax_treatment || 'Standard (0%)');
       const taxRatePct = round2(Number(data.taxRatePct ?? revItem?.tax_rate_pct ?? 0));
       const taxAmount = round2(decMul(totalRevenue, decDiv(taxRatePct, 100)));
+
+      // Check for duplicate item in plan BOQ (Requirements 22, 23)
+      const targetRevId = revItem ? revItem.id : (data.revenueItemId || null);
+      const existingBoqRes = await q(
+        `SELECT * FROM project_plan_boq_items
+         WHERE plan_id = $1 AND (
+           (revenue_item_id IS NOT NULL AND revenue_item_id = $2)
+           OR (catalog_item_id IS NOT NULL AND catalog_item_id = $2)
+           OR (item_code IS NOT NULL AND LOWER(item_code) = LOWER($3))
+         )
+         LIMIT 1`,
+        [planId, targetRevId || '__none__', itemCode]
+      );
+
+      if (existingBoqRes.rows.length > 0) {
+        const existingRow = existingBoqRes.rows[0];
+        // If caller explicitly requested to increment on duplicate/repeat scan
+        if (data.incrementOnDuplicate || data.incrementIfExists || data.onDuplicate === 'increment') {
+          const newQty = round4(Number(existingRow.quantity || 0) + quantity);
+          const currentRate = round4(Number(existingRow.rate || 0));
+          const currentUnitCost = round4(Number(existingRow.unit_cost || 0));
+          const currentDisc = round2(Number(existingRow.discount_pct || 0));
+          const discountedRate = round4(decMul(currentRate, decSub(1, decDiv(currentDisc, 100))));
+          const newTotalCost = round2(decMul(newQty, currentUnitCost));
+          const newTotalRev = round2(decMul(newQty, discountedRate));
+          const newGrossProfit = round2(decSub(newTotalRev, newTotalCost));
+
+          await q(
+            `UPDATE project_plan_boq_items SET
+              quantity = $1, total_cost = $2, total_revenue = $3, gross_profit = $4
+             WHERE id = $5`,
+            [newQty, newTotalCost, newTotalRev, newGrossProfit, existingRow.id]
+          );
+
+          await this.recalculatePlanFinancials(planId, q);
+
+          const updatedBoq = await q('SELECT * FROM project_plan_boq_items WHERE id = $1', [existingRow.id]);
+          return {
+            boqItem: updatedBoq.rows[0],
+            historyRecord: null,
+            duplicatePrevented: true,
+            incremented: true,
+            previousQuantity: Number(existingRow.quantity),
+            newQuantity: newQty,
+            message: `Incremented quantity of existing BOQ item '${existingRow.name}' to ${newQty} ${existingRow.unit}.`
+          };
+        } else if (data.failOnDuplicate) {
+          throw Object.assign(
+            new Error(`Item '${existingRow.name}' (${existingRow.item_code}) is already in this plan's BOQ. Scanning again did not create duplicate financial lines.`),
+            { status: 409, existingBoqItemId: existingRow.id }
+          );
+        } else {
+          // Never silently duplicate a financial line (Requirement 22, 23)
+          return {
+            boqItem: existingRow,
+            historyRecord: null,
+            duplicatePrevented: true,
+            incremented: false,
+            message: `Item '${existingRow.name}' (${existingRow.item_code}) is already present in this plan's BOQ. Scanning again did not create duplicate financial lines.`
+          };
+        }
+      }
 
       // Line order
       const lineOrder = Number(data.lineOrder || (await q('SELECT COUNT(*) as cnt FROM project_plan_boq_items WHERE plan_id = $1', [planId])).rows[0]?.cnt || 0) + 1;
@@ -8455,6 +8651,497 @@ export class PostgresService {
       }
     } catch (e) {
       console.warn('[PostgreSQL] ensureMaterialCatalogueSchema warning:', (e as Error).message);
+    }
+  }
+
+  // ============================================================================
+  // TASK 7: SYSTEM-WIDE BARCODE REGISTRY, UNIQUENESS & LOOKUP SYSTEM
+  // ============================================================================
+
+  public async generateUniqueBarcode(entityType: string, _baseCode?: string): Promise<string> {
+    const db = await this.getDb();
+    let prefix = 'BAR';
+    switch (entityType) {
+      case 'material': prefix = 'MAT'; break;
+      case 'revenue_product': prefix = 'REV-PRD'; break;
+      case 'revenue_service': prefix = 'REV-SRV'; break;
+      case 'overhead_item': prefix = 'OVH'; break;
+      case 'supplier': prefix = 'SUP'; break;
+      case 'outsourced_service': prefix = 'OUT'; break;
+      case 'subcontractor': prefix = 'SUB'; break;
+      case 'produce_item': prefix = 'PRD'; break;
+      case 'inventory_item': prefix = 'INV'; break;
+      case 'client': prefix = 'CLI'; break;
+    }
+
+    let attempts = 0;
+    while (attempts < 25) {
+      attempts++;
+      const seq = Math.floor(1000 + Math.random() * 9000);
+      const rand = crypto.randomBytes(2).toString('hex').toUpperCase();
+      const candidate = `${prefix}-${seq}-${rand}`;
+
+      const existing = await db.query('SELECT barcode FROM barcode_registry WHERE barcode = $1', [candidate]);
+      if (existing.rows.length === 0) {
+        return candidate;
+      }
+    }
+    return `${prefix}-${Date.now().toString().slice(-6)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  }
+
+  public async registerBarcode(data: {
+    barcode: string;
+    entityType: string;
+    entityId: string;
+    entityCode: string;
+    entityName: string;
+    category?: string;
+    subCategory?: string;
+    unit?: string;
+    unitCost?: number;
+    sellingRate?: number;
+    currency?: string;
+    isCostEligible?: boolean;
+    isBoqEligible?: boolean;
+    metadata?: any;
+  }): Promise<void> {
+    const db = await this.getDb();
+    const barcode = String(data.barcode || '').trim().toUpperCase();
+    if (!barcode) return;
+
+    // Check if barcode already belongs to a different entity (Requirement 5, 8)
+    const existing = await db.query(
+      'SELECT entity_type, entity_id, entity_name, entity_code FROM barcode_registry WHERE barcode = $1',
+      [barcode]
+    );
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0];
+      if (row.entity_id !== data.entityId || row.entity_type !== data.entityType) {
+        throw Object.assign(
+          new Error(`Barcode '${barcode}' is already assigned to ${row.entity_type} '${row.entity_name}' (${row.entity_code}). Barcodes must be globally unique across all business entities.`),
+          { status: 409, conflictEntity: row }
+        );
+      }
+    }
+
+    await db.query(
+      `INSERT INTO barcode_registry (
+        barcode, entity_type, entity_id, entity_code, entity_name,
+        category, sub_category, unit, unit_cost, selling_rate,
+        currency, is_cost_eligible, is_boq_eligible, metadata, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+      ON CONFLICT (barcode) DO UPDATE SET
+        entity_code = EXCLUDED.entity_code,
+        entity_name = EXCLUDED.entity_name,
+        category = EXCLUDED.category,
+        sub_category = EXCLUDED.sub_category,
+        unit = EXCLUDED.unit,
+        unit_cost = EXCLUDED.unit_cost,
+        selling_rate = EXCLUDED.selling_rate,
+        currency = EXCLUDED.currency,
+        is_cost_eligible = EXCLUDED.is_cost_eligible,
+        is_boq_eligible = EXCLUDED.is_boq_eligible,
+        metadata = EXCLUDED.metadata,
+        updated_at = NOW()`,
+      [
+        barcode,
+        data.entityType,
+        data.entityId,
+        data.entityCode,
+        data.entityName,
+        data.category || '',
+        data.subCategory || '',
+        data.unit || '',
+        round4(Number(data.unitCost || 0)),
+        round4(Number(data.sellingRate || 0)),
+        data.currency || 'USD',
+        Boolean(data.isCostEligible),
+        Boolean(data.isBoqEligible),
+        JSON.stringify(data.metadata || {})
+      ]
+    );
+  }
+
+  public async lookupBarcode(code: string): Promise<any> {
+    if (!code || !String(code).trim()) {
+      return { found: false, message: 'Barcode is required' };
+    }
+    const clean = String(code).trim();
+    const db = await this.getDb();
+
+    // 1. Exact match in barcode_registry (case-insensitive)
+    let res = await db.query(
+      `SELECT * FROM barcode_registry WHERE LOWER(barcode) = LOWER($1) OR barcode = $1`,
+      [clean]
+    );
+
+    let matchType = 'exact_barcode';
+    let exactBarcodeMatch = true;
+
+    // 2. Fallback: Exact match on entity_code
+    if (res.rows.length === 0) {
+      res = await db.query(
+        `SELECT * FROM barcode_registry WHERE LOWER(entity_code) = LOWER($1) OR entity_code = $1`,
+        [clean]
+      );
+      matchType = 'entity_code';
+      exactBarcodeMatch = false;
+    }
+
+    // 3. Fallback: Search by name or partial code
+    if (res.rows.length === 0) {
+      res = await db.query(
+        `SELECT * FROM barcode_registry 
+         WHERE LOWER(entity_name) LIKE LOWER($1) OR LOWER(entity_code) LIKE LOWER($1)
+         ORDER BY (CASE WHEN LOWER(entity_name) = LOWER($2) THEN 0 ELSE 1 END), updated_at DESC
+         LIMIT 6`,
+        [`%${clean}%`, clean]
+      );
+      matchType = 'name_fallback';
+      exactBarcodeMatch = false;
+    }
+
+    if (res.rows.length === 0) {
+      return { found: false, code: clean, message: `No item found matching barcode or code '${clean}'` };
+    }
+
+    const regRow = res.rows[0];
+    const isMultiple = res.rows.length > 1 && matchType === 'name_fallback';
+
+    // Retrieve underlying raw record from source table
+    let rawRecord: any = null;
+    try {
+      if (regRow.entity_type === 'material') {
+        const mat = await this.getMaterials();
+        rawRecord = mat.find((m: any) => m.id === regRow.entity_id || m.code === regRow.entity_code);
+      } else if (regRow.entity_type === 'revenue_product' || regRow.entity_type === 'revenue_service') {
+        rawRecord = await this.getRevenueItemById(regRow.entity_id);
+      } else if (regRow.entity_type === 'overhead_item') {
+        rawRecord = await this.getOverheadItemById(regRow.entity_id);
+      } else if (regRow.entity_type === 'supplier') {
+        const sups = await this.getSuppliers();
+        rawRecord = sups.find((s: any) => s.id === regRow.entity_id || s.code === regRow.entity_code);
+      } else if (regRow.entity_type === 'outsourced_service') {
+        const outs = await this.getOutsourced();
+        rawRecord = outs.find((o: any) => o.id === regRow.entity_id || o.code === regRow.entity_code);
+      } else if (regRow.entity_type === 'subcontractor') {
+        const subs = await this.getSubcontractors();
+        rawRecord = subs.find((s: any) => s.id === regRow.entity_id || s.code === regRow.entity_code);
+      } else if (regRow.entity_type === 'produce_item') {
+        const prods = await this.getProduce();
+        rawRecord = prods.find((p: any) => p.id === regRow.entity_id || p.code === regRow.entity_code);
+      } else if (regRow.entity_type === 'inventory_item') {
+        const invs = await this.getInventory();
+        rawRecord = invs.find((i: any) => i.id === regRow.entity_id || i.sku === regRow.entity_code);
+      }
+    } catch {
+      // ignore
+    }
+
+    const isDirectoryOnly = regRow.entity_type === 'supplier' || regRow.entity_type === 'client';
+
+    return {
+      found: true,
+      exactBarcodeMatch,
+      matchType,
+      barcode: regRow.barcode,
+      entityType: regRow.entity_type,
+      entityId: regRow.entity_id,
+      entityCode: regRow.entity_code,
+      entityName: regRow.entity_name,
+      category: regRow.category,
+      subCategory: regRow.sub_category,
+      unit: regRow.unit,
+      unitCost: Number(regRow.unit_cost || 0),
+      sellingRate: Number(regRow.selling_rate || 0),
+      currency: regRow.currency || 'USD',
+      isCostEligible: Boolean(regRow.is_cost_eligible),
+      isBoqEligible: Boolean(regRow.is_boq_eligible),
+      isDirectoryOnly,
+      rawRecord: rawRecord || regRow,
+      otherMatches: isMultiple ? res.rows.slice(1).map((r: any) => ({
+        barcode: r.barcode,
+        entityType: r.entity_type,
+        entityId: r.entity_id,
+        entityCode: r.entity_code,
+        entityName: r.entity_name
+      })) : undefined
+    };
+  }
+
+  public async searchBarcodes(q: string, opts?: { entityType?: string; limit?: number; offset?: number }): Promise<any[]> {
+    const db = await this.getDb();
+    const query = String(q || '').trim();
+    const limit = Math.min(Number(opts?.limit || 50), 100);
+    const offset = Math.max(Number(opts?.offset || 0), 0);
+
+    let sql = `SELECT * FROM barcode_registry WHERE 1=1`;
+    const params: any[] = [];
+
+    if (query) {
+      params.push(`%${query}%`);
+      sql += ` AND (LOWER(barcode) LIKE LOWER($${params.length}) OR LOWER(entity_code) LIKE LOWER($${params.length}) OR LOWER(entity_name) LIKE LOWER($${params.length}) OR LOWER(category) LIKE LOWER($${params.length}))`;
+    }
+
+    if (opts?.entityType && opts.entityType !== 'ALL') {
+      params.push(opts.entityType);
+      sql += ` AND entity_type = $${params.length}`;
+    }
+
+    sql += ` ORDER BY updated_at DESC LIMIT ${limit} OFFSET ${offset}`;
+    const res = await db.query(sql, params);
+    return res.rows.map((r: any) => ({
+      barcode: r.barcode,
+      entityType: r.entity_type,
+      entityId: r.entity_id,
+      entityCode: r.entity_code,
+      entityName: r.entity_name,
+      category: r.category,
+      subCategory: r.sub_category,
+      unit: r.unit,
+      unitCost: Number(r.unit_cost || 0),
+      sellingRate: Number(r.selling_rate || 0),
+      currency: r.currency || 'USD',
+      isCostEligible: Boolean(r.is_cost_eligible),
+      isBoqEligible: Boolean(r.is_boq_eligible),
+      isDirectoryOnly: r.entity_type === 'supplier' || r.entity_type === 'client'
+    }));
+  }
+
+  public async ensureBarcodeRegistrySchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      // 1. Ensure columns exist on tables
+      await db.exec(`
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE outsourced_services ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE produce_items ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE inventory ADD COLUMN IF NOT EXISTS barcode TEXT;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS barcode TEXT;
+
+        CREATE TABLE IF NOT EXISTS barcode_registry (
+          barcode TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          entity_code TEXT NOT NULL,
+          entity_name TEXT NOT NULL,
+          category TEXT DEFAULT '',
+          sub_category TEXT DEFAULT '',
+          unit TEXT DEFAULT '',
+          unit_cost NUMERIC(18, 4) DEFAULT 0,
+          selling_rate NUMERIC(18, 4) DEFAULT 0,
+          currency TEXT DEFAULT 'USD',
+          is_cost_eligible BOOLEAN DEFAULT false,
+          is_boq_eligible BOOLEAN DEFAULT false,
+          metadata JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_barcode_reg_entity ON barcode_registry(entity_type, entity_id);
+        CREATE INDEX IF NOT EXISTS idx_barcode_reg_code ON barcode_registry(entity_code);
+        CREATE INDEX IF NOT EXISTS idx_barcode_reg_name ON barcode_registry(entity_name);
+        CREATE INDEX IF NOT EXISTS idx_barcode_reg_type ON barcode_registry(entity_type);
+      `);
+
+      // 2. Backfill materials
+      const mats = await db.query('SELECT id, code, name, category, sub_category, unit, current_price, barcode FROM materials');
+      for (const m of mats.rows) {
+        let b = m.barcode && String(m.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('material', m.code);
+          await db.query('UPDATE materials SET barcode = $1 WHERE id = $2', [b, m.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'material',
+          entityId: m.id,
+          entityCode: m.code,
+          entityName: m.name,
+          category: m.category || '',
+          subCategory: m.sub_category || '',
+          unit: m.unit || 'pcs',
+          unitCost: Number(m.current_price || 0),
+          sellingRate: Number(m.current_price || 0),
+          isCostEligible: true,
+          isBoqEligible: true
+        }).catch(() => {});
+      }
+
+      // 3. Backfill revenue_items
+      const revs = await db.query('SELECT id, code, name, type, category, sub_category, unit, default_rate, cost_price, barcode FROM revenue_items');
+      for (const r of revs.rows) {
+        let b = r.barcode && String(r.barcode).trim();
+        const eType = r.type === 'service' ? 'revenue_service' : 'revenue_product';
+        if (!b) {
+          b = await this.generateUniqueBarcode(eType, r.code);
+          await db.query('UPDATE revenue_items SET barcode = $1 WHERE id = $2', [b, r.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: eType,
+          entityId: r.id,
+          entityCode: r.code,
+          entityName: r.name,
+          category: r.category || '',
+          subCategory: r.sub_category || '',
+          unit: r.unit || 'unit',
+          unitCost: Number(r.cost_price || 0),
+          sellingRate: Number(r.default_rate || 0),
+          isCostEligible: false,
+          isBoqEligible: true
+        }).catch(() => {});
+      }
+
+      // 4. Backfill overhead_items
+      const ovhs = await db.query('SELECT id, code, name, category, default_rate, barcode FROM overhead_items');
+      for (const o of ovhs.rows) {
+        let b = o.barcode && String(o.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('overhead_item', o.code);
+          await db.query('UPDATE overhead_items SET barcode = $1 WHERE id = $2', [b, o.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'overhead_item',
+          entityId: o.id,
+          entityCode: o.code,
+          entityName: o.name,
+          category: o.category || '',
+          unitCost: Number(o.default_rate || 0),
+          sellingRate: Number(o.default_rate || 0),
+          isCostEligible: false,
+          isBoqEligible: false
+        }).catch(() => {});
+      }
+
+      // 5. Backfill suppliers
+      const sups = await db.query('SELECT id, code, name, category, barcode FROM suppliers');
+      for (const s of sups.rows) {
+        let b = s.barcode && String(s.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('supplier', s.code);
+          await db.query('UPDATE suppliers SET barcode = $1 WHERE id = $2', [b, s.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'supplier',
+          entityId: s.id,
+          entityCode: s.code || s.id,
+          entityName: s.name,
+          category: s.category || '',
+          isCostEligible: false,
+          isBoqEligible: false
+        }).catch(() => {});
+      }
+
+      // 6. Backfill outsourced_services
+      const outs = await db.query('SELECT id, code, name, category, sub_category, unit, rate, retail_price, barcode FROM outsourced_services');
+      for (const o of outs.rows) {
+        let b = o.barcode && String(o.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('outsourced_service', o.code);
+          await db.query('UPDATE outsourced_services SET barcode = $1 WHERE id = $2', [b, o.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'outsourced_service',
+          entityId: o.id,
+          entityCode: o.code || o.id,
+          entityName: o.name,
+          category: o.category || '',
+          subCategory: o.sub_category || '',
+          unit: o.unit || 'per_hour',
+          unitCost: Number(o.rate || 0),
+          sellingRate: Number(o.retail_price || o.rate || 0),
+          isCostEligible: true,
+          isBoqEligible: true
+        }).catch(() => {});
+      }
+
+      // 7. Backfill subcontractors
+      const scs = await db.query('SELECT id, code, subcontractor_name, niche_service_name, base_rate, unit, barcode FROM subcontractors');
+      for (const s of scs.rows) {
+        let b = s.barcode && String(s.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('subcontractor', s.code);
+          await db.query('UPDATE subcontractors SET barcode = $1 WHERE id = $2', [b, s.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'subcontractor',
+          entityId: s.id,
+          entityCode: s.code || s.id,
+          entityName: s.niche_service_name || s.subcontractor_name || 'Subcontractor',
+          unit: s.unit || 'hr',
+          unitCost: Number(s.base_rate || 0),
+          sellingRate: Number(s.base_rate || 0),
+          isCostEligible: true,
+          isBoqEligible: true
+        }).catch(() => {});
+      }
+
+      // 8. Backfill produce_items
+      const prods = await db.query('SELECT id, code, name, category, sub_category, unit, cost_price, retail_price, barcode FROM produce_items');
+      for (const p of prods.rows) {
+        let b = p.barcode && String(p.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('produce_item', p.code);
+          await db.query('UPDATE produce_items SET barcode = $1 WHERE id = $2', [b, p.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'produce_item',
+          entityId: p.id,
+          entityCode: p.code,
+          entityName: p.name,
+          category: p.category || '',
+          subCategory: p.sub_category || '',
+          unit: p.unit || 'unit',
+          unitCost: Number(p.cost_price || 0),
+          sellingRate: Number(p.retail_price || 0),
+          isCostEligible: true,
+          isBoqEligible: true
+        }).catch(() => {});
+      }
+
+      // 9. Backfill inventory
+      const invs = await db.query('SELECT id, sku, name, item_name, unit_cost, barcode FROM inventory');
+      for (const i of invs.rows) {
+        let b = i.barcode && String(i.barcode).trim();
+        if (!b) {
+          b = await this.generateUniqueBarcode('inventory_item', i.sku);
+          await db.query('UPDATE inventory SET barcode = $1 WHERE id = $2', [b, i.id]);
+        }
+        await this.registerBarcode({
+          barcode: b,
+          entityType: 'inventory_item',
+          entityId: i.id,
+          entityCode: i.sku || i.id,
+          entityName: i.name || i.item_name || 'Inventory Item',
+          unitCost: Number(i.unit_cost || 0),
+          sellingRate: Number(i.unit_cost || 0),
+          isCostEligible: true,
+          isBoqEligible: false
+        }).catch(() => {});
+      }
+
+      // 10. PostgreSQL partial unique constraints (Requirement 5)
+      await db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_materials_barcode_unique ON materials(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_revenue_items_barcode_unique ON revenue_items(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_overhead_items_barcode_unique ON overhead_items(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_barcode_unique ON suppliers(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_outsourced_barcode_unique ON outsourced_services(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subcontractors_barcode_unique ON subcontractors(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_produce_items_barcode_unique ON produce_items(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_barcode_unique ON inventory(barcode) WHERE barcode IS NOT NULL AND barcode != '';
+      `).catch(() => {});
+    } catch (e) {
+      console.warn('[PostgreSQL] ensureBarcodeRegistrySchema warning:', (e as Error).message);
     }
   }
 

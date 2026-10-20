@@ -47,6 +47,7 @@ import { EditPlanBoqItemModal } from '../revenue/EditPlanBoqItemModal';
 import { RevenueItemRateHistoryModal } from '../revenue/RevenueItemRateHistoryModal';
 import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHistoryModal';
 import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistoryModal';
+import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
 import { persistentDatabase } from '../../services/persistentDatabase';
 import { round2 } from '../../utils/decimalMath';
 import {
@@ -114,6 +115,9 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
 
   // Procurement Price History & Quotation selection (TASK 5)
   const [isProcurementQuotesModalOpen, setIsProcurementQuotesModalOpen] = useState(false);
+
+  // Barcode Scanning and Selection Modal (TASK 7)
+  const [isBarcodeScannerModalOpen, setIsBarcodeScannerModalOpen] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => persistentDatabase.getSuppliers());
   const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials());
   const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>(() => persistentDatabase.getOutsourcedServices());
@@ -625,6 +629,17 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Revenue Item</span>
+              </button>
+
+              {/* Scan Barcode Button (TASK 7) */}
+              <button
+                type="button"
+                onClick={() => setIsBarcodeScannerModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-[#003049] hover:bg-[#002235] text-white flex items-center space-x-1 cursor-pointer shadow-xs border border-sky-500/40"
+                title="Scan or search barcode with camera, USB scanner, or manual code to add item to plan BOQ"
+              >
+                <BarcodeIcon className="w-3.5 h-3.5 text-sky-400" />
+                <span>Scan Barcode</span>
               </button>
 
               {/* Project Commercial History */}
@@ -1548,6 +1563,24 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           outsourcedServices={outsourcedServices}
           subcontractors={subcontractors}
           onSelectPriceForPlan={handleApplyPriceSnapshotToPlan}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Plan Barcode Scanner & Rapid Item Selection Modal (TASK 7) */}
+      {isBarcodeScannerModalOpen && (
+        <PlanBarcodeScannerModal
+          isOpen={isBarcodeScannerModalOpen}
+          onClose={() => setIsBarcodeScannerModalOpen(false)}
+          planId={plan.id}
+          planNumber={plan.planNumber}
+          projectId={plan.projectId}
+          activeCurrency={activeCurrency}
+          existingBoqItems={plan.boqItems || []}
+          onItemAddedToPlan={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+          }}
           showToast={showToast}
         />
       )}

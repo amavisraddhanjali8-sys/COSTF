@@ -1402,6 +1402,48 @@ export const api = {
     const res = await fetch(`/api/subcontractors/${encodeURIComponent(subcontractorId)}/price-history?${buildQueryString(params, true)}`);
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch subcontractor price history');
     return await res.json();
+  },
+
+  // --- TASK 7: System-Wide Barcode Registry & Scanning System API ---
+  async lookupBarcode(code: string): Promise<any> {
+    const res = await fetch(`/api/barcodes/lookup?code=${encodeURIComponent(code)}`);
+    if (!res.ok) {
+      if (res.status === 404) return await res.json();
+      throw await parseErrorResponse(res, 'Failed to lookup barcode');
+    }
+    return await res.json();
+  },
+
+  async searchBarcodes(q: string, opts?: { entityType?: string; limit?: number; offset?: number }): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (opts?.entityType) params.set('entityType', opts.entityType);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    if (opts?.offset) params.set('offset', String(opts.offset));
+    const res = await fetch(`/api/barcodes/search?${params.toString()}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to search barcodes');
+    return await res.json();
+  },
+
+  async generateBarcode(entityType: string, baseCode?: string): Promise<{ barcode: string; entityType: string }> {
+    const res = await fetch('/api/barcodes/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entityType, baseCode })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to generate barcode');
+    return await res.json();
+  },
+
+  async registerBarcode(data: any): Promise<{ success: boolean; barcode: string }> {
+    const res = await fetch('/api/barcodes/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to register barcode');
+    return await res.json();
   }
 };
+
 
