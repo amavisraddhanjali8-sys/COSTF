@@ -291,6 +291,12 @@ export const api = {
     persistentDatabase.deleteMaterial(id);
   },
 
+  async getMeasurementUnits(): Promise<MeasurementUnit[]> {
+    const res = await fetch('/api/measurement-units');
+    if (!res.ok) return [];
+    return await res.json();
+  },
+
   // --- Outsourced Services (PostgreSQL inno_cost) ---
   async getOutsourced(params?: ListQueryParams): Promise<OutsourcedService[]> {
     const res = await fetch(`/api/outsourced?${buildQueryString(params)}`);

@@ -370,6 +370,24 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
 // ==========================================
 // 3. ADD ITEM MODAL (ACCORDING TO PORTAL)
 // ==========================================
+export const STANDARD_MEASUREMENT_UNITS = [
+  { id: 'unit-pcs', code: 'pcs', name: 'Pieces / Units', symbol: 'pcs' },
+  { id: 'unit-kg', code: 'kg', name: 'Kilograms', symbol: 'kg' },
+  { id: 'unit-g', code: 'g', name: 'Grams', symbol: 'g' },
+  { id: 'unit-m', code: 'm', name: 'Meters', symbol: 'm' },
+  { id: 'unit-mm', code: 'mm', name: 'Millimeters', symbol: 'mm' },
+  { id: 'unit-m2', code: 'm2', name: 'Square Meters', symbol: 'm²' },
+  { id: 'unit-m3', code: 'm3', name: 'Cubic Meters', symbol: 'm³' },
+  { id: 'unit-ton', code: 'ton', name: 'Metric Tons', symbol: 't' },
+  { id: 'unit-sheet', code: 'sheet', name: 'Sheets / Plates', symbol: 'sheet' },
+  { id: 'unit-bundle', code: 'bundle', name: 'Bundles', symbol: 'bdl' },
+  { id: 'unit-box', code: 'box', name: 'Boxes / Cartons', symbol: 'box' },
+  { id: 'unit-roll', code: 'roll', name: 'Rolls / Coils', symbol: 'roll' },
+  { id: 'unit-liter', code: 'liter', name: 'Liters', symbol: 'L' },
+  { id: 'unit-hr', code: 'hr', name: 'Hours', symbol: 'hr' },
+  { id: 'unit-set', code: 'set', name: 'Assemblies / Sets', symbol: 'set' }
+];
+
 interface AddItemModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -377,6 +395,8 @@ interface AddItemModalProps {
   categories: CategoryNode[];
   suppliers: Supplier[];
   onSave: (entityType: string, itemData: any) => void;
+  initialCategoryId?: string;
+  initialSubCategoryId?: string;
 }
 
 export const AddItemModal: React.FC<AddItemModalProps> = ({
@@ -385,7 +405,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   portal,
   categories,
   suppliers,
-  onSave
+  onSave,
+  initialCategoryId,
+  initialSubCategoryId
 }) => {
   const normalizePortal = (p: string) => {
     if (!p) return 'material';
@@ -404,8 +426,14 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   // Common Form states
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [subCategoryId, setSubCategoryId] = useState('');
   const [category, setCategory] = useState('');
   const [subCategory, setSubCategory] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [description, setDescription] = useState('');
+  const [materialStatus, setMaterialStatus] = useState('Available');
+  const [defaultUnitId, setDefaultUnitId] = useState('unit-pcs');
   const [unit, setUnit] = useState('pcs');
   const [price, setPrice] = useState<number>(15000);
   const [costPrice, setCostPrice] = useState<number>(11000);
@@ -467,6 +495,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
 
     const autoCode = peekNextNumber(entityKey);
     setCode(autoCode);
+    if (selectedType === 'material') {
+      setBarcode(autoCode);
+    }
 
     // Contextual defaults
     if (selectedType === 'supplier') {
@@ -479,11 +510,51 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       setSubCategory('Precision Tooling & CNC Services');
     } else if (selectedType === 'material') {
       setName('');
-      const catList = categories.filter((c) => c.type === 'category');
-      if (catList.length > 0) setCategory(catList[0].name);
+      if (initialCategoryId) {
+        setCategoryId(initialCategoryId);
+        const cat = categories.find((c) => c.id === initialCategoryId);
+        if (cat) setCategory(cat.name);
+      } else {
+        const catList = categories.filter((c) => (c.group === 'material' || !c.parentId) && (c.type === 'category' || !c.parentId));
+        if (catList.length > 0 && !categoryId) {
+          setCategoryId(catList[0].id);
+          setCategory(catList[0].name);
+        }
+      }
+      if (initialSubCategoryId) {
+        setSubCategoryId(initialSubCategoryId);
+        const sub = categories.find((c) => c.id === initialSubCategoryId);
+        if (sub) setSubCategory(sub.name);
+      }
       if (suppliers.length > 0) setSupplierName(suppliers[0].name);
     }
-  }, [selectedType, isOpen, categories, suppliers]);
+  }, [selectedType, isOpen, categories, suppliers, initialCategoryId, initialSubCategoryId]);
+
+  const handleCategoryChange = (newCatId: string) => {
+    setCategoryId(newCatId);
+    const catNode = categories.find((c) => c.id === newCatId);
+    setCategory(catNode ? catNode.name : '');
+
+    // Requirement 11: If the category changes, validate or clear an incompatible subcategory.
+    if (subCategoryId) {
+      const subNode = categories.find((c) => c.id === subCategoryId);
+      if (!subNode || subNode.parentId !== newCatId) {
+        setSubCategoryId('');
+        setSubCategory('');
+      }
+    }
+  };
+
+  const handleSubCategoryChange = (newSubId: string) => {
+    setSubCategoryId(newSubId);
+    const subNode = categories.find((c) => c.id === newSubId);
+    setSubCategory(subNode ? subNode.name : '');
+    if (subNode?.parentId && !categoryId) {
+      setCategoryId(subNode.parentId);
+      const parentNode = categories.find((c) => c.id === subNode.parentId);
+      if (parentNode) setCategory(parentNode.name);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -549,17 +620,27 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       });
       generateNextNumber('subcontractors', true);
     } else if (selectedType === 'material') {
+      const finalBarcode = barcode.trim() || code.trim();
       onSave('material', {
         code: code.trim(),
         name: name.trim(),
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         category: category || 'Raw Materials',
-        subCategory: subCategory || 'General',
-        unit,
+        subCategory: subCategory || '',
+        barcode: finalBarcode,
+        description: description.trim(),
+        unit: unit.trim() || 'pcs',
+        defaultUnitId: defaultUnitId || undefined,
         unitPrice: Number(price),
+        currentPrice: Number(price),
+        retailPrice: Number(price),
+        unitCost: Number(costPrice),
         currency,
         inStock: Number(stock),
         supplierName: supplierName || (suppliers[0]?.name ?? 'Approved Supplier'),
-        status: 'Active',
+        supplierId: suppliers.find((s) => s.name === supplierName)?.id || undefined,
+        status: materialStatus || 'Available',
         leadTimeDays: 7
       });
       generateNextNumber('materials', true);
@@ -1058,16 +1139,16 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
           {/* 3. MATERIAL FORM */}
           {selectedType === 'material' && (
             <div className="space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              {/* Name & Code */}
+              {/* Name, Code & Barcode */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-1">
                   <label className="block text-xs text-slate-700 font-medium mb-1">
                     Name *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Material name"
+                    placeholder="e.g. 50mm Aluminium Frame Profile"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#003049]"
@@ -1075,13 +1156,29 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Code
+                    Code *
                   </label>
                   <input
                     type="text"
+                    required
                     value={code}
-                    onChange={(e) => setCode(e.target.value)}
+                    onChange={(e) => {
+                      setCode(e.target.value);
+                      if (!barcode || barcode === code) setBarcode(e.target.value);
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Barcode
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Auto or scan barcode"
+                    value={barcode || code}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#003049]"
                   />
                 </div>
               </div>
@@ -1089,29 +1186,68 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Category & Sub-Category */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Category</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Titanium & Superalloys"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Category *
+                  </label>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                  />
+                    required
+                  >
+                    <option value="">-- Select Category --</option>
+                    {categories
+                      .filter((c) => (c.group === 'material' || !c.parentId) && (c.type === 'category' || !c.parentId))
+                      .map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Sub-Category</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Aerospace Rods & Bars"
-                    value={subCategory}
-                    onChange={(e) => setSubCategory(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                  />
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Sub-Category (Filtered)
+                  </label>
+                  <select
+                    value={subCategoryId}
+                    onChange={(e) => handleSubCategoryChange(e.target.value)}
+                    disabled={!categoryId}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {categoryId ? '-- Select Subcategory (Optional) --' : '-- Select Category First --'}
+                    </option>
+                    {categories
+                      .filter((c) => c.parentId === categoryId && (c.type === 'sub_category' || c.type === 'subcategory'))
+                      .map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name}
+                        </option>
+                      ))}
+                  </select>
+                  {categoryId && categories.filter((c) => c.parentId === categoryId && (c.type === 'sub_category' || c.type === 'subcategory')).length === 0 && (
+                    <div className="text-[10px] text-amber-700 mt-1">
+                      No subcategories exist for this category yet. You can create one from the catalog directory.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Price, Cost, Stock in LKR */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Description & Specifications */}
+              <div>
+                <label className="block text-xs text-slate-700 font-medium mb-1">Description &amp; Technical Specifications</label>
+                <textarea
+                  rows={2}
+                  placeholder="Material specifications, dimensions, tolerances, and quality compliance"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              {/* Price, Cost, Unit, Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs text-slate-700 font-medium mb-1">
                     Retail Price ({currSymbol})
@@ -1119,7 +1255,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                   <input
                     type="number"
                     min="0"
-                    step="50"
+                    step="any"
                     value={price}
                     onChange={(e) => setPrice(Number(e.target.value))}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:border-emerald-600"
@@ -1132,7 +1268,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                   <input
                     type="number"
                     min="0"
-                    step="50"
+                    step="any"
                     value={costPrice}
                     onChange={(e) => setCostPrice(Number(e.target.value))}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:border-emerald-600"
@@ -1140,13 +1276,36 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs text-slate-700 font-medium mb-1">Unit of Measure</label>
-                  <input
-                    type="text"
+                  <select
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    placeholder="pcs, kg, m"
+                    onChange={(e) => {
+                      const selUnit = e.target.value;
+                      setUnit(selUnit);
+                      const found = STANDARD_MEASUREMENT_UNITS.find(u => u.code === selUnit);
+                      if (found) setDefaultUnitId(found.id);
+                    }}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                  />
+                  >
+                    {STANDARD_MEASUREMENT_UNITS.map(u => (
+                      <option key={u.code} value={u.code}>
+                        {u.name} ({u.symbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Status</label>
+                  <select
+                    value={materialStatus}
+                    onChange={(e) => setMaterialStatus(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
+                  >
+                    <option value="Available">Available</option>
+                    <option value="In Stock">In Stock</option>
+                    <option value="Lead Exist">Lead Exist</option>
+                    <option value="Under Review">Under Review</option>
+                    <option value="Archived">Archived</option>
+                  </select>
                 </div>
               </div>
 
@@ -1303,6 +1462,7 @@ interface EditItemModalProps {
   itemType: string;
   id: string;
   initialData: Record<string, any>;
+  categories?: CategoryNode[];
   onSave: (id: string, updatedData: Record<string, any>) => void;
 }
 
@@ -1312,6 +1472,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   itemType,
   id,
   initialData,
+  categories,
   onSave
 }) => {
   const [formData, setFormData] = useState<Record<string, any>>({});
@@ -1547,7 +1708,120 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               )}
 
               {/* Category / Scope */}
-              {(formData.category || formData.serviceType || formData.supplyScope) && (
+              {itemType === 'material' && categories ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-700 font-medium mb-1">Category *</label>
+                      <select
+                        value={
+                          formData.categoryId ||
+                          categories.find((c) => c.name.toLowerCase() === (formData.category || '').toLowerCase())?.id ||
+                          ''
+                        }
+                        onChange={(e) => {
+                          const newCatId = e.target.value;
+                          const catNode = categories.find((c) => c.id === newCatId);
+                          handleChange('categoryId', newCatId || null);
+                          handleChange('category', catNode?.name || '');
+
+                          // Requirement 11: Validate or clear incompatible subcategory
+                          if (formData.subCategoryId) {
+                            const currentSub = categories.find((c) => c.id === formData.subCategoryId);
+                            if (!currentSub || currentSub.parentId !== newCatId) {
+                              handleChange('subCategoryId', null);
+                              handleChange('subCategory', '');
+                            }
+                          }
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                      >
+                        <option value="">-- Select Category --</option>
+                        {categories
+                          .filter((c) => (c.group === 'material' || !c.parentId) && (c.type === 'category' || !c.parentId))
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-700 font-medium mb-1">Sub-Category</label>
+                      {(() => {
+                        const curCatId =
+                          formData.categoryId ||
+                          categories.find((c) => c.name.toLowerCase() === (formData.category || '').toLowerCase())?.id;
+                        const subCats = categories.filter(
+                          (c) => c.parentId === curCatId && (c.type === 'sub_category' || c.type === 'subcategory')
+                        );
+                        return (
+                          <select
+                            value={formData.subCategoryId || ''}
+                            disabled={!curCatId}
+                            onChange={(e) => {
+                              const newSubId = e.target.value;
+                              const subNode = categories.find((c) => c.id === newSubId);
+                              handleChange('subCategoryId', newSubId || null);
+                              handleChange('subCategory', subNode?.name || '');
+                            }}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049] disabled:bg-slate-100"
+                          >
+                            <option value="">{curCatId ? '-- Select Subcategory --' : '-- Select Category First --'}</option>
+                            {subCats.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-700 font-medium mb-1">Barcode</label>
+                      <input
+                        type="text"
+                        value={formData.barcode || ''}
+                        onChange={(e) => handleChange('barcode', e.target.value)}
+                        placeholder="Barcode identifier"
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-[#003049]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-700 font-medium mb-1">Unit of Measure</label>
+                      <select
+                        value={formData.unit || 'pcs'}
+                        onChange={(e) => {
+                          handleChange('unit', e.target.value);
+                          const found = STANDARD_MEASUREMENT_UNITS.find((u) => u.code === e.target.value);
+                          if (found) handleChange('defaultUnitId', found.id);
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                      >
+                        {STANDARD_MEASUREMENT_UNITS.map((u) => (
+                          <option key={u.code} value={u.code}>
+                            {u.name} ({u.symbol})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-700 font-medium mb-1">Description &amp; Specifications</label>
+                    <textarea
+                      rows={2}
+                      value={formData.description || ''}
+                      onChange={(e) => handleChange('description', e.target.value)}
+                      placeholder="Material specifications, grade, and tolerances"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                    />
+                  </div>
+                </div>
+              ) : (formData.category || formData.serviceType || formData.supplyScope) ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-slate-600 mb-1 font-normal">Category / Classification</label>
@@ -1575,7 +1849,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                     />
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Pricing / Values / Rates */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

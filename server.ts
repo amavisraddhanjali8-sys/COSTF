@@ -1466,8 +1466,19 @@ async function startServer() {
       if (!updated) return res.status(404).json({ error: 'Material item not found' });
       res.json(updated);
     } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to update material:', e);
       res.status(500).json({ error: 'Failed to update material', details: e?.message });
+    }
+  });
+
+  app.get('/api/measurement-units', async (_req, res) => {
+    try {
+      const units = await postgresService.getMeasurementUnits();
+      res.json(units);
+    } catch (e: any) {
+      console.error('Failed to get measurement units:', e);
+      res.status(500).json({ error: 'Failed to get measurement units', details: e?.message });
     }
   });
 

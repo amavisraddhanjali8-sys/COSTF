@@ -13,7 +13,7 @@ import {
   INITIAL_PROJECTS,
   INITIAL_PRODUCE_ITEMS
 } from '../data/initialData';
-import { INITIAL_CLIENT_PROFILES } from '../data/categoriesAndProfiles';
+import { INITIAL_CLIENT_PROFILES, INITIAL_CATEGORY_HIERARCHY } from '../data/categoriesAndProfiles';
 import { buildDefaultCategories } from '../services/persistentDatabase';
 import { INITIAL_USERS, INITIAL_COMPANY_DETAILS, INITIAL_AUDIT_LOGS } from '../data/userAndAuditData';
 import { round2, round4, calcDiscountedLine, calcPctChange, decAdd, decSub, decMul, decDiv } from '../utils/decimalMath';
@@ -38,6 +38,11 @@ export interface ListQueryOptions {
   sortOrder?: 'asc' | 'desc' | 'ASC' | 'DESC';
   category?: string;
   subCategory?: string;
+  categoryId?: string;
+  subCategoryId?: string;
+  barcode?: string;
+  code?: string;
+  reviewRequired?: boolean | string;
   status?: string;
   type?: string;
   group?: string;
@@ -94,19 +99,45 @@ function parseFilterPagination(
   let filtered = rows;
 
   if (opts) {
+    if (opts.categoryId && opts.categoryId !== 'ALL') {
+      filtered = filtered.filter(
+        (r) => r.categoryId === opts.categoryId || r.category_id === opts.categoryId
+      );
+    }
+    if (opts.subCategoryId && opts.subCategoryId !== 'ALL') {
+      filtered = filtered.filter(
+        (r) => r.subCategoryId === opts.subCategoryId || r.subcategory_id === opts.subCategoryId
+      );
+    }
     if (opts.category && opts.category !== 'ALL') {
       const catLower = opts.category.toLowerCase();
       filtered = filtered.filter(
         (r) =>
-          String(r.category || r.serviceCategory || r.productCategory || '').toLowerCase() === catLower
+          String(r.category || r.serviceCategory || r.productCategory || '').toLowerCase() === catLower ||
+          r.categoryId === opts.category ||
+          r.category_id === opts.category
       );
     }
     if (opts.subCategory && opts.subCategory !== 'ALL') {
       const subLower = opts.subCategory.toLowerCase();
       filtered = filtered.filter(
         (r) =>
-          String(r.subCategory || r.serviceSubCategory || r.productSubCategory || '').toLowerCase() === subLower
+          String(r.subCategory || r.serviceSubCategory || r.productSubCategory || '').toLowerCase() === subLower ||
+          r.subCategoryId === opts.subCategory ||
+          r.subcategory_id === opts.subCategory
       );
+    }
+    if (opts.barcode && opts.barcode !== 'ALL') {
+      const bLower = opts.barcode.toLowerCase();
+      filtered = filtered.filter((r) => String(r.barcode || '').toLowerCase().includes(bLower));
+    }
+    if (opts.code && opts.code !== 'ALL') {
+      const cLower = opts.code.toLowerCase();
+      filtered = filtered.filter((r) => String(r.code || '').toLowerCase().includes(cLower));
+    }
+    if (opts.reviewRequired !== undefined) {
+      const reqBool = opts.reviewRequired === true || opts.reviewRequired === 'true' || opts.reviewRequired === '1';
+      filtered = filtered.filter((r) => Boolean(r.classificationReviewRequired || r.classification_review_required) === reqBool);
     }
     if (opts.status && opts.status !== 'ALL') {
       const stLower = opts.status.toLowerCase();
@@ -1057,6 +1088,8 @@ export class PostgresService {
     await this.ensureOverheadAndRevenueTables();
     // Ensure procurement price history tables & schema exist (Task 5)
     await this.ensureProcurementPriceTables();
+    // Ensure material catalogue and category restructure exist (Task 6)
+    await this.ensureMaterialCatalogueSchema();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -1658,16 +1691,33 @@ export class PostgresService {
 
   public async getMaterialsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
-    const res = await db.query('SELECT * FROM materials ORDER BY created_at DESC');
+    const res = await db.query(`
+      SELECT
+        m.*,
+        cat.name AS resolved_category_name,
+        cat.id AS resolved_category_id,
+        sub.name AS resolved_subcategory_name,
+        sub.id AS resolved_subcategory_id
+      FROM materials m
+      LEFT JOIN categories cat ON m.category_id = cat.id
+      LEFT JOIN categories sub ON m.subcategory_id = sub.id
+      ORDER BY m.created_at_ts DESC NULLS LAST, m.created_at DESC
+    `);
     const rows = res.rows.map((r: any) => ({
       id: r.id,
       code: r.code,
       name: r.name,
-      category: r.category,
-      subCategory: r.sub_category,
+      categoryId: r.category_id || r.resolved_category_id || null,
+      subCategoryId: r.subcategory_id || r.resolved_subcategory_id || null,
+      category: r.resolved_category_name || r.category || '',
+      subCategory: r.resolved_subcategory_name || r.sub_category || '',
+      categoryName: r.resolved_category_name || r.category || '',
+      subCategoryName: r.resolved_subcategory_name || r.sub_category || '',
       moreSubCategory: r.more_sub_category,
       itemClassification: r.item_classification || 'raw_material',
-      unit: r.unit,
+      unit: r.unit || 'pcs',
+      defaultUnitId: r.default_unit_id || null,
+      description: r.description || '',
       currentPrice: round4(r.current_price || 0),
       lastPrice: round4(r.last_price || 0),
       retailPrice: round4(r.current_price || 0),
@@ -1679,16 +1729,20 @@ export class PostgresService {
       inStock: round4(r.in_stock || 0),
       reorderPoint: round4(r.reorder_point || 0),
       unitCost: round4(r.unit_cost || 0),
-      status: r.status,
-      barcode: r.barcode,
+      status: r.status || 'Available',
+      barcode: r.barcode || r.code || '',
       volumePricing: typeof r.volume_pricing === 'string' ? JSON.parse(r.volume_pricing) : r.volume_pricing || [],
       priceHistory: typeof r.price_history === 'string' ? JSON.parse(r.price_history) : r.price_history || [],
+      classificationReviewRequired: Boolean(r.classification_review_required),
+      classificationReviewNotes: r.classification_review_notes || '',
       themeId: r.theme_id,
       customGradient: r.custom_gradient,
       effectiveDate: formatSqlDate(r.effective_date, r.last_updated),
-      lastUpdated: r.last_updated
+      lastUpdated: r.last_updated,
+      createdAt: r.created_at || (r.created_at_ts ? formatSqlDate(r.created_at_ts) : ''),
+      updatedAt: r.last_updated || (r.updated_at_ts ? formatSqlDate(r.updated_at_ts) : '')
     }));
-    return parseFilterPagination(rows, opts, ['name', 'code', 'category', 'subCategory', 'supplierName', 'barcode']);
+    return parseFilterPagination(rows, opts, ['name', 'code', 'category', 'subCategory', 'supplierName', 'barcode', 'description']);
   }
 
   public async createMaterial(data: any): Promise<any> {
@@ -1707,37 +1761,111 @@ export class PostgresService {
       // ignore
     }
 
+    let categoryId: string | null = data.categoryId || data.category_id || null;
+    let subCategoryId: string | null = data.subCategoryId || data.subcategory_id || null;
+    let categoryName: string = data.category || data.categoryName || '';
+    let subCategoryName: string = data.subCategory || data.subcategoryName || data.subcategory || '';
+
+    // If categoryId is provided, verify it exists
+    if (categoryId) {
+      const catCheck = await db.query('SELECT id, name, type, parent_id FROM categories WHERE id = $1', [categoryId]);
+      if (catCheck.rows.length === 0) {
+        throw Object.assign(new Error(`Category not found with ID ${categoryId}`), { status: 400 });
+      }
+      categoryName = catCheck.rows[0].name;
+    } else if (categoryName) {
+      // Try to find matching category by name in database
+      const catCheck = await db.query(
+        "SELECT id, name FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND (type = 'category' OR parent_id IS NULL) LIMIT 1",
+        [categoryName]
+      );
+      if (catCheck.rows.length > 0) {
+        categoryId = catCheck.rows[0].id;
+        categoryName = catCheck.rows[0].name;
+      }
+    }
+
+    // If subCategoryId is provided, verify it exists and belongs to categoryId
+    if (subCategoryId) {
+      const subCheck = await db.query('SELECT id, name, type, parent_id FROM categories WHERE id = $1', [subCategoryId]);
+      if (subCheck.rows.length === 0) {
+        throw Object.assign(new Error(`Subcategory not found with ID ${subCategoryId}`), { status: 400 });
+      }
+      const subRow = subCheck.rows[0];
+      if (categoryId && subRow.parent_id !== categoryId) {
+        throw Object.assign(new Error(`Selected subcategory "${subRow.name}" does not belong to the selected category`), { status: 400 });
+      }
+      if (!categoryId && subRow.parent_id) {
+        categoryId = subRow.parent_id;
+        const parentCheck = await db.query('SELECT name FROM categories WHERE id = $1', [categoryId]);
+        if (parentCheck.rows.length > 0) categoryName = parentCheck.rows[0].name;
+      }
+      subCategoryName = subRow.name;
+    } else if (subCategoryName && categoryId) {
+      // Try to find matching subcategory under this category
+      const subCheck = await db.query(
+        'SELECT id, name FROM categories WHERE parent_id = $1 AND LOWER(TRIM(name)) = LOWER(TRIM($2)) LIMIT 1',
+        [categoryId, subCategoryName]
+      );
+      if (subCheck.rows.length > 0) {
+        subCategoryId = subCheck.rows[0].id;
+        subCategoryName = subCheck.rows[0].name;
+      }
+    }
+
     const effectiveDate = (data.effectiveDate || data.lastUpdated || new Date().toISOString()).slice(0, 10);
+    const barcode = (data.barcode || code).trim();
+    const description = (data.description || '').trim();
+    const unit = (data.unit || 'pcs').trim();
+    const defaultUnitId = data.defaultUnitId || null;
+    const status = data.status || 'Available';
 
     await db.query(
-      `INSERT INTO materials (id, code, name, category, sub_category, more_sub_category, item_classification, unit, current_price, last_price, default_discount_pct, currency, supplier_id, supplier_name, lead_time_days, in_stock, reorder_point, unit_cost, status, barcode, volume_pricing, price_history, theme_id, custom_gradient, effective_date, last_updated, created_at, updated_at_ts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW())
-       ON CONFLICT (id) DO UPDATE SET
-         name = EXCLUDED.name,
-         code = EXCLUDED.code,
-         category = EXCLUDED.category,
-         sub_category = EXCLUDED.sub_category,
-         more_sub_category = EXCLUDED.more_sub_category,
-         unit = EXCLUDED.unit,
-         current_price = EXCLUDED.current_price,
-         last_price = EXCLUDED.last_price,
-         supplier_name = EXCLUDED.supplier_name,
-         in_stock = EXCLUDED.in_stock,
-         status = EXCLUDED.status,
-         theme_id = EXCLUDED.theme_id,
-         custom_gradient = EXCLUDED.custom_gradient,
-         effective_date = EXCLUDED.effective_date,
-         last_updated = EXCLUDED.last_updated,
-         updated_at_ts = NOW()`,
+      `INSERT INTO materials (
+        id, code, name, category, sub_category, more_sub_category, item_classification, unit,
+        current_price, last_price, default_discount_pct, currency, supplier_id, supplier_name,
+        lead_time_days, in_stock, reorder_point, unit_cost, status, barcode, volume_pricing,
+        price_history, theme_id, custom_gradient, effective_date, last_updated, created_at,
+        category_id, subcategory_id, description, default_unit_id,
+        classification_review_required, classification_review_notes, created_at_ts, updated_at_ts
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14,
+        $15, $16, $17, $18, $19, $20, $21,
+        $22, $23, $24, $25, $26, $27,
+        $28, $29, $30, $31,
+        $32, $33, NOW(), NOW()
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        code = EXCLUDED.code,
+        category = EXCLUDED.category,
+        sub_category = EXCLUDED.sub_category,
+        category_id = EXCLUDED.category_id,
+        subcategory_id = EXCLUDED.subcategory_id,
+        description = EXCLUDED.description,
+        default_unit_id = EXCLUDED.default_unit_id,
+        barcode = EXCLUDED.barcode,
+        unit = EXCLUDED.unit,
+        current_price = EXCLUDED.current_price,
+        last_price = EXCLUDED.last_price,
+        supplier_name = EXCLUDED.supplier_name,
+        in_stock = EXCLUDED.in_stock,
+        status = EXCLUDED.status,
+        theme_id = EXCLUDED.theme_id,
+        custom_gradient = EXCLUDED.custom_gradient,
+        effective_date = EXCLUDED.effective_date,
+        last_updated = EXCLUDED.last_updated,
+        updated_at_ts = NOW()`,
       [
         id,
         code,
         data.name || 'New Material',
-        data.category || 'Raw Materials',
-        data.subCategory || '',
+        categoryName,
+        subCategoryName,
         data.moreSubCategory || '',
         data.itemClassification || 'raw_material',
-        data.unit || 'pcs',
+        unit,
         price,
         price,
         round2(data.defaultDiscountPct || 0),
@@ -1748,37 +1876,110 @@ export class PostgresService {
         Math.max(0, round4(data.inStock || 0)),
         Math.max(0, round4(data.reorderPoint || 0)),
         round4(data.unitCost ?? price * 0.8),
-        data.status || 'Available',
-        data.barcode || code,
+        status,
+        barcode,
         JSON.stringify(data.volumePricing || []),
         JSON.stringify(data.priceHistory || []),
         data.themeId || null,
         data.customGradient || null,
         effectiveDate,
         effectiveDate,
-        new Date().toISOString()
+        new Date().toISOString(),
+        categoryId,
+        subCategoryId,
+        description,
+        defaultUnitId,
+        Boolean(data.classificationReviewRequired),
+        data.classificationReviewNotes || ''
       ]
     );
-    return { ...data, id, code, currentPrice: price, retailPrice: price, effectiveDate, lastUpdated: effectiveDate };
+
+    return {
+      ...data,
+      id,
+      code,
+      barcode,
+      description,
+      categoryId,
+      subCategoryId,
+      category: categoryName,
+      subCategory: subCategoryName,
+      categoryName,
+      subCategoryName,
+      unit,
+      status,
+      currentPrice: price,
+      retailPrice: price,
+      effectiveDate,
+      lastUpdated: effectiveDate,
+      createdAt: effectiveDate,
+      updatedAt: effectiveDate
+    };
   }
 
   public async updateMaterial(id: string, data: any): Promise<any> {
     const db = await this.getDb();
-    const existing = (await this.getMaterials()).find((m) => m.id === id);
+    const existingList = await this.getMaterials();
+    const existing = existingList.find((m) => m.id === id);
     if (!existing) return null;
     const merged = { ...existing, ...data };
     const price = round4(merged.currentPrice ?? merged.retailPrice ?? 0);
     const effectiveDate = (data.effectiveDate || data.lastUpdated || new Date().toISOString()).slice(0, 10);
 
+    let categoryId = merged.categoryId !== undefined ? merged.categoryId : (existing.categoryId || null);
+    let subCategoryId = merged.subCategoryId !== undefined ? merged.subCategoryId : (existing.subCategoryId || null);
+    let categoryName = merged.category || existing.category || '';
+    let subCategoryName = merged.subCategory || existing.subCategory || '';
+
+    // If category changed and subcategory is incompatible:
+    if (data.categoryId && data.categoryId !== existing.categoryId && data.subCategoryId === undefined) {
+      if (subCategoryId) {
+        const check = await db.query('SELECT parent_id FROM categories WHERE id = $1', [subCategoryId]);
+        if (check.rows.length === 0 || check.rows[0].parent_id !== data.categoryId) {
+          subCategoryId = null;
+          subCategoryName = '';
+        }
+      }
+    }
+
+    if (categoryId) {
+      const catCheck = await db.query('SELECT id, name FROM categories WHERE id = $1', [categoryId]);
+      if (catCheck.rows.length > 0) categoryName = catCheck.rows[0].name;
+    }
+
+    if (subCategoryId) {
+      const subCheck = await db.query('SELECT id, name, parent_id FROM categories WHERE id = $1', [subCategoryId]);
+      if (subCheck.rows.length === 0) {
+        throw Object.assign(new Error(`Subcategory not found with ID ${subCategoryId}`), { status: 400 });
+      }
+      if (categoryId && subCheck.rows[0].parent_id !== categoryId) {
+        throw Object.assign(new Error(`Selected subcategory does not belong to the selected category`), { status: 400 });
+      }
+      subCategoryName = subCheck.rows[0].name;
+    }
+
+    const barcode = (merged.barcode || merged.code || '').trim();
+    const description = (merged.description || '').trim();
+    const unit = (merged.unit || 'pcs').trim();
+    const status = merged.status || 'Available';
+
     await db.query(
-      `UPDATE materials SET code=$1, name=$2, category=$3, sub_category=$4, more_sub_category=$5, unit=$6, current_price=$7, last_price=$8, currency=$9, supplier_name=$10, lead_time_days=$11, in_stock=$12, reorder_point=$13, unit_cost=$14, status=$15, barcode=$16, volume_pricing=$17, price_history=$18, theme_id=$19, custom_gradient=$20, effective_date=$21, last_updated=$22, updated_at_ts=NOW() WHERE id=$23`,
+      `UPDATE materials SET
+        code=$1, name=$2, category=$3, sub_category=$4, more_sub_category=$5, unit=$6,
+        current_price=$7, last_price=$8, currency=$9, supplier_name=$10, lead_time_days=$11,
+        in_stock=$12, reorder_point=$13, unit_cost=$14, status=$15, barcode=$16,
+        volume_pricing=$17, price_history=$18, theme_id=$19, custom_gradient=$20,
+        effective_date=$21, last_updated=$22, category_id=$23, subcategory_id=$24,
+        description=$25, default_unit_id=$26, classification_review_required=$27,
+        classification_review_notes=$28, updated_at_ts=NOW()
+      WHERE id=$29`,
       [
         merged.code,
         merged.name,
-        merged.category,
-        merged.subCategory || '',
+        categoryName,
+        subCategoryName,
         merged.moreSubCategory || '',
-        merged.unit || 'pcs',
+        unit,
         price,
         round4(merged.lastPrice ?? price),
         merged.currency || 'USD',
@@ -1787,18 +1988,42 @@ export class PostgresService {
         Math.max(0, round4(merged.inStock || 0)),
         Math.max(0, round4(merged.reorderPoint || 0)),
         round4(merged.unitCost || 0),
-        merged.status || 'Available',
-        merged.barcode || '',
+        status,
+        barcode,
         JSON.stringify(merged.volumePricing || []),
         JSON.stringify(merged.priceHistory || []),
         merged.themeId || null,
         merged.customGradient || null,
         effectiveDate,
         effectiveDate,
+        categoryId,
+        subCategoryId,
+        description,
+        merged.defaultUnitId || null,
+        Boolean(merged.classificationReviewRequired),
+        merged.classificationReviewNotes || '',
         id
       ]
     );
-    return { ...merged, currentPrice: price, retailPrice: price, effectiveDate, lastUpdated: effectiveDate };
+
+    return {
+      ...merged,
+      categoryId,
+      subCategoryId,
+      category: categoryName,
+      subCategory: subCategoryName,
+      categoryName,
+      subCategoryName,
+      barcode,
+      description,
+      unit,
+      status,
+      currentPrice: price,
+      retailPrice: price,
+      effectiveDate,
+      lastUpdated: effectiveDate,
+      updatedAt: effectiveDate
+    };
   }
 
   /**
@@ -8002,6 +8227,250 @@ export class PostgresService {
   }
 
   // --- Database Status ---
+  // --- TASK 6: Material Catalogue & Category Restructure ---
+  public async ensureMaterialCatalogueSchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        -- 1. Standard Units of Measurement
+        CREATE TABLE IF NOT EXISTS measurement_units (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          category TEXT DEFAULT 'quantity',
+          is_active BOOLEAN DEFAULT true,
+          created_at_ts TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        INSERT INTO measurement_units (id, code, name, symbol, category) VALUES
+          ('unit-pcs', 'pcs', 'Pieces / Units', 'pcs', 'quantity'),
+          ('unit-kg', 'kg', 'Kilograms', 'kg', 'mass'),
+          ('unit-g', 'g', 'Grams', 'g', 'mass'),
+          ('unit-m', 'm', 'Meters', 'm', 'length'),
+          ('unit-mm', 'mm', 'Millimeters', 'mm', 'length'),
+          ('unit-m2', 'm2', 'Square Meters', 'm²', 'area'),
+          ('unit-m3', 'm3', 'Cubic Meters', 'm³', 'volume'),
+          ('unit-ton', 'ton', 'Metric Tons', 't', 'mass'),
+          ('unit-sheet', 'sheet', 'Sheets / Plates', 'sheet', 'quantity'),
+          ('unit-bundle', 'bundle', 'Bundles', 'bdl', 'quantity'),
+          ('unit-box', 'box', 'Boxes / Cartons', 'box', 'quantity'),
+          ('unit-roll', 'roll', 'Rolls / Coils', 'roll', 'quantity'),
+          ('unit-liter', 'liter', 'Liters', 'L', 'volume'),
+          ('unit-hr', 'hr', 'Hours', 'hr', 'time'),
+          ('unit-set', 'set', 'Assemblies / Sets', 'set', 'quantity')
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          symbol = EXCLUDED.symbol;
+
+        -- 2. Upgrade materials table
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS category_id TEXT;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS subcategory_id TEXT;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS default_unit_id TEXT REFERENCES measurement_units(id) ON DELETE SET NULL;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS classification_review_required BOOLEAN DEFAULT false;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS classification_review_notes TEXT DEFAULT '';
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS created_at_ts TIMESTAMPTZ DEFAULT NOW();
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS updated_at_ts TIMESTAMPTZ DEFAULT NOW();
+
+        -- 3. Ensure categories table has unique (id, parent_id)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_id_parent ON categories(id, parent_id);
+        CREATE INDEX IF NOT EXISTS idx_categories_type_group ON categories(group_name, type);
+        CREATE INDEX IF NOT EXISTS idx_categories_parent_id ON categories(parent_id);
+
+        CREATE INDEX IF NOT EXISTS idx_materials_category_id ON materials(category_id);
+        CREATE INDEX IF NOT EXISTS idx_materials_subcategory_id ON materials(subcategory_id);
+        CREATE INDEX IF NOT EXISTS idx_materials_barcode ON materials(barcode);
+        CREATE INDEX IF NOT EXISTS idx_materials_review_required ON materials(classification_review_required);
+      `);
+
+      // Seed categories from INITIAL_CATEGORY_HIERARCHY if table is empty
+      const catCountRes = await db.query('SELECT count(*) as cnt FROM categories');
+      const catCount = Number((catCountRes.rows[0] as any)?.cnt || 0);
+      if (catCount === 0) {
+        const defaultCats = buildDefaultCategories();
+        for (const c of defaultCats) {
+          await db.query(
+            `INSERT INTO categories (id, name, type, group_name, parent_id, parent_name, brief, item_count, theme_id, custom_gradient, icon, meta_badge, action_text, created_at, created_at_ts, updated_at_ts)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              c.id,
+              c.name,
+              c.type || 'category',
+              c.group || 'material',
+              c.parentId || null,
+              c.parentName || null,
+              c.brief || '',
+              Number(c.itemCount || 0),
+              c.themeId || null,
+              c.customGradient || null,
+              c.icon || null,
+              c.metaBadge || null,
+              c.actionText || null,
+              new Date().toISOString()
+            ]
+          ).catch(() => {});
+        }
+      }
+
+      // Safe Migration & Classification for existing material records
+      // Requirement 16, 17, 18:
+      // - Preserve existing material records
+      // - Match to category / subcategory by exact/case-insensitive name
+      // - If uncertain / unmatched: DO NOT automatically assign to an arbitrary category!
+      // - Flag classification_review_required = true for manual review.
+      const unlinkedMaterials = await db.query('SELECT id, code, name, category, sub_category FROM materials WHERE category_id IS NULL');
+      for (const m of unlinkedMaterials.rows) {
+        const catName = String(m.category || '').trim();
+        const subName = String(m.sub_category || '').trim();
+
+        if (catName) {
+          const catRes = await db.query(
+            "SELECT id, name FROM categories WHERE LOWER(TRIM(name)) = LOWER($1) AND (type = 'category' OR parent_id IS NULL) LIMIT 1",
+            [catName]
+          );
+          if (catRes.rows.length > 0) {
+            const catId = catRes.rows[0].id;
+            let subId: string | null = null;
+            let reviewReq = false;
+            let reviewNote = '';
+
+            if (subName) {
+              const subRes = await db.query(
+                "SELECT id, name FROM categories WHERE parent_id = $1 AND LOWER(TRIM(name)) = LOWER($2) LIMIT 1",
+                [catId, subName]
+              );
+              if (subRes.rows.length > 0) {
+                subId = subRes.rows[0].id;
+              } else {
+                reviewReq = true;
+                reviewNote = `Subcategory "${subName}" not found under category "${catRes.rows[0].name}". Awaiting classification review.`;
+              }
+            }
+
+            await db.query(
+              `UPDATE materials SET
+                category_id = $1,
+                subcategory_id = $2,
+                classification_review_required = $3,
+                classification_review_notes = $4,
+                updated_at_ts = NOW()
+               WHERE id = $5`,
+              [catId, subId, reviewReq, reviewNote, m.id]
+            );
+          } else {
+            // Category text doesn't match known category: DO NOT assign arbitrary category (Requirement 18)
+            await db.query(
+              `UPDATE materials SET
+                category_id = NULL,
+                subcategory_id = NULL,
+                classification_review_required = true,
+                classification_review_notes = $1,
+                updated_at_ts = NOW()
+               WHERE id = $2`,
+              [`Legacy category "${catName}" not found in catalogue. Manual review required.`, m.id]
+            );
+          }
+        } else {
+          // No category: leave null and flag for review
+          await db.query(
+            `UPDATE materials SET
+              category_id = NULL,
+              subcategory_id = NULL,
+              classification_review_required = true,
+              classification_review_notes = 'Missing category classification. Manual assignment required.',
+              updated_at_ts = NOW()
+             WHERE id = $1`,
+            [m.id]
+          );
+        }
+      }
+
+      // Foreign keys & Hierarchy Validation Trigger
+      try {
+        await db.exec(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_materials_category_id') THEN
+              ALTER TABLE materials ADD CONSTRAINT fk_materials_category_id FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_materials_subcategory_id') THEN
+              ALTER TABLE materials ADD CONSTRAINT fk_materials_subcategory_id FOREIGN KEY (subcategory_id) REFERENCES categories(id) ON DELETE RESTRICT;
+            END IF;
+          EXCEPTION
+            WHEN OTHERS THEN NULL;
+          END $$;
+
+          CREATE OR REPLACE FUNCTION fn_validate_material_category_hierarchy()
+          RETURNS TRIGGER AS $func$
+          DECLARE
+            v_sub_parent TEXT;
+            v_cat_type TEXT;
+            v_sub_type TEXT;
+          BEGIN
+            IF NEW.category_id IS NOT NULL THEN
+              SELECT type INTO v_cat_type FROM categories WHERE id = NEW.category_id;
+              IF v_cat_type IS NULL THEN
+                RAISE EXCEPTION 'Category ID % does not exist in categories catalogue', NEW.category_id;
+              END IF;
+            END IF;
+
+            IF NEW.subcategory_id IS NOT NULL THEN
+              SELECT parent_id, type INTO v_sub_parent, v_sub_type FROM categories WHERE id = NEW.subcategory_id;
+              IF v_sub_type IS NULL THEN
+                RAISE EXCEPTION 'Subcategory ID % does not exist in categories catalogue', NEW.subcategory_id;
+              END IF;
+
+              IF v_sub_parent IS NULL THEN
+                RAISE EXCEPTION 'Category node % is a root category, not a subcategory', NEW.subcategory_id;
+              END IF;
+
+              IF NEW.category_id IS NOT NULL AND v_sub_parent != NEW.category_id THEN
+                RAISE EXCEPTION 'Subcategory (ID: %) belongs to parent %, not selected Category %',
+                  NEW.subcategory_id, v_sub_parent, NEW.category_id;
+              END IF;
+
+              IF NEW.category_id IS NULL THEN
+                NEW.category_id := v_sub_parent;
+              END IF;
+            END IF;
+
+            IF NEW.barcode IS NULL OR TRIM(NEW.barcode) = '' THEN
+              NEW.barcode := NEW.code;
+            END IF;
+
+            RETURN NEW;
+          END;
+          $func$ LANGUAGE plpgsql;
+
+          DROP TRIGGER IF EXISTS trg_validate_material_category_hierarchy ON materials;
+          CREATE TRIGGER trg_validate_material_category_hierarchy
+          BEFORE INSERT OR UPDATE ON materials
+          FOR EACH ROW
+          EXECUTE FUNCTION fn_validate_material_category_hierarchy();
+        `);
+      } catch (triggerErr) {
+        console.warn('[PostgreSQL] trigger setup warning:', (triggerErr as Error).message);
+      }
+    } catch (e) {
+      console.warn('[PostgreSQL] ensureMaterialCatalogueSchema warning:', (e as Error).message);
+    }
+  }
+
+  public async getMeasurementUnits(): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT * FROM measurement_units WHERE is_active = true ORDER BY name ASC');
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      symbol: r.symbol,
+      category: r.category,
+      isActive: r.is_active
+    }));
+  }
+
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
     const tables = [

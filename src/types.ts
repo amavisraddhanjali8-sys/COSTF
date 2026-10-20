@@ -153,17 +153,30 @@ export interface ProduceItem {
   currency?: string;
 }
 
+export interface MeasurementUnit {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string;
+  category?: string;
+  isActive?: boolean;
+}
+
 export interface MaterialItem {
   id: EntityId;
   code: string;
   name: string;
+  categoryId?: string;
+  subCategoryId?: string;
   category: string; // e.g., Metals & Structural Alloys
   subCategory: string; // e.g., Aircraft & Marine Alloys
-  moreSubCategory: string; // e.g., Pre-Tempered Extrusions & Plates
+  moreSubCategory?: string; // e.g., Pre-Tempered Extrusions & Plates
   itemClassification: 'raw_material' | 'final_product' | 'full_contract' | 'hardware' | string;
   supplierId: EntityId;
   supplierName: string;
   unit: string; // kg, m, pcs, ton, sheet, bundle
+  defaultUnitId?: string;
+  description?: string;
   retailPrice: number;
   currentPrice?: number;
   lastPrice?: number;
@@ -179,7 +192,14 @@ export interface MaterialItem {
   vendorQuotes?: MaterialVendorQuote[];
   specSheetUrl?: string;
   imageUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
   lastUpdated: string;
+  effectiveDate?: string;
+  classificationReviewRequired?: boolean;
+  classificationReviewNotes?: string;
+  themeId?: string;
+  customGradient?: string;
 }
 
 export interface OutsourcedService {
