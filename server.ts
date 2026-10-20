@@ -59,11 +59,21 @@ function extractListOptions(query: any): ListQueryOptions & { paginated?: boolea
     sortBy: query?.sortBy ? String(query.sortBy) : undefined,
     sortOrder: query?.sortOrder === 'asc' || query?.sortOrder === 'desc' ? query.sortOrder : undefined,
     category: query?.category ? String(query.category) : undefined,
+    subCategory: query?.subCategory ? String(query.subCategory) : undefined,
     status: query?.status ? String(query.status) : undefined,
     projectId: query?.projectId ? String(query.projectId) : undefined,
     planType: query?.planType ? String(query.planType) : undefined,
     entityType: query?.entityType ? String(query.entityType) : undefined,
     entityId: query?.entityId ? String(query.entityId) : undefined,
+    supplierId: query?.supplierId ? String(query.supplierId) : undefined,
+    materialId: query?.materialId ? String(query.materialId) : undefined,
+    itemId: query?.itemId ? String(query.itemId) : undefined,
+    itemType: query?.itemType ? String(query.itemType) : undefined,
+    priceType: query?.priceType ? String(query.priceType) : undefined,
+    costStage: query?.costStage ? String(query.costStage) : undefined,
+    currency: query?.currency ? String(query.currency) : undefined,
+    projectPlanId: query?.projectPlanId ? String(query.projectPlanId) : query?.planId ? String(query.planId) : undefined,
+    planId: query?.planId ? String(query.planId) : undefined,
     fromDate: query?.fromDate ? String(query.fromDate) : undefined,
     toDate: query?.toDate ? String(query.toDate) : undefined,
     paginated: query?.paginated === 'true' || query?.paginated === '1'
@@ -1717,6 +1727,101 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to fetch price history:', e);
       res.status(500).json({ error: 'Failed to fetch price history records', details: e?.message });
+    }
+  });
+
+  // --- TASK 5: Procurement Price History System API (PostgreSQL inno_cost) ---
+  app.get('/api/procurement-price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getProcurementPriceHistory(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch procurement price history:', e);
+      res.status(500).json({ error: 'Failed to fetch procurement price history', details: e?.message });
+    }
+  });
+
+  app.post('/api/procurement-price-history', async (req, res) => {
+    try {
+      const { supplierId, itemId, unitPrice } = req.body || {};
+      if (!supplierId) {
+        return res.status(400).json({ error: 'Supplier ID is required' });
+      }
+      if (!itemId && !req.body?.materialId && !req.body?.outsourcedServiceId && !req.body?.subcontractorId) {
+        return res.status(400).json({ error: 'Item ID (material, service, or subcontractor rate) is required' });
+      }
+      if (unitPrice === undefined || unitPrice === null || isNaN(Number(unitPrice)) || Number(unitPrice) < 0) {
+        return res.status(400).json({ error: 'A valid non-negative unitPrice is required' });
+      }
+
+      const actor = (req as any).user;
+      const created = await postgresService.createProcurementPriceRecord(req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to record procurement price:', e);
+      res.status(500).json({ error: 'Failed to record procurement price in PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.get('/api/procurement-price-history/comparison', async (req, res) => {
+    try {
+      const itemId = String(req.query.itemId || req.query.materialId || '');
+      if (!itemId) {
+        return res.status(400).json({ error: 'itemId query parameter is required for price comparison' });
+      }
+      const itemType = req.query.itemType ? String(req.query.itemType) : undefined;
+      const unit = req.query.unit ? String(req.query.unit) : undefined;
+      const comparison = await postgresService.getProcurementPriceComparison(itemId, itemType, unit);
+      res.json(comparison);
+    } catch (e: any) {
+      console.error('Failed to get price comparison:', e);
+      res.status(500).json({ error: 'Failed to get price comparison data', details: e?.message });
+    }
+  });
+
+  app.get('/api/suppliers/:id/price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getSupplierPriceHistory(req.params.id, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch supplier price history:', e);
+      res.status(500).json({ error: 'Failed to fetch supplier price history', details: e?.message });
+    }
+  });
+
+  app.get('/api/materials/:id/price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getItemPriceHistory('material', req.params.id, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch material price history:', e);
+      res.status(500).json({ error: 'Failed to fetch material price history', details: e?.message });
+    }
+  });
+
+  app.get('/api/outsourced/:id/price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getItemPriceHistory('outsourced_service', req.params.id, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch outsourced price history:', e);
+      res.status(500).json({ error: 'Failed to fetch outsourced price history', details: e?.message });
+    }
+  });
+
+  app.get('/api/subcontractors/:id/price-history', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getItemPriceHistory('subcontractor_rate', req.params.id, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch subcontractor price history:', e);
+      res.status(500).json({ error: 'Failed to fetch subcontractor price history', details: e?.message });
     }
   });
 

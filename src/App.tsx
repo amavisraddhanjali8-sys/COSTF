@@ -13,6 +13,7 @@ import { ProjectHomeView } from './components/ProjectHomeView';
 import { PlanDetailsPage } from './components/project/PlanDetailsPage';
 import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
 import { RevenueCataloguePortal } from './components/revenue/RevenueCataloguePortal';
+import { ProcurementPriceHistoryModal } from './components/pricing/ProcurementPriceHistoryModal';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
 import { LoginPage } from './components/LoginPage';
@@ -1678,6 +1679,19 @@ export default function App() {
               setActiveTab('plan-details');
             }}
             showNotification={(msg) => showToast({ message: msg, type: 'info' })}
+          />
+        )}
+
+        {activeTab === 'price-history-portal' && (
+          <ProcurementPriceHistoryModal
+            isOpen={true}
+            onClose={() => setActiveTab('directory-hub')}
+            suppliers={suppliers}
+            materials={materials}
+            outsourcedServices={outsourcedServices}
+            subcontractors={subcontractors}
+            projects={projects}
+            showToast={showToast}
           />
         )}
 

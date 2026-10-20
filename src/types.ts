@@ -1044,4 +1044,75 @@ export interface RevenueRateHistoryRecord {
   idempotencyKey?: string;
 }
 
+export type ProcurementPriceType =
+  | 'supplier_quotation'
+  | 'negotiated_price'
+  | 'purchase_order_price'
+  | 'actual_invoiced_price'
+  | 'subcontractor_quotation'
+  | 'agreed_subcontract_rate'
+  | 'catalog_price_revision';
+
+export type ProcurementCostStage = 'estimated' | 'quoted' | 'committed' | 'actual';
+
+export type ProcurementItemType = 'material' | 'outsourced_service' | 'subcontractor_rate' | 'procurement_item';
+
+export interface ProcurementPriceRecord {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  itemType: ProcurementItemType;
+  itemId: string;
+  itemCode?: string;
+  itemName: string;
+  category?: string;
+  subCategory?: string;
+  materialId?: string;
+  outsourcedServiceId?: string;
+  subcontractorId?: string;
+  projectId?: string;
+  projectCode?: string;
+  projectName?: string;
+  projectPlanId?: string;
+  planNumber?: string;
+  planName?: string;
+  unit: string;
+  unitPrice: number;
+  currency: string;
+  effectiveDate: string;
+  recordedAt: string;
+  quotationRef?: string;
+  validFrom?: string;
+  validUntil?: string;
+  recordedBy: string;
+  notes?: string;
+  priceType: ProcurementPriceType;
+  costStage: ProcurementCostStage;
+  isConfirmedPurchase: boolean;
+  leadTimeDays?: number;
+  moq?: number;
+  previousPrice?: number;
+  priceChangeAmount?: number;
+  priceChangePct?: number;
+  idempotencyKey?: string;
+}
+
+export interface PriceComparisonSummary {
+  itemId: string;
+  itemCode?: string;
+  itemName: string;
+  itemType: string;
+  unit: string;
+  currentPrice: number;
+  previousPrice?: number;
+  priceChangePct?: number;
+  minPrice: number;
+  maxPrice: number;
+  avgPrice: number;
+  currency: string;
+  totalRecordsCount: number;
+  latestRecord?: ProcurementPriceRecord;
+  history: ProcurementPriceRecord[];
+}
+
 

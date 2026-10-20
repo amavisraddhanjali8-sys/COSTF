@@ -18,7 +18,9 @@ import {
   RevenueCategory,
   RevenueSubcategory,
   RevenueRateHistoryRecord,
-  ProjectPlanBoqItem
+  ProjectPlanBoqItem,
+  ProcurementPriceRecord,
+  PriceComparisonSummary
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -33,9 +35,19 @@ export interface ListQueryParams {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   category?: string;
+  subCategory?: string;
   status?: string;
   entityType?: string;
   entityId?: string;
+  supplierId?: string;
+  materialId?: string;
+  itemId?: string;
+  itemType?: string;
+  priceType?: string;
+  costStage?: string;
+  currency?: string;
+  projectPlanId?: string;
+  planId?: string;
   fromDate?: string;
   toDate?: string;
   paginated?: boolean;
@@ -1328,5 +1340,62 @@ export const api = {
     const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/commercial-history?${buildQueryString(params, true)}`);
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project commercial history');
     return await res.json();
+  },
+
+  // --- TASK 5: Procurement Price History System API ---
+  async getProcurementPriceHistory(params?: ListQueryParams): Promise<PaginatedApiResponse<ProcurementPriceRecord>> {
+    const res = await fetch(`/api/procurement-price-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch procurement price history');
+    return await res.json();
+  },
+
+  async getProcurementPriceHistoryList(params?: ListQueryParams): Promise<ProcurementPriceRecord[]> {
+    const res = await fetch(`/api/procurement-price-history?${buildQueryString(params, false)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch procurement price history list');
+    return await res.json();
+  },
+
+  async createProcurementPriceRecord(data: Partial<ProcurementPriceRecord>): Promise<ProcurementPriceRecord> {
+    const res = await fetch('/api/procurement-price-history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to record procurement price quotation');
+    return await res.json();
+  },
+
+  async getProcurementPriceComparison(itemId: string, itemType?: string, unit?: string): Promise<PriceComparisonSummary> {
+    const params = new URLSearchParams({ itemId });
+    if (itemType) params.set('itemType', itemType);
+    if (unit) params.set('unit', unit);
+    const res = await fetch(`/api/procurement-price-history/comparison?${params.toString()}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch price comparison data');
+    return await res.json();
+  },
+
+  async getSupplierPriceHistory(supplierId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<ProcurementPriceRecord>> {
+    const res = await fetch(`/api/suppliers/${encodeURIComponent(supplierId)}/price-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch supplier price history');
+    return await res.json();
+  },
+
+  async getMaterialPriceHistory(materialId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<ProcurementPriceRecord>> {
+    const res = await fetch(`/api/materials/${encodeURIComponent(materialId)}/price-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch material price history');
+    return await res.json();
+  },
+
+  async getOutsourcedPriceHistory(outsourcedId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<ProcurementPriceRecord>> {
+    const res = await fetch(`/api/outsourced/${encodeURIComponent(outsourcedId)}/price-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch outsourced price history');
+    return await res.json();
+  },
+
+  async getSubcontractorPriceHistory(subcontractorId: string, params?: ListQueryParams): Promise<PaginatedApiResponse<ProcurementPriceRecord>> {
+    const res = await fetch(`/api/subcontractors/${encodeURIComponent(subcontractorId)}/price-history?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch subcontractor price history');
+    return await res.json();
   }
 };
+

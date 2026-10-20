@@ -51,6 +51,13 @@ export interface ListQueryOptions {
   entityId?: string;
   fromDate?: string;
   toDate?: string;
+  priceType?: string;
+  costStage?: string;
+  itemType?: string;
+  itemId?: string;
+  currency?: string;
+  projectPlanId?: string;
+  planId?: string;
 }
 
 export interface PaginatedResult<T> {
@@ -143,6 +150,29 @@ function parseFilterPagination(
     }
     if (opts.entityId) {
       filtered = filtered.filter((r) => r.entityId === opts.entityId);
+    }
+    if (opts.priceType && opts.priceType !== 'ALL') {
+      const ptLower = opts.priceType.toLowerCase();
+      filtered = filtered.filter((r) => String(r.priceType || '').toLowerCase() === ptLower);
+    }
+    if (opts.costStage && opts.costStage !== 'ALL') {
+      const csLower = opts.costStage.toLowerCase();
+      filtered = filtered.filter((r) => String(r.costStage || '').toLowerCase() === csLower);
+    }
+    if (opts.itemType && opts.itemType !== 'ALL') {
+      const itLower = opts.itemType.toLowerCase();
+      filtered = filtered.filter((r) => String(r.itemType || r.entityType || '').toLowerCase() === itLower);
+    }
+    if (opts.itemId && opts.itemId !== 'ALL') {
+      filtered = filtered.filter((r) => r.itemId === opts.itemId || r.materialId === opts.itemId || r.outsourcedServiceId === opts.itemId || r.subcontractorId === opts.itemId);
+    }
+    if (opts.currency && opts.currency !== 'ALL') {
+      const cUpper = opts.currency.toUpperCase();
+      filtered = filtered.filter((r) => String(r.currency || '').toUpperCase() === cUpper);
+    }
+    if ((opts.projectPlanId || opts.planId) && (opts.projectPlanId !== 'ALL' && opts.planId !== 'ALL')) {
+      const targetPlan = opts.projectPlanId || opts.planId;
+      filtered = filtered.filter((r) => r.projectPlanId === targetPlan || r.planId === targetPlan);
     }
     if (opts.fromDate) {
       filtered = filtered.filter((r) => {
@@ -1025,6 +1055,8 @@ export class PostgresService {
     await this.backfillProjectPlans();
     // Ensure all overhead and revenue tables & schemas exist
     await this.ensureOverheadAndRevenueTables();
+    // Ensure procurement price history tables & schema exist (Task 5)
+    await this.ensureProcurementPriceTables();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -3216,7 +3248,7 @@ export class PostgresService {
   public async getProjectPlanById(planId: string): Promise<any | null> {
     if (!planId) return null;
     const db = await this.getDb();
-    const planRes = await db.query(
+    let planRes = await db.query(
       `SELECT
         pp.*,
         pp.effective_date::text AS effective_date_iso,
@@ -7434,6 +7466,541 @@ export class PostgresService {
     return this.getRevenueRateHistory({ ...(opts || {}), entityId: revenueItemId });
   }
 
+  // --- TASK 5: Supplier, Vendor, Outsourced Service & Subcontractor Price History System ---
+  public async ensureProcurementPriceTables(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS procurement_price_history (
+          id TEXT PRIMARY KEY,
+          supplier_id TEXT NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+          supplier_name TEXT NOT NULL,
+          item_type TEXT NOT NULL CHECK (item_type IN ('material', 'outsourced_service', 'subcontractor_rate', 'procurement_item')),
+          item_id TEXT NOT NULL,
+          item_code TEXT,
+          item_name TEXT NOT NULL,
+          category TEXT DEFAULT '',
+          sub_category TEXT DEFAULT '',
+          material_id TEXT REFERENCES materials(id) ON DELETE CASCADE,
+          outsourced_service_id TEXT REFERENCES outsourced_services(id) ON DELETE CASCADE,
+          subcontractor_id TEXT REFERENCES subcontractors(id) ON DELETE CASCADE,
+          project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          project_plan_id TEXT REFERENCES project_plans(id) ON DELETE SET NULL,
+          unit TEXT NOT NULL DEFAULT 'unit',
+          unit_price NUMERIC(18, 4) NOT NULL CHECK (unit_price >= 0),
+          currency TEXT NOT NULL DEFAULT 'USD',
+          effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          quotation_ref TEXT,
+          valid_from DATE,
+          valid_until DATE,
+          recorded_by TEXT NOT NULL DEFAULT 'System User',
+          notes TEXT DEFAULT '',
+          price_type TEXT NOT NULL DEFAULT 'supplier_quotation' CHECK (
+            price_type IN (
+              'supplier_quotation',
+              'negotiated_price',
+              'purchase_order_price',
+              'actual_invoiced_price',
+              'subcontractor_quotation',
+              'agreed_subcontract_rate',
+              'catalog_price_revision'
+            )
+          ),
+          cost_stage TEXT NOT NULL DEFAULT 'quoted' CHECK (
+            cost_stage IN ('estimated', 'quoted', 'committed', 'actual')
+          ),
+          is_confirmed_purchase BOOLEAN NOT NULL DEFAULT false,
+          lead_time_days INT DEFAULT 7,
+          moq NUMERIC(18, 4) DEFAULT 1,
+          previous_price NUMERIC(18, 4),
+          price_change_amount NUMERIC(18, 4),
+          price_change_pct NUMERIC(10, 2),
+          idempotency_key TEXT UNIQUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_proc_price_supplier ON procurement_price_history(supplier_id, effective_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_item ON procurement_price_history(item_type, item_id, effective_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_mat ON procurement_price_history(material_id) WHERE material_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_proc_price_outsourced ON procurement_price_history(outsourced_service_id) WHERE outsourced_service_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_proc_price_subcontractor ON procurement_price_history(subcontractor_id) WHERE subcontractor_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_proc_price_project ON procurement_price_history(project_id) WHERE project_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_proc_price_plan ON procurement_price_history(project_plan_id) WHERE project_plan_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_proc_price_type ON procurement_price_history(price_type);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_cost_stage ON procurement_price_history(cost_stage);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_effective_date ON procurement_price_history(effective_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_recorded_at ON procurement_price_history(recorded_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_proc_price_currency ON procurement_price_history(currency);
+
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS supplier_name TEXT;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS price_type TEXT DEFAULT 'supplier_quotation';
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS cost_stage TEXT DEFAULT 'quoted';
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS quotation_ref TEXT;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS valid_from DATE;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS valid_until DATE;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS project_plan_id TEXT REFERENCES project_plans(id) ON DELETE SET NULL;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'unit';
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE price_history_records ADD COLUMN IF NOT EXISTS is_confirmed_purchase BOOLEAN DEFAULT false;
+
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS price_history_id TEXT REFERENCES procurement_price_history(id) ON DELETE SET NULL;
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS price_type TEXT DEFAULT 'supplier_quotation';
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS cost_stage TEXT DEFAULT 'quoted';
+        ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS price_snapshot JSONB DEFAULT '{}'::jsonb;
+      `);
+    } catch (e) {
+      console.warn('[PostgreSQL] ensureProcurementPriceTables warning:', (e as Error).message);
+    }
+  }
+
+  public async createProcurementPriceRecord(data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const supplierId = data.supplierId;
+    if (!supplierId) {
+      throw Object.assign(new Error('Supplier ID is required'), { status: 400 });
+    }
+    const supRes = await db.query('SELECT id, name, code, currency FROM suppliers WHERE id = $1', [supplierId]);
+    if (supRes.rows.length === 0) {
+      throw Object.assign(new Error(`Supplier "${supplierId}" not found`), { status: 404 });
+    }
+    const supplier = supRes.rows[0];
+
+    const rawItemType = String(data.itemType || 'material').toLowerCase();
+    const itemType =
+      rawItemType === 'outsourced' || rawItemType === 'service' || rawItemType === 'outsourced_service'
+        ? 'outsourced_service'
+        : rawItemType === 'subcontractor' || rawItemType === 'subcontractor_rate'
+        ? 'subcontractor_rate'
+        : 'material';
+
+    const itemId = data.itemId || data.materialId || data.outsourcedServiceId || data.subcontractorId;
+    if (!itemId) {
+      throw Object.assign(new Error('Item ID (material, outsourced service, or subcontractor rate) is required'), { status: 400 });
+    }
+
+    let itemCode = data.itemCode || '';
+    let itemName = data.itemName || '';
+    let category = data.category || '';
+    let subCategory = data.subCategory || '';
+    let unit = data.unit || '';
+    let materialId: string | null = null;
+    let outsourcedServiceId: string | null = null;
+    let subcontractorId: string | null = null;
+
+    if (itemType === 'material') {
+      const matRes = await db.query(
+        'SELECT id, code, name, category, sub_category, unit, currency, current_price, retail_price FROM materials WHERE id = $1',
+        [itemId]
+      );
+      if (matRes.rows.length === 0) {
+        throw Object.assign(new Error(`Material item "${itemId}" not found`), { status: 404 });
+      }
+      const mat = matRes.rows[0];
+      materialId = mat.id;
+      itemCode = mat.code || itemCode;
+      itemName = mat.name || itemName;
+      category = mat.category || category;
+      subCategory = mat.sub_category || subCategory;
+      if (!unit) unit = mat.unit || 'pcs';
+    } else if (itemType === 'outsourced_service') {
+      const outRes = await db.query(
+        'SELECT id, code, name, category, sub_category, unit, base_unit_type, currency, rate FROM outsourced_services WHERE id = $1',
+        [itemId]
+      );
+      if (outRes.rows.length === 0) {
+        throw Object.assign(new Error(`Outsourced service "${itemId}" not found`), { status: 404 });
+      }
+      const out = outRes.rows[0];
+      outsourcedServiceId = out.id;
+      itemCode = out.code || out.id || itemCode;
+      itemName = out.name || itemName;
+      category = out.category || category;
+      subCategory = out.sub_category || subCategory;
+      if (!unit) unit = out.unit || out.base_unit_type || 'per_hour';
+    } else if (itemType === 'subcontractor_rate') {
+      const subRes = await db.query(
+        'SELECT id, code, subcontractor_name, niche_service_name, service_category, service_sub_category, unit, currency, base_rate, rate FROM subcontractors WHERE id = $1',
+        [itemId]
+      );
+      if (subRes.rows.length === 0) {
+        throw Object.assign(new Error(`Subcontractor rate item "${itemId}" not found`), { status: 404 });
+      }
+      const sub = subRes.rows[0];
+      subcontractorId = sub.id;
+      itemCode = sub.code || sub.id || itemCode;
+      itemName = sub.niche_service_name || sub.subcontractor_name || itemName;
+      category = sub.service_category || category;
+      subCategory = sub.service_sub_category || subCategory;
+      if (!unit) unit = sub.unit || 'hr';
+    }
+
+    if (!unit) unit = 'unit';
+
+    const unitPrice = round4(Number(data.unitPrice));
+    if (isNaN(unitPrice) || unitPrice < 0) {
+      throw Object.assign(new Error('Valid non-negative unit price is required'), { status: 400 });
+    }
+
+    const priceType = data.priceType || 'supplier_quotation';
+    const validPriceTypes = [
+      'supplier_quotation',
+      'negotiated_price',
+      'purchase_order_price',
+      'actual_invoiced_price',
+      'subcontractor_quotation',
+      'agreed_subcontract_rate',
+      'catalog_price_revision'
+    ];
+    if (!validPriceTypes.includes(priceType)) {
+      throw Object.assign(new Error(`Invalid priceType "${priceType}". Must be one of: ${validPriceTypes.join(', ')}`), { status: 400 });
+    }
+
+    let costStage = data.costStage;
+    if (!costStage) {
+      if (priceType === 'actual_invoiced_price') costStage = 'actual';
+      else if (
+        priceType === 'purchase_order_price' ||
+        priceType === 'negotiated_price' ||
+        priceType === 'agreed_subcontract_rate'
+      )
+        costStage = 'committed';
+      else if (priceType === 'supplier_quotation' || priceType === 'subcontractor_quotation') costStage = 'quoted';
+      else costStage = 'estimated';
+    }
+
+    const isConfirmedPurchase = Boolean(data.isConfirmedPurchase || costStage === 'committed' || costStage === 'actual');
+    const currency = data.currency || supplier.currency || 'USD';
+    const effectiveDate = (data.effectiveDate || new Date().toISOString()).slice(0, 10);
+    const recordedAt = data.recordedAt || new Date().toISOString();
+    const validFrom = data.validFrom ? String(data.validFrom).slice(0, 10) : null;
+    const validUntil = data.validUntil ? String(data.validUntil).slice(0, 10) : null;
+    const recordedBy = data.recordedBy || actor?.name || 'System User';
+    const notes = data.notes || '';
+    const quotationRef = data.quotationRef || data.referenceNumber || null;
+    const leadTimeDays = Number(data.leadTimeDays || 7);
+    const moq = Number(data.moq || 1);
+    const projectId = data.projectId || null;
+    const projectPlanId = data.projectPlanId || data.planId || null;
+
+    // Fetch previous price for same item & supplier to compute differential
+    const prevRes = await db.query(
+      `SELECT unit_price FROM procurement_price_history
+       WHERE supplier_id = $1 AND item_id = $2
+       ORDER BY effective_date DESC, recorded_at DESC
+       LIMIT 1`,
+      [supplierId, itemId]
+    );
+
+    let previousPrice: number | null = null;
+    let priceChangeAmount: number | null = null;
+    let priceChangePct: number | null = null;
+
+    if (prevRes.rows.length > 0) {
+      previousPrice = round4(prevRes.rows[0].unit_price);
+      priceChangeAmount = round4(unitPrice - previousPrice);
+      priceChangePct = calcPctChange(previousPrice, unitPrice, 1);
+    }
+
+    const id = data.id || `ppr-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    return this.withTransaction(async (q) => {
+      // 1. Insert into procurement_price_history
+      await q(
+        `INSERT INTO procurement_price_history (
+          id, supplier_id, supplier_name, item_type, item_id, item_code, item_name,
+          category, sub_category, material_id, outsourced_service_id, subcontractor_id,
+          project_id, project_plan_id, unit, unit_price, currency, effective_date,
+          recorded_at, quotation_ref, valid_from, valid_until, recorded_by, notes,
+          price_type, cost_stage, is_confirmed_purchase, lead_time_days, moq,
+          previous_price, price_change_amount, price_change_pct, idempotency_key, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12,
+          $13, $14, $15, $16, $17, $18,
+          $19, $20, $21, $22, $23, $24,
+          $25, $26, $27, $28, $29,
+          $30, $31, $32, $33, NOW(), NOW()
+        )`,
+        [
+          id, supplierId, supplier.name, itemType, itemId, itemCode, itemName,
+          category, subCategory, materialId, outsourcedServiceId, subcontractorId,
+          projectId, projectPlanId, unit, unitPrice, currency, effectiveDate,
+          recordedAt, quotationRef, validFrom, validUntil, recordedBy, notes,
+          priceType, costStage, isConfirmedPurchase, leadTimeDays, moq,
+          previousPrice, priceChangeAmount, priceChangePct, data.idempotencyKey || null
+        ]
+      );
+
+      // 2. Insert into price_history_records for universal backward compatibility
+      await q(
+        `INSERT INTO price_history_records (
+          id, entity_type, entity_id, entity_code, entity_name,
+          previous_price, new_price, retail_price, change_pct, currency,
+          effective_date, recorded_at, reason, updated_by, supplier_id, supplier_name,
+          price_type, cost_stage, quotation_ref, valid_from, valid_until,
+          project_id, project_plan_id, unit, notes, is_confirmed_purchase, idempotency_key
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16,
+          $17, $18, $19, $20, $21,
+          $22, $23, $24, $25, $26, $27
+        ) ON CONFLICT (id) DO NOTHING`,
+        [
+          `phr-${id}`,
+          itemType === 'material' ? 'material' : itemType === 'outsourced_service' ? 'outsourced' : 'subcontractor',
+          itemId, itemCode, itemName,
+          previousPrice || 0, unitPrice, unitPrice, priceChangePct || 0, currency,
+          effectiveDate, recordedAt, notes || `${priceType.replace(/_/g, ' ')} recorded`, recordedBy, supplierId, supplier.name,
+          priceType, costStage, quotationRef, validFrom, validUntil,
+          projectId, projectPlanId, unit, notes, isConfirmedPurchase, data.idempotencyKey ? `phr-${data.idempotencyKey}` : null
+        ]
+      );
+
+      // 3. Log audit event
+      await q(
+        `INSERT INTO audit_logs (id, timestamp, actor_id, actor_name, actor_role, action, module, record_id, record_name, details, ip_address, status)
+         VALUES ($1, NOW(), $2, $3, 'PROCUREMENT', 'RECORD_PRICE', 'Procurement', $4, $5, $6, '127.0.0.1', 'Success')`,
+        [
+          `log-price-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+          recordedBy,
+          recordedBy,
+          id,
+          `${supplier.name} - ${itemName}`,
+          `Recorded ${priceType} for ${itemName} (${itemCode}) from ${supplier.name}: ${currency} ${unitPrice}/${unit}. Ref: ${quotationRef || 'N/A'}. Stage: ${costStage}.`
+        ]
+      );
+
+      return {
+        id,
+        supplierId,
+        supplierName: supplier.name,
+        itemType,
+        itemId,
+        itemCode,
+        itemName,
+        category,
+        subCategory,
+        materialId,
+        outsourcedServiceId,
+        subcontractorId,
+        projectId,
+        projectPlanId,
+        unit,
+        unitPrice,
+        currency,
+        effectiveDate,
+        recordedAt,
+        quotationRef,
+        validFrom,
+        validUntil,
+        recordedBy,
+        notes,
+        priceType,
+        costStage,
+        isConfirmedPurchase,
+        leadTimeDays,
+        moq,
+        previousPrice,
+        priceChangeAmount,
+        priceChangePct
+      };
+    });
+  }
+
+  public async getProcurementPriceHistory(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT
+        h.*,
+        h.effective_date::text AS effective_date_iso,
+        p.code AS project_code,
+        p.name AS project_name,
+        pl.plan_number,
+        pl.name AS plan_name
+       FROM procurement_price_history h
+       LEFT JOIN projects p ON h.project_id = p.id
+       LEFT JOIN project_plans pl ON h.project_plan_id = pl.id
+       ORDER BY h.effective_date DESC, h.recorded_at DESC`
+    );
+
+    const rows = res.rows.map((r: any) => ({
+      id: r.id,
+      supplierId: r.supplier_id,
+      supplierName: r.supplier_name,
+      itemType: r.item_type,
+      itemId: r.item_id,
+      itemCode: r.item_code,
+      itemName: r.item_name,
+      category: r.category || '',
+      subCategory: r.sub_category || '',
+      materialId: r.material_id,
+      outsourcedServiceId: r.outsourced_service_id,
+      subcontractorId: r.subcontractor_id,
+      projectId: r.project_id,
+      projectCode: r.project_code,
+      projectName: r.project_name,
+      projectPlanId: r.project_plan_id,
+      planNumber: r.plan_number,
+      planName: r.plan_name,
+      unit: r.unit,
+      unitPrice: round4(r.unit_price),
+      currency: r.currency || 'USD',
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, ''),
+      recordedAt: r.recorded_at ? new Date(r.recorded_at).toISOString() : new Date().toISOString(),
+      quotationRef: r.quotation_ref,
+      validFrom: r.valid_from ? formatSqlDate(r.valid_from, '') : undefined,
+      validUntil: r.valid_until ? formatSqlDate(r.valid_until, '') : undefined,
+      recordedBy: r.recorded_by,
+      notes: r.notes || '',
+      priceType: r.price_type,
+      costStage: r.cost_stage,
+      isConfirmedPurchase: Boolean(r.is_confirmed_purchase),
+      leadTimeDays: Number(r.lead_time_days || 7),
+      moq: Number(r.moq || 1),
+      previousPrice: r.previous_price !== null && r.previous_price !== undefined ? round4(r.previous_price) : undefined,
+      priceChangeAmount: r.price_change_amount !== null && r.price_change_amount !== undefined ? round4(r.price_change_amount) : undefined,
+      priceChangePct: r.price_change_pct !== null && r.price_change_pct !== undefined ? round2(r.price_change_pct) : undefined,
+      idempotencyKey: r.idempotency_key
+    }));
+
+    return parseFilterPagination(
+      rows,
+      opts,
+      ['itemName', 'itemCode', 'supplierName', 'quotationRef', 'notes', 'category', 'subCategory', 'projectCode', 'projectName', 'planNumber'],
+      'effectiveDate'
+    );
+  }
+
+  public async getProcurementPriceComparison(itemId: string, itemType?: string, unit?: string): Promise<any> {
+    const db = await this.getDb();
+    let sql = `
+      SELECT
+        h.*,
+        h.effective_date::text AS effective_date_iso,
+        p.code AS project_code,
+        p.name AS project_name,
+        pl.plan_number,
+        pl.name AS plan_name
+      FROM procurement_price_history h
+      LEFT JOIN projects p ON h.project_id = p.id
+      LEFT JOIN project_plans pl ON h.project_plan_id = pl.id
+      WHERE (h.item_id = $1 OR h.material_id = $1 OR h.outsourced_service_id = $1 OR h.subcontractor_id = $1)
+    `;
+    const params: any[] = [itemId];
+
+    if (unit && unit !== 'ALL') {
+      sql += ` AND LOWER(h.unit) = LOWER($2)`;
+      params.push(unit);
+    }
+    sql += ` ORDER BY h.effective_date DESC, h.recorded_at DESC`;
+
+    const res = await db.query(sql, params);
+    const records = res.rows.map((r: any) => ({
+      id: r.id,
+      supplierId: r.supplier_id,
+      supplierName: r.supplier_name,
+      itemType: r.item_type,
+      itemId: r.item_id,
+      itemCode: r.item_code,
+      itemName: r.item_name,
+      category: r.category || '',
+      subCategory: r.sub_category || '',
+      materialId: r.material_id,
+      outsourcedServiceId: r.outsourced_service_id,
+      subcontractorId: r.subcontractor_id,
+      projectId: r.project_id,
+      projectCode: r.project_code,
+      projectName: r.project_name,
+      projectPlanId: r.project_plan_id,
+      planNumber: r.plan_number,
+      planName: r.plan_name,
+      unit: r.unit,
+      unitPrice: round4(r.unit_price),
+      currency: r.currency || 'USD',
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, ''),
+      recordedAt: r.recorded_at ? new Date(r.recorded_at).toISOString() : new Date().toISOString(),
+      quotationRef: r.quotation_ref,
+      validFrom: r.valid_from ? formatSqlDate(r.valid_from, '') : undefined,
+      validUntil: r.valid_until ? formatSqlDate(r.valid_until, '') : undefined,
+      recordedBy: r.recorded_by,
+      notes: r.notes || '',
+      priceType: r.price_type,
+      costStage: r.cost_stage,
+      isConfirmedPurchase: Boolean(r.is_confirmed_purchase),
+      leadTimeDays: Number(r.lead_time_days || 7),
+      moq: Number(r.moq || 1),
+      previousPrice: r.previous_price !== null && r.previous_price !== undefined ? round4(r.previous_price) : undefined,
+      priceChangeAmount: r.price_change_amount !== null && r.price_change_amount !== undefined ? round4(r.price_change_amount) : undefined,
+      priceChangePct: r.price_change_pct !== null && r.price_change_pct !== undefined ? round2(r.price_change_pct) : undefined
+    }));
+
+    if (records.length === 0) {
+      // Try resolving item info from base tables
+      const [mat, out, sub] = await Promise.all([
+        db.query('SELECT id, code, name, unit, currency, current_price FROM materials WHERE id = $1', [itemId]),
+        db.query('SELECT id, code, name, unit, base_unit_type, currency, rate FROM outsourced_services WHERE id = $1', [itemId]),
+        db.query('SELECT id, code, subcontractor_name, unit, currency, rate FROM subcontractors WHERE id = $1', [itemId])
+      ]);
+      const base = mat.rows[0] || out.rows[0] || sub.rows[0];
+      return {
+        itemId,
+        itemCode: base?.code || itemId,
+        itemName: base?.name || base?.subcontractor_name || 'Item',
+        itemType: itemType || 'material',
+        unit: base?.unit || 'unit',
+        currentPrice: base ? round4(base.current_price ?? base.rate ?? 0) : 0,
+        currency: base?.currency || 'USD',
+        minPrice: base ? round4(base.current_price ?? base.rate ?? 0) : 0,
+        maxPrice: base ? round4(base.current_price ?? base.rate ?? 0) : 0,
+        avgPrice: base ? round4(base.current_price ?? base.rate ?? 0) : 0,
+        totalRecordsCount: 0,
+        history: []
+      };
+    }
+
+    const latestRecord = records[0];
+    const previousRecord = records.length > 1 ? records[1] : undefined;
+    const currentPrice = latestRecord.unitPrice;
+    const previousPrice = previousRecord ? previousRecord.unitPrice : undefined;
+    const priceChangePct = previousPrice ? calcPctChange(previousPrice, currentPrice, 1) : 0;
+    const allPrices = records.map((r: any) => r.unitPrice);
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const avgPrice = round4(allPrices.reduce((a: number, b: number) => a + b, 0) / allPrices.length);
+
+    return {
+      itemId,
+      itemCode: latestRecord.itemCode,
+      itemName: latestRecord.itemName,
+      itemType: latestRecord.itemType,
+      unit: latestRecord.unit,
+      currentPrice,
+      previousPrice,
+      priceChangePct,
+      minPrice,
+      maxPrice,
+      avgPrice,
+      currency: latestRecord.currency,
+      totalRecordsCount: records.length,
+      latestRecord,
+      history: records
+    };
+  }
+
+  public async getSupplierPriceHistory(supplierId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    return this.getProcurementPriceHistory({ ...(opts || {}), supplierId });
+  }
+
+  public async getItemPriceHistory(itemType: string, itemId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    return this.getProcurementPriceHistory({ ...(opts || {}), itemType, itemId });
+  }
+
   // --- Database Status ---
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
@@ -7445,7 +8012,7 @@ export class PostgresService {
       'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',
       'suppliers', 'materials', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
-      'price_history_records', 'categories', 'custom_tiles', 'company_details',
+      'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
       'users', 'account_requests', 'media_assets', 'audit_logs', 'schema_migrations'
     ];
     const counts: Record<string, number> = {};

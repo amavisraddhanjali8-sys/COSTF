@@ -29,7 +29,8 @@ import {
   HelpCircle,
   Check,
   AlertTriangle,
-  Clock
+  Clock,
+  Tag
 } from 'lucide-react';
 import { NotificationCenterDropdown } from './NotificationCenterDropdown';
 import { calculateProjectProfitability, getMarginThreshold } from '../utils/profitabilityMonitor';
@@ -81,6 +82,7 @@ export type ActiveTab =
   | 'projects'
   | 'overhead-portal'
   | 'revenue-portal'
+  | 'price-history-portal'
   | 'audit-log'
   | 'settings'
   | 'plan-details';
@@ -1124,6 +1126,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           >
             <Package className="w-3.5 h-3.5 text-sky-400" />
             <span>Revenue</span>
+          </button>
+
+          {/* Supplier & Subcontractor Price History Portal (TASK 5) */}
+          <button
+            type="button"
+            id="nav-tab-price-history"
+            onClick={() => onSelectTab('price-history-portal')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'price-history-portal'
+                ? 'bg-[#003049] text-white shadow-2xs'
+                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+            }`}
+            title="Procurement price history, supplier quotations & rate comparisons"
+          >
+            <Tag className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Price History</span>
           </button>
 
           {/* Audit Log (Admin Only) */}

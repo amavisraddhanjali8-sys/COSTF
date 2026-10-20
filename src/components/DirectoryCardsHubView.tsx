@@ -51,6 +51,7 @@ import { ColorGradientPicker } from './ColorGradientPicker';
 import { FXTTCardItemsListView } from './FXTTCardItemsListView';
 import { DataImportExportModal } from './DataImportExportModal';
 import { ImportEntityType } from '../utils/excelImport';
+import { ProcurementPriceHistoryModal } from './pricing/ProcurementPriceHistoryModal';
 import { TILE_GRADIENT_PRESETS, getThemeById, getRandomThemeIndex } from '../data/tileThemes';
 import {
   INITIAL_CLIENT_PROFILES,
@@ -385,7 +386,27 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     primaryActionText?: string;
     onPrimaryAction?: () => void;
     onOpenListView?: () => void;
+    supplierId?: string;
+    itemId?: string;
+    itemType?: 'material' | 'outsourced_service' | 'subcontractor_rate';
   } | null>(null);
+
+  // Price History & Supplier Quotation Portal State (TASK 5)
+  const [isPriceHistoryModalOpen, setIsPriceHistoryModalOpen] = useState(false);
+  const [priceHistoryPresetSupplierId, setPriceHistoryPresetSupplierId] = useState<string | undefined>(undefined);
+  const [priceHistoryPresetItemId, setPriceHistoryPresetItemId] = useState<string | undefined>(undefined);
+  const [priceHistoryPresetItemType, setPriceHistoryPresetItemType] = useState<'material' | 'outsourced_service' | 'subcontractor_rate' | undefined>(undefined);
+
+  const handleOpenPriceHistory = (opts?: {
+    supplierId?: string;
+    itemId?: string;
+    itemType?: 'material' | 'outsourced_service' | 'subcontractor_rate';
+  }) => {
+    setPriceHistoryPresetSupplierId(opts?.supplierId);
+    setPriceHistoryPresetItemId(opts?.itemId);
+    setPriceHistoryPresetItemType(opts?.itemType);
+    setIsPriceHistoryModalOpen(true);
+  };
 
   // Active Card for FXTT CRM List View Modal / Dedicated Grid View
   const [activeFXTTCard, setActiveFXTTCard] = useState<{
@@ -4965,6 +4986,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         { label: 'Relevant Materials & Supplies', value: `${totalItemsCount} Verified Items in Catalog` }
                       ],
                       primaryActionText: 'View All Materials & Supplies in FXTT Grid',
+                      supplierId: sup.id,
                       onOpenListView: () => {
                         setActiveFXTTCard({
                           cardType: 'supplier',
@@ -5059,6 +5081,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         { label: 'Direct Operations Phone', value: prov.phone }
                       ],
                       primaryActionText: 'View All Outsourced Services in FXTT Grid',
+                      supplierId: prov.providerId,
                       onOpenListView: () => {
                         setActiveFXTTCard({
                           cardType: 'service_provider',
@@ -5154,6 +5177,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         { label: 'Direct Crew Phone', value: sub.phone }
                       ],
                       primaryActionText: 'View All Subcontractor Services in FXTT Grid',
+                      supplierId: sub.subcontractorId,
                       onOpenListView: () => {
                         setActiveFXTTCard({
                           cardType: 'subcontractor',
@@ -5427,23 +5451,39 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-              {activeDetailItem.onOpenListView ? (
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                {activeDetailItem.onOpenListView && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cb = activeDetailItem.onOpenListView;
+                      setActiveDetailItem(null);
+                      cb?.();
+                    }}
+                    className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-normal transition-colors cursor-pointer shadow-xs"
+                  >
+                    <Table className="w-3.5 h-3.5 text-white/90" />
+                    <span>Open in FXTT List View</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
-                    const cb = activeDetailItem.onOpenListView;
+                    const sId = activeDetailItem.supplierId;
+                    const itId = activeDetailItem.itemId;
+                    const itType = activeDetailItem.itemType;
                     setActiveDetailItem(null);
-                    cb?.();
+                    handleOpenPriceHistory({ supplierId: sId, itemId: itId, itemType: itType });
                   }}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-normal transition-colors cursor-pointer shadow-xs"
+                  className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                  title="View verified historical prices and recorded quotations"
                 >
-                  <Table className="w-3.5 h-3.5 text-white/90" />
-                  <span>Open in FXTT List View</span>
+                  <History className="w-3.5 h-3.5 text-white/90" />
+                  <span>Price History & Quotes</span>
                 </button>
-              ) : (
-                <div />
-              )}
+              </div>
 
               <button
                 onClick={() => setActiveDetailItem(null)}

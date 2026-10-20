@@ -46,7 +46,18 @@ import { AddRevenueItemToPlanModal } from '../revenue/AddRevenueItemToPlanModal'
 import { EditPlanBoqItemModal } from '../revenue/EditPlanBoqItemModal';
 import { RevenueItemRateHistoryModal } from '../revenue/RevenueItemRateHistoryModal';
 import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHistoryModal';
-import { RevenueItem, ProjectPlanBoqItem } from '../../types';
+import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistoryModal';
+import { persistentDatabase } from '../../services/persistentDatabase';
+import { round2 } from '../../utils/decimalMath';
+import {
+  RevenueItem,
+  ProjectPlanBoqItem,
+  ProcurementPriceRecord,
+  Supplier,
+  MaterialItem,
+  OutsourcedService,
+  SubcontractorRateItem
+} from '../../types';
 
 interface PlanDetailsPageProps {
   planId: string;
@@ -100,6 +111,64 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [isItemHistoryModalOpen, setIsItemHistoryModalOpen] = useState(false);
   const [historyTargetRevenueItem, setHistoryTargetRevenueItem] = useState<RevenueItem | null>(null);
   const [deletingBoqItemId, setDeletingBoqItemId] = useState<string | null>(null);
+
+  // Procurement Price History & Quotation selection (TASK 5)
+  const [isProcurementQuotesModalOpen, setIsProcurementQuotesModalOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => persistentDatabase.getSuppliers());
+  const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials());
+  const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>(() => persistentDatabase.getOutsourcedServices());
+  const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>(() => persistentDatabase.getSubcontractors());
+
+  const handleApplyPriceSnapshotToPlan = async (record: ProcurementPriceRecord) => {
+    if (!plan) return;
+    try {
+      const type = record.itemType === 'material'
+        ? 'material'
+        : record.itemType === 'subcontractor_rate'
+        ? 'subcontractor'
+        : 'outsourced';
+      const sellingRate = round2(record.unitPrice * 1.3);
+      await api.addRevenueItemToPlan(plan.id, {
+        name: `${record.itemName} [${record.supplierName}]`,
+        type,
+        category: record.category || 'Direct Sourced Procurement',
+        quantity: 1,
+        unit: record.unit || 'unit',
+        unitCost: record.unitPrice,
+        sellingRate: sellingRate,
+        rate: sellingRate,
+        supplierOrProvider: record.supplierName,
+        supplierId: record.supplierId,
+        itemId: record.itemId,
+        quotationRef: record.quotationRef,
+        costStage: record.costStage,
+        priceType: record.priceType,
+        priceHistoryId: record.id,
+        priceSnapshot: {
+          priceHistoryId: record.id,
+          supplierId: record.supplierId,
+          supplierName: record.supplierName,
+          unitPrice: record.unitPrice,
+          currency: record.currency,
+          unit: record.unit,
+          effectiveDate: record.effectiveDate,
+          quotationRef: record.quotationRef,
+          costStage: record.costStage,
+          priceType: record.priceType,
+          capturedAt: new Date().toISOString()
+        },
+        notes: `Sourced from ${record.supplierName} (${record.priceType.replace(/_/g, ' ')}${record.quotationRef ? ', Ref: ' + record.quotationRef : ''})`
+      });
+      await loadPlan();
+      onPlanUpdated?.();
+      showToast?.({
+        message: `Applied price snapshot of ${formatCurrency(record.unitPrice, record.currency)}/${record.unit} from ${record.supplierName} to ${plan.planNumber}.`,
+        type: 'success'
+      });
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to apply price snapshot to plan', type: 'error' });
+    }
+  };
 
   const activeCurrency = plan?.currency || getStoredCurrency();
 
@@ -567,6 +636,17 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               >
                 <History className="w-3.5 h-3.5" />
                 <span>Commercial History</span>
+              </button>
+
+              {/* Sourced Procurement Quotes & Rates (TASK 5) */}
+              <button
+                type="button"
+                onClick={() => setIsProcurementQuotesModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center space-x-1 cursor-pointer shadow-2xs"
+                title="Browse and select verified supplier, vendor, and subcontractor quotations to add as price snapshot items"
+              >
+                <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Procurement Quotes & Rates</span>
               </button>
 
               {/* Type Filter */}
@@ -1453,6 +1533,22 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           projectCode={plan.projectCode}
           projectName={plan.projectName}
           activeCurrency={activeCurrency}
+        />
+      )}
+
+      {/* Sourced Procurement Price History & Quotation Modal (TASK 5) */}
+      {isProcurementQuotesModalOpen && (
+        <ProcurementPriceHistoryModal
+          isOpen={isProcurementQuotesModalOpen}
+          onClose={() => setIsProcurementQuotesModalOpen(false)}
+          initialProjectId={plan.projectId}
+          planNumber={plan.planNumber}
+          suppliers={suppliers}
+          materials={materials}
+          outsourcedServices={outsourcedServices}
+          subcontractors={subcontractors}
+          onSelectPriceForPlan={handleApplyPriceSnapshotToPlan}
+          showToast={showToast}
         />
       )}
     </div>
