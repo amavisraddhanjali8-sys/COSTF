@@ -476,6 +476,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       metaBadge: 'CATALOG ROOT',
       actionText: 'EXPLORE SUB-CATEGORIES'
     };
+    if (newNode.themeId || newNode.customGradient) {
+      handleUpdateTileTheme(newNode.id, newNode.themeId, newNode.customGradient);
+    }
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
     const updated = [newNode, ...categories.filter((c) => c.id !== newNode.id)];
@@ -499,6 +502,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       metaBadge: 'SUB-CATEGORY',
       actionText: 'VIEW DEEP SPECS'
     };
+    if (newNode.themeId || newNode.customGradient) {
+      handleUpdateTileTheme(newNode.id, newNode.themeId, newNode.customGradient);
+    }
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
     const updated = [newNode, ...categories.filter((c) => c.id !== newNode.id)];
@@ -508,6 +514,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   };
 
   const handleSaveItem = (entityType: string, itemData: any) => {
+    const assignedId = itemData.id || itemData.code;
+    if (assignedId && (itemData.themeId || itemData.customGradient)) {
+      handleUpdateTileTheme(assignedId, itemData.themeId || 'pacific-sky', itemData.customGradient);
+    }
+
     if (entityType === 'material' && onAddMaterial) {
       onAddMaterial(itemData);
     } else if (entityType === 'produce' && onAddProduceItem) {
@@ -532,8 +543,12 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         totalQuotedValue: itemData.totalQuotedValue || 250000,
         contactPerson: itemData.contactPerson || 'Procurement Executive',
         email: itemData.email || 'partner@enterprise.com',
-        themeId: 'airbus-cobalt'
+        themeId: itemData.themeId || 'airbus-cobalt',
+        customGradient: itemData.customGradient
       };
+      if (itemData.themeId || itemData.customGradient) {
+        handleUpdateTileTheme(newClient.id, itemData.themeId || 'airbus-cobalt', itemData.customGradient);
+      }
       if (onAddClient) {
         onAddClient(newClient);
       } else {
@@ -546,11 +561,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
   // Open Edit Dialog
   const handleOpenEdit = (itemType: string, id: string, initialData: Record<string, any>) => {
+    const currentStyle = getTileStyle(id, initialData.themeId || 'pacific-sky');
     setEditModalData({
       isOpen: true,
       itemType,
       id,
-      initialData
+      initialData: {
+        ...initialData,
+        themeId: initialData.themeId || currentStyle.themeId || 'pacific-sky',
+        customGradient: initialData.customGradient !== undefined ? initialData.customGradient : currentStyle.customGradient
+      }
     });
   };
 
@@ -559,6 +579,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     if (!editModalData) return;
     const { itemType } = editModalData;
 
+    // Apply theme changes immediately to tile style overrides
+    if (updatedData.themeId || updatedData.customGradient !== undefined) {
+      handleUpdateTileTheme(id, updatedData.themeId || 'pacific-sky', updatedData.customGradient);
+    }
+
     if (itemType === 'category' || itemType === 'sub_category' || itemType === 'sub_sub_category') {
       api.updateCategory(id, updatedData).catch(console.error);
       const updated = categories.map((c) =>
@@ -566,7 +591,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           ? {
               ...c,
               name: updatedData.name || updatedData.title || c.name,
-              brief: updatedData.brief || c.brief
+              brief: updatedData.brief || c.brief,
+              themeId: updatedData.themeId || c.themeId,
+              customGradient: updatedData.customGradient !== undefined ? updatedData.customGradient : c.customGradient
             }
           : c
       );
@@ -591,16 +618,15 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 status: updatedData.status || cl.status,
                 totalQuotedValue: updatedData.totalQuotedValue ?? cl.totalQuotedValue,
                 contactPerson: updatedData.contactPerson || cl.contactPerson,
-                email: updatedData.email || cl.email
+                email: updatedData.email || cl.email,
+                themeId: updatedData.themeId || cl.themeId,
+                customGradient: updatedData.customGradient !== undefined ? updatedData.customGradient : cl.customGradient
               }
             : cl
         )
       );
       showToast('Client record updated in database.');
     } else if (itemType === 'project' && onUpdateProject) {
-      if (updatedData.themeId || updatedData.customGradient) {
-        handleUpdateTileTheme(id, updatedData.themeId, updatedData.customGradient);
-      }
       onUpdateProject(id, updatedData);
     } else if (itemType === 'material' && onUpdateMaterial) {
       onUpdateMaterial(id, updatedData);
@@ -619,7 +645,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             ? {
                 ...t,
                 title: updatedData.title || t.title,
-                brief: updatedData.brief || t.brief
+                brief: updatedData.brief || t.brief,
+                themeId: updatedData.themeId || t.themeId,
+                customGradient: updatedData.customGradient !== undefined ? updatedData.customGradient : t.customGradient
               }
             : t
         )

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Palette, ArrowRight, Sparkles, Check, ChevronRight, ListFilter, Table, Pencil, Trash2, Copy, Bookmark, Building2, Package, HardHat, Truck, ShieldCheck, Wrench, TrendingUp, Calendar, Users, Upload } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Palette, ArrowRight, Sparkles, Check, ChevronRight, ListFilter, Table, Pencil, Trash2, Copy, Bookmark, Building2, Package, HardHat, Truck, ShieldCheck, Wrench, TrendingUp, Calendar, Users, Upload, X } from 'lucide-react';
 import { TileTheme, getThemeById } from '../data/tileThemes';
 import { ColorGradientPicker } from './ColorGradientPicker';
 
@@ -57,28 +58,71 @@ export const ModernTileCard: React.FC<ModernTileCardProps> = ({
   extraMeta
 }) => {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const paletteRef = useRef<HTMLDivElement>(null);
+  const paletteButtonRef = useRef<HTMLButtonElement>(null);
+  const paletteDropdownRef = useRef<HTMLDivElement>(null);
+  const [popoverCoords, setPopoverCoords] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
   const theme = getThemeById(themeId);
 
-  // Close palette on click outside or Escape key
+  const calculatePosition = () => {
+    if (!paletteButtonRef.current) return;
+    const rect = paletteButtonRef.current.getBoundingClientRect();
+    const popoverHeight = 310;
+    const popoverWidth = Math.min(295, window.innerWidth - 20);
+
+    // Prefer placing at the top (above the card button)
+    const spaceAbove = rect.top;
+    const placeAbove = spaceAbove >= popoverHeight + 10;
+
+    let top = placeAbove
+      ? rect.top - popoverHeight - 8
+      : rect.bottom + 8;
+
+    // Ensure it never goes off-screen vertically
+    if (top < 10) top = 10;
+    if (top + popoverHeight > window.innerHeight - 10) {
+      top = Math.max(10, window.innerHeight - popoverHeight - 10);
+    }
+
+    // Align to the right of the button, clamped to viewport bounds
+    let left = rect.right - popoverWidth;
+    if (left < 10) left = 10;
+    if (left + popoverWidth > window.innerWidth - 10) {
+      left = window.innerWidth - popoverWidth - 10;
+    }
+
+    setPopoverCoords({ top, left, placeAbove });
+  };
+
+  const handleTogglePalette = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    if ('preventDefault' in e) e.preventDefault();
+    calculatePosition();
+    setIsPaletteOpen((prev) => !prev);
+  };
+
+  // Close palette on Escape key or update position on resize/scroll
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (paletteRef.current && !paletteRef.current.contains(e.target as Node)) {
-        setIsPaletteOpen(false);
-      }
-    };
+    if (!isPaletteOpen) return;
+    calculatePosition();
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsPaletteOpen(false);
       }
     };
-    if (isPaletteOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
-    }
+
+    const handleResizeOrScroll = () => {
+      calculatePosition();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleResizeOrScroll);
+    window.addEventListener('scroll', handleResizeOrScroll, true);
+
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResizeOrScroll);
+      window.removeEventListener('scroll', handleResizeOrScroll, true);
     };
   }, [isPaletteOpen]);
 
@@ -194,33 +238,100 @@ export const ModernTileCard: React.FC<ModernTileCardProps> = ({
 
           {/* Quick Color/Gradient Theme Palette */}
           {onChangeTheme && (
-            <div className="relative" ref={paletteRef}>
+            <div className="relative">
               <button
+                ref={paletteButtonRef}
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsPaletteOpen(!isPaletteOpen);
-                }}
-                className="w-6 h-6 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-xs text-white flex items-center justify-center transition-colors shadow-2xs"
+                onClick={handleTogglePalette}
+                onTouchEnd={handleTogglePalette}
+                className={`w-6 h-6 rounded-full backdrop-blur-xs text-white flex items-center justify-center transition-all shadow-2xs cursor-pointer touch-manipulation active:scale-95 ${
+                  isPaletteOpen ? 'bg-white text-slate-900 ring-2 ring-white/60' : 'bg-white/20 hover:bg-white/40'
+                }`}
                 title="Change Card Color & Gradient Combination"
+                aria-label="Change Card Color & Gradient Combination"
               >
                 <Palette className="w-3 h-3" />
               </button>
 
-              {isPaletteOpen && (
-                <div
-                  className="absolute right-0 top-7 z-50 animate-in fade-in zoom-in-95 duration-150"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ColorGradientPicker
-                    compact
-                    selectedThemeId={themeId}
-                    onSelectTheme={(newTheme, newCustom) => {
-                      onChangeTheme(newTheme, newCustom);
+              {isPaletteOpen && popoverCoords && typeof document !== 'undefined' && createPortal(
+                <>
+                  {/* Fullscreen Backdrop: cleanly absorbs touch and click events to dismiss without clicking cards */}
+                  <div
+                    className="fixed inset-0 z-[9990] bg-black/30 backdrop-blur-[1px]"
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setIsPaletteOpen(false);
                     }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setIsPaletteOpen(false);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                    }}
                   />
-                </div>
+
+                  {/* Dedicated Portal Popover: on top of all cards, never clipped, fully touchable */}
+                  <div
+                    ref={paletteDropdownRef}
+                    style={{
+                      position: 'fixed',
+                      top: `${popoverCoords.top}px`,
+                      left: `${popoverCoords.left}px`,
+                      width: `${Math.min(295, window.innerWidth - 20)}px`,
+                      zIndex: 9995
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    {/* Explicit Top Header Bar with Close X Button */}
+                    <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-[#003049] text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Palette className="w-3 h-3 text-white" />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+                          {title ? `${title}` : 'Card Theme'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsPaletteOpen(false);
+                        }}
+                        onTouchEnd={(e) => {
+                          e.stopPropagation();
+                          setIsPaletteOpen(false);
+                        }}
+                        className="w-7 h-7 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer touch-manipulation active:scale-95"
+                        title="Close theme menu"
+                        aria-label="Close"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-2.5">
+                      <ColorGradientPicker
+                        compact
+                        selectedThemeId={themeId}
+                        onSelectTheme={(newTheme, newCustom) => {
+                          onChangeTheme(newTheme, newCustom);
+                          setIsPaletteOpen(false);
+                        }}
+                      />
+                    </div>
+                  </div>
+                </>,
+                document.body
               )}
             </div>
           )}

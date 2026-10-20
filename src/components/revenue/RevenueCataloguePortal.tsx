@@ -111,25 +111,12 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   return (
     <div className="space-y-4">
       {/* 1. Header Banner */}
-      <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
+      <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center space-x-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-[#003049] text-white flex items-center justify-center shadow-md">
-              <Package className="w-6 h-6 text-sky-300" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  Revenue Catalogue & Commercial Services
-                </h1>
-                <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  Enterprise Commercial
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Centralized registry of company products and services • Selectable as BOQ line items with historical commercial rate tracking
-              </p>
-            </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              Revenue
+            </h1>
           </div>
 
           <div className="flex items-center space-x-2.5">
@@ -142,47 +129,43 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               className="px-4 py-2 text-xs font-bold rounded-xl bg-[#003049] hover:bg-[#002235] text-white flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>New Revenue Item</span>
+              <span>New Item</span>
             </button>
           </div>
         </div>
 
         {/* 2. Top Summary Metrics Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-              <Package className="w-3.5 h-3.5 text-blue-600" />
-              <span>Manufactured Products</span>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              Products
             </div>
             <div className="text-lg font-extrabold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
-              {totalProducts} <span className="text-xs font-sans text-slate-400 font-normal">items</span>
+              {totalProducts}
             </div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-              <Wrench className="w-3.5 h-3.5 text-purple-600" />
-              <span>Direct Services</span>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              Services
             </div>
             <div className="text-lg font-extrabold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
-              {totalServices} <span className="text-xs font-sans text-slate-400 font-normal">services</span>
+              {totalServices}
             </div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-              <Layers className="w-3.5 h-3.5 text-amber-600" />
-              <span>Linked BOQ Plans</span>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              Plans
             </div>
             <div className="text-lg font-extrabold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
-              {totalLinkedPlans} <span className="text-xs font-sans text-slate-400 font-normal">allocations</span>
+              {totalLinkedPlans}
             </div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center space-x-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Quoted Commercial Revenue</span>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              Total Revenue
             </div>
             <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
               {formatCurrency(totalQuotedRevenue, activeCurrency)}
@@ -192,7 +175,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
       </div>
 
       {/* 3. Filter Bar & Type Pills */}
-      <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 shadow-2xs space-y-3">
+      <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Classification Filter Tabs */}
           <div className="flex items-center space-x-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
@@ -205,31 +188,29 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              All Items ({totalCount})
+              All ({totalCount})
             </button>
             <button
               type="button"
               onClick={() => setTypeFilter('product')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 typeFilter === 'product'
                   ? 'bg-white dark:bg-[#003049] text-blue-700 dark:text-sky-300 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              <Package className="w-3.5 h-3.5" />
-              <span>Products Sold</span>
+              Products
             </button>
             <button
               type="button"
               onClick={() => setTypeFilter('service')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 typeFilter === 'service'
                   ? 'bg-white dark:bg-[#003049] text-purple-700 dark:text-purple-300 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>Services Provided</span>
+              Services
             </button>
           </div>
 
@@ -288,15 +269,15 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
             <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
               <tr>
-                <th className="py-2.5 px-3 font-semibold">Classification</th>
-                <th className="py-2.5 px-3 font-semibold">Code / Barcode</th>
-                <th className="py-2.5 px-3 font-semibold">Item Name & Category</th>
+                <th className="py-2.5 px-3 font-semibold">Type</th>
+                <th className="py-2.5 px-3 font-semibold">Code</th>
+                <th className="py-2.5 px-3 font-semibold">Item</th>
                 <th className="py-2.5 px-3 font-semibold">Unit</th>
-                <th className="py-2.5 px-3 font-semibold text-right">Default Selling Rate</th>
-                <th className="py-2.5 px-3 font-semibold text-right">Cost Ref</th>
+                <th className="py-2.5 px-3 font-semibold text-right">Rate</th>
+                <th className="py-2.5 px-3 font-semibold text-right">Cost</th>
                 <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                <th className="py-2.5 px-3 font-semibold text-center">Linked Plans</th>
-                <th className="py-2.5 px-3 font-semibold text-right">Quoted Total</th>
+                <th className="py-2.5 px-3 font-semibold text-center">Plans</th>
+                <th className="py-2.5 px-3 font-semibold text-right">Total</th>
                 <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
               </tr>
             </thead>
@@ -304,13 +285,13 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               {loading ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-400">
-                    Loading revenue catalogue...
+                    Loading...
                   </td>
                 </tr>
               ) : displayedItems.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-400">
-                    No revenue items found matching your filters.
+                    No items found.
                   </td>
                 </tr>
               ) : (
@@ -457,7 +438,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
         {/* Pagination controls */}
         <div className="p-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
           <div>
-            Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} catalogue records
+            <span>{totalCount} records</span>
           </div>
           <div className="flex items-center space-x-2">
             <button

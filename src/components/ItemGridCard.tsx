@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowRight,
   FileText,
@@ -65,11 +66,13 @@ export const ItemGridCard: React.FC<ItemGridCardProps> = ({
   onShowNotification
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuCoords, setMenuCoords] = useState<{ top: number; left: number } | null>(null);
   const [isGoogleSearchOpen, setIsGoogleSearchOpen] = useState(false);
   const [isDragOverCard, setIsDragOverCard] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState<string>(getItemImageUrl(item));
   const menuRef = useRef<HTMLDivElement>(null);
+  const infoButtonRef = useRef<HTMLButtonElement>(null);
   const cardFileInputRef = useRef<HTMLInputElement>(null);
 
   const itemCode = item.code || item.id || 'ITEM';
@@ -101,18 +104,55 @@ export const ItemGridCard: React.FC<ItemGridCardProps> = ({
     return () => window.removeEventListener('fxtt-image-updated', handleImageUpdated);
   }, [item]);
 
-  // Close command menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsMenuOpen(false);
-      }
-    };
-    if (isMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+  const calculateMenuPosition = () => {
+    if (!infoButtonRef.current) return;
+    const rect = infoButtonRef.current.getBoundingClientRect();
+    const menuHeight = 360;
+    const menuWidth = Math.min(270, window.innerWidth - 20);
+
+    const spaceAbove = rect.top;
+    const placeAbove = spaceAbove >= menuHeight + 10;
+
+    let top = placeAbove ? rect.top - menuHeight - 8 : rect.bottom + 8;
+    if (top < 10) top = 10;
+    if (top + menuHeight > window.innerHeight - 10) {
+      top = Math.max(10, window.innerHeight - menuHeight - 10);
     }
+
+    let left = rect.right - menuWidth;
+    if (left < 10) left = 10;
+    if (left + menuWidth > window.innerWidth - 10) {
+      left = window.innerWidth - menuWidth - 10;
+    }
+
+    setMenuCoords({ top, left });
+  };
+
+  const handleToggleMenu = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    if ('preventDefault' in e) e.preventDefault();
+    calculateMenuPosition();
+    setIsMenuOpen((prev) => !prev);
+  };
+
+  // Close command menu on Escape or resize
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    calculateMenuPosition();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMenuOpen(false);
+    };
+    const handleResize = () => calculateMenuPosition();
+
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleResize, true);
+
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleResize, true);
     };
   }, [isMenuOpen]);
 
@@ -340,154 +380,184 @@ export const ItemGridCard: React.FC<ItemGridCardProps> = ({
             {/* Info Circle Icon with Command Popover Menu */}
             <div className="relative">
               <button
+                ref={infoButtonRef}
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsMenuOpen(!isMenuOpen);
-                }}
-                className="w-7 h-7 rounded-full border border-white/80 bg-black/45 backdrop-blur-md flex items-center justify-center text-white hover:bg-white hover:text-slate-900 transition-all shadow-sm cursor-pointer active:scale-95"
+                onClick={handleToggleMenu}
+                onTouchEnd={handleToggleMenu}
+                className="w-7 h-7 rounded-full border border-white/80 bg-black/45 backdrop-blur-md flex items-center justify-center text-white hover:bg-white hover:text-slate-900 transition-all shadow-sm cursor-pointer active:scale-95 touch-manipulation"
                 title="Item Commands: Search Google, Details, Barcode, Audit Log, Edit, Delete"
                 aria-label="Info Menu"
               >
                 <span className="font-serif font-bold text-xs leading-none italic">i</span>
               </button>
 
-              {/* Info Popover Commands Menu */}
-              {isMenuOpen && (
-                <div className="absolute right-0 top-9 w-64 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-3.5 py-1.5 border-b border-slate-100 text-[11px] text-slate-400 font-semibold tracking-wide flex items-center justify-between">
-                    <span>ACTIONS FOR {itemCode}</span>
-                    <span className="text-[10px] text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded font-mono truncate max-w-[100px]">
-                      {item.category || 'Catalog'}
-                    </span>
-                  </div>
-
-                  {/* Command: Google & Google Lens Search */}
-                  <button
-                    type="button"
+              {/* Info Popover Commands Menu via Portal */}
+              {isMenuOpen && menuCoords && typeof document !== 'undefined' && createPortal(
+                <>
+                  <div
+                    className="fixed inset-0 z-[9990] bg-black/25 backdrop-blur-[0.5px]"
                     onClick={(e) => {
                       e.stopPropagation();
                       setIsMenuOpen(false);
-                      setIsGoogleSearchOpen(true);
                     }}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-blue-50 hover:text-[#0078d4] flex items-center space-x-2.5 transition-colors cursor-pointer"
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setIsMenuOpen(false);
+                    }}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  />
+                  <div
+                    ref={menuRef}
+                    style={{
+                      position: 'fixed',
+                      top: `${menuCoords.top}px`,
+                      left: `${menuCoords.left}px`,
+                      width: `${Math.min(270, window.innerWidth - 20)}px`,
+                      zIndex: 9995
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] overflow-y-auto"
                   >
-                    <Search className="w-4 h-4 text-[#0078d4] shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800 flex items-center justify-between">
-                        <span>Search Google &amp; Lens</span>
-                        <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                          Live Lens
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">Preview search results &amp; market specs</div>
+                    <div className="px-3.5 py-1.5 border-b border-slate-100 text-[11px] text-slate-400 font-semibold tracking-wide flex items-center justify-between">
+                      <span>ACTIONS FOR {itemCode}</span>
+                      <span className="text-[10px] text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded font-mono truncate max-w-[100px]">
+                        {item.category || 'Catalog'}
+                      </span>
                     </div>
-                  </button>
 
-                  <div className="my-1 border-t border-slate-100" />
-
-                  {/* Command: Product Details */}
-                  <button
-                    type="button"
-                    onClick={handleProductDetails}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-[#0077b6] flex items-center space-x-2.5 transition-colors cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4 text-sky-600 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800">Product Details</div>
-                      <div className="text-[10px] text-slate-400">View specifications & technical parameters</div>
-                    </div>
-                  </button>
-
-                  {/* Command: Price Audit Details */}
-                  <button
-                    type="button"
-                    onClick={handlePriceAuditDetails}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-[#0077b6] flex items-center space-x-2.5 transition-colors cursor-pointer"
-                  >
-                    <History className="w-4 h-4 text-purple-600 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800">Price Audit Details</div>
-                      <div className="text-[10px] text-slate-400">View rate breakdown & revision history</div>
-                    </div>
-                  </button>
-
-                  {/* Command: Price Changes Audit Log (FXTT Grid View - Full Screen) */}
-                  <button
-                    type="button"
-                    onClick={handleFullScreenAuditLog}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-amber-50 hover:text-amber-900 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                  >
-                    <Maximize2 className="w-4 h-4 text-amber-600 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-800">FXTT Audit Grid (Full Screen)</div>
-                      <div className="text-[10px] text-amber-600 font-medium">Price changes audit log FXTT grid</div>
-                    </div>
-                  </button>
-
-                  <div className="my-1 border-t border-slate-100" />
-
-                  {/* Command: Download Image */}
-                  <button
-                    type="button"
-                    onClick={handleDownloadImage}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                  >
-                    <Download className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="font-medium">Download Image</span>
-                  </button>
-
-                  {/* Command: Download Barcode */}
-                  <button
-                    type="button"
-                    onClick={handleDownloadBarcode}
-                    className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                  >
-                    <QrCode className="w-4 h-4 text-slate-700 shrink-0" />
-                    <span className="font-medium">Download Barcode</span>
-                  </button>
-
-                  {onOpenImageViewer && (
+                    {/* Command: Google & Google Lens Search */}
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setIsMenuOpen(false);
-                        onOpenImageViewer(item);
+                        setIsGoogleSearchOpen(true);
                       }}
-                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-blue-50 hover:text-[#0078d4] flex items-center space-x-2.5 transition-colors cursor-pointer"
                     >
-                      <ExternalLink className="w-4 h-4 text-slate-600 shrink-0" />
-                      <span className="font-medium">Zoom Full Image</span>
+                      <Search className="w-4 h-4 text-[#0078d4] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800 flex items-center justify-between">
+                          <span>Search Google &amp; Lens</span>
+                          <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            Live Lens
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Preview search results &amp; market specs</div>
+                      </div>
                     </button>
-                  )}
 
-                  <div className="my-1 border-t border-slate-100" />
+                    <div className="my-1 border-t border-slate-100" />
 
-                  {/* Command: Edit */}
-                  {onEdit && (
+                    {/* Command: Product Details */}
                     <button
                       type="button"
-                      onClick={handleEditClick}
-                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-amber-50 hover:text-amber-800 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      onClick={handleProductDetails}
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-[#0077b6] flex items-center space-x-2.5 transition-colors cursor-pointer"
                     >
-                      <Edit2 className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span className="font-medium">Edit Item</span>
+                      <FileText className="w-4 h-4 text-sky-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800">Product Details</div>
+                        <div className="text-[10px] text-slate-400">View specifications &amp; technical parameters</div>
+                      </div>
                     </button>
-                  )}
 
-                  {/* Command: Delete */}
-                  {onDelete && (
+                    {/* Command: Price Audit Details */}
                     <button
                       type="button"
-                      onClick={handleDeleteClick}
-                      className="w-full text-left px-3.5 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      onClick={handlePriceAuditDetails}
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-[#0077b6] flex items-center space-x-2.5 transition-colors cursor-pointer"
                     >
-                      <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
-                      <span className="font-medium">Delete Item</span>
+                      <History className="w-4 h-4 text-purple-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800">Price Audit Details</div>
+                        <div className="text-[10px] text-slate-400">View rate breakdown &amp; revision history</div>
+                      </div>
                     </button>
-                  )}
-                </div>
+
+                    {/* Command: Price Changes Audit Log (FXTT Grid View - Full Screen) */}
+                    <button
+                      type="button"
+                      onClick={handleFullScreenAuditLog}
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-amber-50 hover:text-amber-900 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                    >
+                      <Maximize2 className="w-4 h-4 text-amber-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800">FXTT Audit Grid (Full Screen)</div>
+                        <div className="text-[10px] text-amber-600 font-medium">Price changes audit log FXTT grid</div>
+                      </div>
+                    </button>
+
+                    <div className="my-1 border-t border-slate-100" />
+
+                    {/* Command: Download Image */}
+                    <button
+                      type="button"
+                      onClick={handleDownloadImage}
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                    >
+                      <Download className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-medium">Download Image</span>
+                    </button>
+
+                    {/* Command: Download Barcode */}
+                    <button
+                      type="button"
+                      onClick={handleDownloadBarcode}
+                      className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-slate-900 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4 text-slate-700 shrink-0" />
+                      <span className="font-medium">Download Barcode</span>
+                    </button>
+
+                    {onOpenImageViewer && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsMenuOpen(false);
+                          onOpenImageViewer(item);
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4 text-slate-600 shrink-0" />
+                        <span className="font-medium">Zoom Full Image</span>
+                      </button>
+                    )}
+
+                    <div className="my-1 border-t border-slate-100" />
+
+                    {/* Command: Edit */}
+                    {onEdit && (
+                      <button
+                        type="button"
+                        onClick={handleEditClick}
+                        className="w-full text-left px-3.5 py-2 text-xs text-slate-700 hover:bg-amber-50 hover:text-amber-800 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      >
+                        <Edit2 className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="font-medium">Edit Item</span>
+                      </button>
+                    )}
+
+                    {/* Command: Delete */}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteClick}
+                        className="w-full text-left px-3.5 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
+                        <span className="font-medium">Delete Item</span>
+                      </button>
+                    )}
+                  </div>
+                </>,
+                document.body
               )}
             </div>
           </div>

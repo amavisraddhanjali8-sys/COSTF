@@ -387,73 +387,68 @@ export const CostAnalysisView: React.FC<CostAnalysisViewProps> = ({
         </div>
       )}
 
-      {/* Main Tabs Navigation Bar - Simple Words like Home Tab */}
+      {/* Main Tabs Navigation Bar - Simple Words, No Icons */}
       <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 p-1.5 flex flex-wrap items-center justify-start gap-1.5 shadow-2xs">
         <button
           type="button"
           onClick={() => setActiveTab('margins')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'margins'
               ? 'bg-[#0078d4] text-white shadow-xs'
               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <TrendingUp className="w-4 h-4" />
           <span>Margins</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('trend')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'trend'
               ? 'bg-[#0078d4] text-white shadow-xs'
               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <TrendingUp className="w-4 h-4 text-emerald-500" />
-          <span>Margin Trend</span>
+          <span>Trend</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'dashboard'
               ? 'bg-[#0078d4] text-white shadow-xs'
               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <LayoutDashboard className="w-4 h-4" />
           <span>Dashboard</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('cost-controls')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeTab === 'cost-controls'
               ? 'bg-[#0078d4] text-white shadow-xs'
               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <SlidersHorizontal className="w-4 h-4" />
-          <span>Cost Controls</span>
+          <span>Controls</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('variance-heatmap')}
-          className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer relative ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer relative ${
             activeTab === 'variance-heatmap'
               ? 'bg-[#0078d4] text-white shadow-xs'
               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          <Flame className={`w-4 h-4 ${warnings?.hasOverruns ? 'text-red-500' : 'text-amber-500'}`} />
           <span>Variance</span>
           {warnings && warnings.criticalItemCount > 0 && (
-            <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+            <span className="ml-1.5 bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold">
               {warnings.criticalItemCount}
             </span>
           )}

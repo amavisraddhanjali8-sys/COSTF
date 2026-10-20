@@ -87,19 +87,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3.5">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md">
-              <Layers className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">Overhead Cost Management Portal</h1>
-                <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                  Indirect Cost Controls
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Centralized registry of company overheads • Multi-method allocation engine for project plans
-              </p>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">Overheads</h1>
             </div>
           </div>
 
@@ -125,7 +117,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Audit Log ({auditLogs.length})
+                Audit ({auditLogs.length})
               </button>
             </div>
           </div>

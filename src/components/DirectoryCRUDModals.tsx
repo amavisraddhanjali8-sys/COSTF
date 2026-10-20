@@ -438,6 +438,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   const [price, setPrice] = useState<number>(15000);
   const [costPrice, setCostPrice] = useState<number>(11000);
   const [stock, setStock] = useState<number>(25);
+  const [themeId, setThemeId] = useState('pacific-sky');
+  const [customGradient, setCustomGradient] = useState<string | undefined>();
 
   // Supplier Specific Form States
   const [supplierScope, setSupplierScope] = useState<'materials' | 'final_product' | 'full_contract' | 'hybrid'>('materials');
@@ -588,7 +590,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         currency,
         status: 'Active',
         contractHistory: [],
-        notes: supplierNotes || `Registered vendor for ${category || 'industrial supplies'} in ${currency}.`
+        notes: supplierNotes || `Registered vendor for ${category || 'industrial supplies'} in ${currency}.`,
+        themeId,
+        customGradient
       });
       generateNextNumber('suppliers', true);
     } else if (selectedType === 'subcontractor') {
@@ -616,7 +620,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
           { minVolume: 51, maxVolume: 200, unitRate: Math.round(baseNum * 0.9), discountPct: 10 },
           { minVolume: 201, unitRate: Math.round(baseNum * 0.82), discountPct: 18 }
         ],
-        fullContractEstimate: baseNum * (subcontractorWeeklyCapacity || 160)
+        fullContractEstimate: baseNum * (subcontractorWeeklyCapacity || 160),
+        themeId,
+        customGradient
       });
       generateNextNumber('subcontractors', true);
     } else if (selectedType === 'material') {
@@ -641,7 +647,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         supplierName: supplierName || (suppliers[0]?.name ?? 'Approved Supplier'),
         supplierId: suppliers.find((s) => s.name === supplierName)?.id || undefined,
         status: materialStatus || 'Available',
-        leadTimeDays: 7
+        leadTimeDays: 7,
+        themeId,
+        customGradient
       });
       generateNextNumber('materials', true);
     } else if (selectedType === 'produce') {
@@ -655,7 +663,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         costPrice: Number(costPrice),
         retailPrice: Number(price),
         leadTimeDays: 14,
-        status: 'Active'
+        status: 'Active',
+        themeId,
+        customGradient
       });
       generateNextNumber('produce', true);
     } else if (selectedType === 'outsourced') {
@@ -668,7 +678,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         currency,
         rate: Number(costPrice || price * 0.8),
         retailPrice: Number(price),
-        slaLevel: slaLevel || 'Standard Guaranteed'
+        slaLevel: slaLevel || 'Standard Guaranteed',
+        themeId,
+        customGradient
       });
       generateNextNumber('outsourced', true);
     } else if (selectedType === 'project') {
@@ -680,7 +692,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         quotedPrice: Number(price),
         currency,
         targetMarginPct: 28,
-        status: 'Proposal'
+        status: 'Proposal',
+        themeId,
+        customGradient
       });
       generateNextNumber('projects', true);
     } else if (selectedType === 'client') {
@@ -692,7 +706,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         status: 'Active Partner',
         totalQuotedValue: Number(price),
         contactPerson: 'Lead Commercial Buyer',
-        email: `procurement@${name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'client'}.lk`
+        email: `procurement@${name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'client'}.lk`,
+        themeId,
+        customGradient
       });
     }
 
@@ -1432,6 +1448,21 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
             </div>
           )}
 
+          {/* Card Color & Gradient Theme Selector for New Item */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <label className="block text-xs font-medium text-slate-700 mb-2">
+              Card Color &amp; Gradient Theme
+            </label>
+            <ColorGradientPicker
+              compact
+              selectedThemeId={themeId}
+              onSelectTheme={(newTheme, newCustom) => {
+                setThemeId(newTheme);
+                setCustomGradient(newCustom);
+              }}
+            />
+          </div>
+
           <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -1645,19 +1676,6 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
                   />
                 </div>
-              </div>
-
-              {/* Tile Color / Gradient Selector in Edit Modal */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                <label className="block text-xs font-normal text-slate-700 mb-2">Tile Color &amp; Gradient Theme</label>
-                <ColorGradientPicker
-                  compact
-                  selectedThemeId={formData.themeId || 'pacific-sky'}
-                  onSelectTheme={(newTheme, newCustom) => {
-                    handleChange('themeId', newTheme);
-                    handleChange('customGradient', newCustom);
-                  }}
-                />
               </div>
 
               {/* Scope Notes */}
@@ -1929,6 +1947,21 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               </div>
             </>
           )}
+
+          {/* Universal Card Color & Gradient Theme Selector (All Cards, Categories, Subcategories, Items & Records) */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <label className="block text-xs font-medium text-slate-700 mb-2">
+              Card Color &amp; Gradient Theme
+            </label>
+            <ColorGradientPicker
+              compact
+              selectedThemeId={formData.themeId || 'pacific-sky'}
+              onSelectTheme={(newTheme, newCustom) => {
+                handleChange('themeId', newTheme);
+                handleChange('customGradient', newCustom);
+              }}
+            />
+          </div>
 
           <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
             <button

@@ -101,7 +101,7 @@ export const RevenueItemRateHistoryModal: React.FC<RevenueItemRateHistoryModalPr
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Commercial Rate History
+                  Rate History
                 </h2>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800">
                   {revenueItem.code}
@@ -111,7 +111,7 @@ export const RevenueItemRateHistoryModal: React.FC<RevenueItemRateHistoryModalPr
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {revenueItem.name} • Default Global Rate: <span className="font-bold font-mono text-slate-800 dark:text-slate-200">{formatCurrency(revenueItem.defaultRate, revenueItem.currency || activeCurrency)}</span> / {revenueItem.unit}
+                {revenueItem.name}
               </p>
             </div>
           </div>

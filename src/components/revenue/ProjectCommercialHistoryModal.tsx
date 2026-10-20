@@ -98,14 +98,14 @@ export const ProjectCommercialHistoryModal: React.FC<ProjectCommercialHistoryMod
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Project Commercial Terms Audit Trail
+                  Commercial History
                 </h2>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800">
                   {projectCode || 'PROJECT'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {projectName || 'Project'} • Complete chronological log of all BOQ commercial rate, quantity, and unit changes
+                {projectName || 'Project'}
               </p>
             </div>
           </div>

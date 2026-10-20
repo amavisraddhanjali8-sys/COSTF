@@ -137,11 +137,8 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                {isEditing ? 'Edit Enterprise Tariff Master' : 'Create New Enterprise Tariff'}
+                {isEditing ? 'Edit Tariff' : 'New Tariff'}
               </h2>
-              <p className="text-[11px] text-slate-500">
-                {isEditing ? 'Modify tariff metadata, categorization, or status' : 'Define new statutory, treatment, or trade tariff schedule'}
-              </p>
             </div>
           </div>
           <button

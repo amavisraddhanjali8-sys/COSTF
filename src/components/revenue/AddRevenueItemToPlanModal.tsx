@@ -196,11 +196,8 @@ export const AddRevenueItemToPlanModal: React.FC<AddRevenueItemToPlanModalProps>
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Add Revenue Catalogue Item to Plan BOQ
+                Add BOQ Item
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Select a company product/service and set project-specific commercial terms
-              </p>
             </div>
           </div>
 

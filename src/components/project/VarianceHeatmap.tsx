@@ -152,24 +152,21 @@ export const VarianceHeatmap: React.FC<VarianceHeatmapProps> = ({
             <div className="flex items-center space-x-2">
               <Flame className="w-5 h-5 text-red-500" />
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide">
-                Project Variance Heatmap & Consumption Burn-Rate Radar
+                Variance Heatmap
               </h3>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Live color-coded visual health matrix evaluating budget ceilings vs. actual consumption trajectories.
-            </p>
           </div>
 
           <div className="flex items-center space-x-2 text-xs">
             {warningRollup.hasOverruns ? (
-              <span className="flex items-center space-x-1.5 px-3 py-1 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 rounded-lg font-bold">
+              <span className="flex items-center space-x-1.5 px-2.5 py-1 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 rounded-lg font-bold">
                 <AlertTriangle className="w-3.5 h-3.5 text-red-600 animate-pulse" />
-                <span>{warningRollup.criticalItemCount} Budget Items Project Overrun</span>
+                <span>{warningRollup.criticalItemCount} Overruns</span>
               </span>
             ) : (
-              <span className="flex items-center space-x-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-lg font-bold">
+              <span className="flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-lg font-bold">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>All Phases Operating Within Established Budget</span>
+                <span>Within Budget</span>
               </span>
             )}
           </div>
@@ -179,22 +176,20 @@ export const VarianceHeatmap: React.FC<VarianceHeatmapProps> = ({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-              Established Phase Budget
+              Budget
             </span>
             <span className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5 block">
               {formatCurrency(warningRollup.totalEstablishedBudget, curr, { compact: false })}
             </span>
-            <span className="text-[10px] text-slate-400 mt-1 block">Contractual Ceiling</span>
           </div>
 
           <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-              Actual Consumed to Date
+              Actual
             </span>
             <span className="text-lg font-bold text-[#0078d4] dark:text-sky-300 font-mono mt-0.5 block">
               {formatCurrency(warningRollup.totalActualCost, curr, { compact: false })}
             </span>
-            <span className="text-[10px] text-slate-400 mt-1 block">Committed Procurement</span>
           </div>
 
           <div className={`p-3 rounded-xl border transition-colors ${
@@ -203,15 +198,12 @@ export const VarianceHeatmap: React.FC<VarianceHeatmapProps> = ({
               : 'bg-slate-50 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800'
           }`}>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
-              Projected Final Cost (Run-Rate)
+              Projected
             </span>
             <span className={`text-lg font-bold font-mono mt-0.5 block ${
               warningRollup.hasOverruns ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'
             }`}>
               {formatCurrency(warningRollup.totalProjectedCost, curr, { compact: false })}
-            </span>
-            <span className={`text-[10px] mt-1 font-semibold block ${warningRollup.hasOverruns ? 'text-red-600' : 'text-slate-400'}`}>
-              {warningRollup.hasOverruns ? '⚠️ Exceeds Budget Ceilings' : 'Within Safety Margin'}
             </span>
           </div>
 
@@ -221,15 +213,12 @@ export const VarianceHeatmap: React.FC<VarianceHeatmapProps> = ({
               : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
           }`}>
             <span className="text-[10px] font-bold uppercase tracking-wider block text-slate-500">
-              Net Projected Variance
+              Net Variance
             </span>
             <span className={`text-lg font-bold font-mono mt-0.5 block ${
               warningRollup.totalVariance < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-300'
             }`}>
               {warningRollup.totalVariance >= 0 ? '+' : ''}{formatCurrency(warningRollup.totalVariance, curr, { compact: false })}
-            </span>
-            <span className="text-[10px] font-mono mt-1 block text-slate-500">
-              {warningRollup.totalVariancePct.toFixed(1)}% of Established Budget
             </span>
           </div>
         </div>

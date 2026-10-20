@@ -366,47 +366,47 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   const getActiveTabTitle = () => {
     switch (activeTab) {
       case 'home':
-        return 'Home Command Hub';
+        return 'Home';
       case 'directory-hub':
-        return 'Directory Hub';
+        return 'Directory';
       case 'item-grid':
-        return 'Master Data Grid';
+        return 'Grid';
       case 'projects':
-        return 'Projects Portfolio';
+        return 'Projects';
       case 'cost-analysis':
-        return 'Cost Analysis & Profitability';
+        return 'Margins';
       case 'project-home':
-        return 'Project Workspace';
+        return 'Project';
       case 'inventory':
-        return 'Inventory & Procurement';
+        return 'Inventory';
       case 'materials':
-        return 'Materials & Parts Catalog';
+        return 'Materials';
       case 'produce':
-        return 'Products & Assemblies (BOM)';
+        return 'Products';
       case 'subcontractors':
-        return 'Subcontractor Labor Rates';
+        return 'Subcontractors';
       case 'outsourced':
-        return 'Outsourced Finishing & Tariffs';
+        return 'Outsourced';
       case 'suppliers':
-        return 'Suppliers & Vendors Directory';
+        return 'Suppliers';
       case 'project-timelines':
-        return 'Project Timelines & Gantt';
+        return 'Timelines';
       case 'resource-allocation':
-        return 'Resource Allocation';
+        return 'Resources';
       case 'audit-log':
-        return 'Enterprise Audit Trail';
+        return 'Audit';
       case 'overhead-portal':
-        return 'Overhead Cost Portal';
+        return 'Overheads';
       case 'revenue-portal':
-        return 'Revenue & Commercial Catalogue';
+        return 'Revenue';
       case 'tariffs-portal':
-        return 'Enterprise Tariff Management';
+        return 'Tariffs';
       case 'price-history-portal':
-        return 'Procurement Price History';
+        return 'Pricing';
       case 'settings':
-        return 'System Settings';
+        return 'Settings';
       default:
-        return 'System Portal';
+        return 'Portal';
     }
   };
 
@@ -990,7 +990,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-directory-hub"
             onClick={() => onSelectTab('directory-hub')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'directory-hub'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
@@ -1004,14 +1004,13 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-item-grid"
             onClick={() => onSelectTab('item-grid')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'item-grid'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Master Grid</span>
+            <span>Grid</span>
           </button>
 
           {/* Projects Portfolio */}
@@ -1019,13 +1018,12 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-projects"
             onClick={() => onSelectTab('projects')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'projects' || activeTab === 'project-home'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <FolderGit2 className="w-3.5 h-3.5" />
             <span>Projects</span>
           </button>
 
@@ -1039,13 +1037,12 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 onOpenProjectPicker('margins');
               }
             }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'cost-analysis'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
             <span>Margins</span>
           </button>
 
@@ -1059,13 +1056,12 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 onOpenProjectPicker('timelines');
               }
             }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'project-timelines'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5 text-sky-400" />
             <span>Timelines</span>
           </button>
 
@@ -1079,90 +1075,82 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 onOpenProjectPicker('resources');
               }
             }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'resource-allocation'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <Users className="w-3.5 h-3.5 text-purple-400" />
             <span>Resources</span>
           </button>
 
-          {/* Inventory & Stock Movements */}
+          {/* Inventory */}
           <button
             type="button"
             id="nav-tab-inventory"
             onClick={() => onSelectTab('inventory')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'inventory'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <Boxes className="w-3.5 h-3.5" />
             <span>Inventory</span>
           </button>
 
-          {/* Overhead Cost Management Portal (TASK 2) */}
+          {/* Overhead Cost Management Portal */}
           <button
             type="button"
             id="nav-tab-overhead-portal"
             onClick={() => onSelectTab('overhead-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'overhead-portal'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <Layers className="w-3.5 h-3.5 text-amber-400" />
             <span>Overheads</span>
           </button>
 
-          {/* Revenue Catalogue & Commercial Portal (TASK 3) */}
+          {/* Revenue Catalogue & Commercial Portal */}
           <button
             type="button"
             id="nav-tab-revenue-portal"
             onClick={() => onSelectTab('revenue-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'revenue-portal'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
           >
-            <Package className="w-3.5 h-3.5 text-sky-400" />
             <span>Revenue</span>
           </button>
 
-          {/* Supplier & Subcontractor Price History Portal (TASK 5) */}
+          {/* Price History Portal */}
           <button
             type="button"
             id="nav-tab-price-history"
             onClick={() => onSelectTab('price-history-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'price-history-portal'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
-            title="Procurement price history, supplier quotations & rate comparisons"
           >
-            <Tag className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Price History</span>
+            <span>Pricing</span>
           </button>
 
-          {/* Enterprise Tariff Management Portal (TASK 9) */}
+          {/* Enterprise Tariff Management Portal */}
           <button
             type="button"
             id="nav-tab-tariffs"
             onClick={() => onSelectTab('tariffs-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'tariffs-portal'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
             }`}
-            title="Enterprise Tariff Schedules, Versioning & Plan Linkage"
           >
-            <Calculator className="w-3.5 h-3.5 text-indigo-400" />
             <span>Tariffs</span>
           </button>
 
@@ -1172,14 +1160,13 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               type="button"
               id="nav-tab-audit-log"
               onClick={() => onSelectTab('audit-log')}
-              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
                 activeTab === 'audit-log'
                   ? 'bg-[#003049] text-white shadow-2xs'
                   : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
             >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Audit Log</span>
+              <span>Audit</span>
             </button>
           )}
 
@@ -1188,7 +1175,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-settings"
             onClick={() => onSelectTab('settings')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
               activeTab === 'settings'
                 ? 'bg-[#003049] text-white shadow-2xs'
                 : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'

@@ -132,14 +132,14 @@ export const EditPlanBoqItemModal: React.FC<EditPlanBoqItemModalProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Edit Plan Commercial Terms
+                  Edit Item
                 </h2>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800">
                   {boqItem.itemCode || boqItem.revenueItemCode || 'BOQ'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Plan {planNumber || planId} • {boqItem.name}
+                {boqItem.name}
               </p>
             </div>
           </div>

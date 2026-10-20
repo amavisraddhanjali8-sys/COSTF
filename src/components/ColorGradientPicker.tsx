@@ -27,7 +27,13 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
   };
 
   return (
-    <div className={`bg-white dark:bg-slate-900 rounded-lg p-3 ${compact ? 'w-64 shadow-xl border border-slate-200 dark:border-slate-700' : 'w-full'}`}>
+    <div
+      onClick={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      className={`bg-white dark:bg-slate-900 rounded-lg p-3 select-none ${compact ? 'w-64 sm:w-72 shadow-xl border border-slate-200 dark:border-slate-700' : 'w-full'}`}
+    >
       <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center space-x-1.5 text-xs text-slate-800 dark:text-slate-100">
           <Palette className="w-3.5 h-3.5 text-[#003049] dark:text-sky-400" />
@@ -36,15 +42,29 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
         <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded text-[10px]">
           <button
             type="button"
-            onClick={() => setActiveTab('presets')}
-            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'presets' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveTab('presets');
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              setActiveTab('presets');
+            }}
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer touch-manipulation ${activeTab === 'presets' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100 font-medium' : 'text-slate-600 dark:text-slate-400'}`}
           >
             Presets
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('custom')}
-            className={`px-2 py-0.5 rounded transition-colors ${activeTab === 'custom' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveTab('custom');
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              setActiveTab('custom');
+            }}
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer touch-manipulation ${activeTab === 'custom' ? 'bg-white dark:bg-slate-700 shadow-xs text-slate-900 dark:text-slate-100 font-medium' : 'text-slate-600 dark:text-slate-400'}`}
           >
             Custom
           </button>
@@ -60,16 +80,24 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => onSelectTheme(preset.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectTheme(preset.id);
+                  }}
+                  onTouchEnd={(e) => {
+                    e.stopPropagation();
+                    onSelectTheme(preset.id);
+                  }}
                   style={{ background: preset.gradientStyle }}
-                  className={`group relative h-9 rounded-lg p-1 transition-all duration-150 transform hover:scale-105 flex items-center justify-center shadow-xs cursor-pointer ${
-                    isSelected ? 'ring-2 ring-offset-1 ring-[#003049] dark:ring-sky-400' : ''
+                  className={`group relative h-10 rounded-lg p-1 transition-all duration-150 transform hover:scale-105 active:scale-95 flex items-center justify-center shadow-xs cursor-pointer touch-manipulation ${
+                    isSelected ? 'ring-2 ring-offset-1 ring-[#003049] dark:ring-sky-400 scale-102' : ''
                   }`}
                   title={preset.name}
+                  aria-label={preset.name}
                 >
                   {isSelected && (
-                    <div className="w-4 h-4 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-xs">
-                      <Check className="w-2.5 h-2.5 stroke-[3]" />
+                    <div className="w-4.5 h-4.5 rounded-full bg-white/95 text-slate-900 flex items-center justify-center shadow-sm">
+                      <Check className="w-3 h-3 stroke-[3]" />
                     </div>
                   )}
                   <span className="sr-only">{preset.name}</span>
@@ -78,7 +106,7 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
             })}
           </div>
           <div className="mt-2 text-[10px] text-slate-500 dark:text-slate-400 text-center">
-            Selected: <span className="text-slate-800 dark:text-slate-200 font-medium">{getThemeById(selectedThemeId).name}</span>
+            Selected: <span className="text-slate-800 dark:text-slate-200 font-semibold">{getThemeById(selectedThemeId).name}</span>
           </div>
         </div>
       ) : (
@@ -86,33 +114,33 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <label className="block text-[10px] text-slate-500 mb-1">Start Color</label>
-              <div className="flex items-center space-x-1.5 border border-slate-300 rounded p-1">
+              <div className="flex items-center space-x-1.5 border border-slate-300 dark:border-slate-700 rounded p-1">
                 <input
                   type="color"
                   value={fromColor}
                   onChange={(e) => setFromColor(e.target.value)}
                   className="w-6 h-6 rounded cursor-pointer border-0 p-0"
                 />
-                <span className="text-[11px] text-slate-700 uppercase font-mono">{fromColor}</span>
+                <span className="text-[11px] text-slate-700 dark:text-slate-300 uppercase font-mono">{fromColor}</span>
               </div>
             </div>
             <div>
               <label className="block text-[10px] text-slate-500 mb-1">End Color</label>
-              <div className="flex items-center space-x-1.5 border border-slate-300 rounded p-1">
+              <div className="flex items-center space-x-1.5 border border-slate-300 dark:border-slate-700 rounded p-1">
                 <input
                   type="color"
                   value={toColor}
                   onChange={(e) => setToColor(e.target.value)}
                   className="w-6 h-6 rounded cursor-pointer border-0 p-0"
                 />
-                <span className="text-[11px] text-slate-700 uppercase font-mono">{toColor}</span>
+                <span className="text-[11px] text-slate-700 dark:text-slate-300 uppercase font-mono">{toColor}</span>
               </div>
             </div>
           </div>
 
           {/* Live Mini Preview */}
           <div
-            className="h-10 rounded-lg flex items-center justify-center text-white text-[11px] shadow-xs"
+            className="h-10 rounded-lg flex items-center justify-center text-white text-[11px] font-medium shadow-xs"
             style={{ background: `linear-gradient(135deg, ${fromColor}, ${toColor})` }}
           >
             Preview Gradient
@@ -120,8 +148,15 @@ export const ColorGradientPicker: React.FC<ColorGradientPickerProps> = ({
 
           <button
             type="button"
-            onClick={handleCustomApply}
-            className="w-full py-1 bg-[#003049] hover:bg-[#002235] text-white text-xs rounded transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCustomApply();
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              handleCustomApply();
+            }}
+            className="w-full py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs rounded-lg transition-colors cursor-pointer touch-manipulation font-medium active:scale-98 shadow-xs"
           >
             Apply Custom Gradient
           </button>

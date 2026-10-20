@@ -124,10 +124,10 @@ export const ApplyTariffToPlanModal: React.FC<ApplyTariffToPlanModalProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Apply Enterprise Tariff to Plan
+                Apply Tariff
               </h2>
               <p className="text-[11px] text-slate-500">
-                Attaching to: <span className="font-semibold text-slate-700 dark:text-slate-300">{planName}</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{planName}</span>
               </p>
             </div>
           </div>
@@ -151,7 +151,7 @@ export const ApplyTariffToPlanModal: React.FC<ApplyTariffToPlanModalProps> = ({
 
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Select Tariff Schedule <span className="text-rose-500">*</span>
+              Tariff <span className="text-rose-500">*</span>
             </label>
             <select
               value={selectedTariffId}

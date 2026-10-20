@@ -228,21 +228,13 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
       <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start space-x-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-md shrink-0">
-              <Tag className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-md shrink-0">
+              <Tag className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-2.5">
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                  Enterprise Tariff & Surcharge Management System
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                  POSTGRESQL AUDIT TRACKED
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-                Centralized statutory, outsourced finishing, and specialized trade tariffs. Every rate version preserves historical timestamps to guarantee zero retroactive pricing drift in past project budgets.
-              </p>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                Tariffs
+              </h1>
             </div>
           </div>
 
@@ -253,13 +245,13 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
               className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold flex items-center space-x-1.5 cursor-pointer shadow-2xs"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
+              <span>Export</span>
             </button>
             <button
               type="button"
               onClick={fetchTariffs}
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shadow-2xs"
-              title="Refresh tariffs"
+              title="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -282,47 +274,43 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Active Schedules</span>
+              <span>Active</span>
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
             </div>
             <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
               {activeTariffs} <span className="text-xs font-normal text-slate-400">/ {totalTariffs}</span>
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Enforced across project plans</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Historical Versions</span>
+              <span>Versions</span>
               <History className="w-4 h-4 text-blue-500" />
             </div>
             <div className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
               {totalVersions}
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Retained immutable records</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Attached Plan Tariffs</span>
+              <span>Attached</span>
               <Layers className="w-4 h-4 text-amber-500" />
             </div>
             <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
               {appliedCount}
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Explicitly opted-in budgets</div>
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Compliance Protocol</span>
+              <span>Status</span>
               <DollarSign className="w-4 h-4 text-purple-500" />
             </div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1 flex items-center space-x-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-              <span>Zero Drift Guarantee</span>
+              <span>Active</span>
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">Date-enclosed resolution</div>
           </div>
         </div>
       </div>
@@ -332,12 +320,9 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
         <div className="flex items-center space-x-2 text-blue-900 dark:text-blue-300 mb-3">
           <Calculator className="w-4 h-4" />
           <h2 className="text-xs font-bold uppercase tracking-wide">
-            Live Tariff Version Resolution & Calculation Sandbox
+            Sandbox
           </h2>
         </div>
-        <p className="text-[11px] text-slate-600 dark:text-slate-400 mb-4">
-          Test which historical version takes effect on a specific plan date. The engine applies the active version whose effective date range encloses the evaluation timestamp without overwriting past versions.
-        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
           <div>

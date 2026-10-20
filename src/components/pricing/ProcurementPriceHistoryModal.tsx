@@ -259,22 +259,9 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
         {/* TOP BAR */}
         <div className="flex flex-wrap items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 gap-3">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center border border-blue-200 dark:border-blue-800 text-[#0078d4]">
-              <History className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Procurement Price & Rate History
-                </h2>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-                  Task 5 Central System
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Connected supplier, vendor, outsourced service & subcontractor price quotations, negotiated rates & PO pricing.
-              </p>
-            </div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              Pricing
+            </h2>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -283,14 +270,13 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
               <button
                 type="button"
                 onClick={() => setActiveTab('history')}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1.5 ${
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
                   activeTab === 'history'
                     ? 'bg-white dark:bg-slate-700 text-[#0078d4] shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <TableIcon className="w-3.5 h-3.5" />
-                <span>Price History Records ({records.length})</span>
+                <span>History ({records.length})</span>
               </button>
               <button
                 type="button"
@@ -298,14 +284,13 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
                   setActiveTab('comparison');
                   void loadComparison();
                 }}
-                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center space-x-1.5 ${
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
                   activeTab === 'comparison'
                     ? 'bg-white dark:bg-slate-700 text-[#0078d4] shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
-                <Scale className="w-3.5 h-3.5" />
-                <span>Price Comparison View (Req 15)</span>
+                <span>Compare</span>
               </button>
             </div>
 
@@ -313,14 +298,12 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
             <button
               type="button"
               onClick={handleExportCSV}
-              className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-700 flex items-center space-x-1 cursor-pointer"
-              title="Export filtered records to CSV"
+              className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-700 cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
+              <span>Export</span>
             </button>
 
-            {/* Record New Price Button (Req 7, 8, 9) */}
+            {/* Record New Price Button */}
             <button
               type="button"
               onClick={() => {
@@ -328,10 +311,9 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
                 setRecordPresetItemId(selectedItemId !== 'ALL' ? selectedItemId : undefined);
                 setIsRecordModalOpen(true);
               }}
-              className="px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+              className="px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Price Quote</span>
+              <span>Add Price</span>
             </button>
 
             <button
@@ -458,7 +440,7 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
               }}
               className="w-full py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg font-semibold text-center cursor-pointer transition-colors"
             >
-              Reset Filters
+              Reset
             </button>
           </div>
         </div>
@@ -467,37 +449,30 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
         {activeTab === 'history' && (
           <div className="flex-1 overflow-auto mt-3 border border-slate-200 dark:border-slate-800 rounded-xl">
             {loading ? (
-              <div className="p-12 text-center text-slate-500">
-                <RefreshCw className="w-7 h-7 text-[#0078d4] animate-spin mx-auto mb-2" />
-                <p className="text-xs font-semibold">Loading price history from PostgreSQL...</p>
+              <div className="p-8 text-center text-slate-500 text-xs">
+                Loading...
               </div>
             ) : error ? (
-              <div className="p-8 text-center text-rose-500">
-                <p className="text-xs font-bold">{error}</p>
+              <div className="p-8 text-center text-rose-500 text-xs font-bold">
+                {error}
               </div>
             ) : records.length === 0 ? (
-              <div className="p-12 text-center text-slate-400">
-                <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  No price history records match the selected criteria.
-                </p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Click "Record Price Quote" above to record quotes from existing suppliers.
-                </p>
+              <div className="p-12 text-center text-slate-400 text-xs font-medium">
+                No records found.
               </div>
             ) : (
               <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
                 <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px] sticky top-0 z-10">
                   <tr>
                     <th className="py-2.5 px-3 font-semibold">Date</th>
-                    <th className="py-2.5 px-3 font-semibold">Supplier / Vendor</th>
-                    <th className="py-2.5 px-3 font-semibold">Item & Type</th>
-                    <th className="py-2.5 px-3 font-semibold">Price Type & Stage</th>
-                    <th className="py-2.5 px-3 font-semibold text-right">Unit Price</th>
-                    <th className="py-2.5 px-3 font-semibold text-center">Change vs Prev</th>
-                    <th className="py-2.5 px-3 font-semibold">Quote / PO Ref</th>
+                    <th className="py-2.5 px-3 font-semibold">Supplier</th>
+                    <th className="py-2.5 px-3 font-semibold">Item</th>
+                    <th className="py-2.5 px-3 font-semibold">Type</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Price</th>
+                    <th className="py-2.5 px-3 font-semibold text-center">Change</th>
+                    <th className="py-2.5 px-3 font-semibold">Ref</th>
                     <th className="py-2.5 px-3 font-semibold">Project</th>
-                    <th className="py-2.5 px-3 font-semibold">Recorded By</th>
+                    <th className="py-2.5 px-3 font-semibold">User</th>
                     <th className="py-2.5 px-3 font-semibold text-center">Actions</th>
                   </tr>
                 </thead>
@@ -635,10 +610,10 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
         {activeTab === 'comparison' && (
           <div className="flex-1 overflow-auto mt-3 space-y-4">
             {/* Comparison Item Selector */}
-            <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-slate-800 dark:text-slate-200">
-                  Select Item to Compare Historical Prices:
+                <span className="font-bold text-slate-700 dark:text-slate-300">
+                  Item:
                 </span>
                 <select
                   value={comparisonItemId}
@@ -912,7 +887,7 @@ export const ProcurementPriceHistoryModal: React.FC<ProcurementPriceHistoryModal
         {/* BOTTOM FOOTER */}
         <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
           <div>
-            Showing <strong className="text-slate-900 dark:text-slate-100">{records.length}</strong> verified historical price records from PostgreSQL.
+            <span className="font-semibold text-slate-700 dark:text-slate-300">{records.length} records</span>
           </div>
           <button
             type="button"

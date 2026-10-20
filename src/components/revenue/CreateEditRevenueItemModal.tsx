@@ -141,18 +141,10 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-[#003049] text-white flex items-center justify-center shadow-xs">
-              {type === 'product' ? <Package className="w-5 h-5" /> : <Wrench className="w-5 h-5" />}
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                {isEditing ? 'Edit Revenue Catalogue Item' : 'New Commercial Revenue Item'}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Centralized catalogue item for commercial BOQ selection and rate tracking
-              </p>
-            </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              {isEditing ? 'Edit Item' : 'New Item'}
+            </h2>
           </div>
 
           <button
@@ -174,50 +166,35 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Item Type Selector (Strictly Product vs Service) */}
+          {/* Item Type Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Item Classification <span className="text-rose-500">*</span>
+              Type <span className="text-rose-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setType('product')}
-                className={`p-3 rounded-xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
+                className={`py-2 px-3 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
                   type === 'product'
                     ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 ring-2 ring-blue-500/20'
                     : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <Package className={`w-5 h-5 mt-0.5 ${type === 'product' ? 'text-blue-600 dark:text-sky-400' : 'text-slate-400'}`} />
-                <div>
-                  <div className="text-xs font-bold">Manufactured Product</div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Physical deliverables, architectural assemblies, finished goods sold to clients.
-                  </div>
-                </div>
+                Product
               </button>
 
               <button
                 type="button"
                 onClick={() => setType('service')}
-                className={`p-3 rounded-xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
+                className={`py-2 px-3 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
                   type === 'service'
                     ? 'border-purple-500 bg-purple-50/60 dark:bg-purple-950/40 text-purple-900 dark:text-purple-100 ring-2 ring-purple-500/20'
                     : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/40 text-slate-700 dark:text-slate-300'
                 }`}
               >
-                <Wrench className={`w-5 h-5 mt-0.5 ${type === 'service' ? 'text-purple-600 dark:text-purple-400' : 'text-slate-400'}`} />
-                <div>
-                  <div className="text-xs font-bold">Internal Direct Service</div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Engineering, design consultancy, on-site commissioning delivered by the company.
-                  </div>
-                </div>
+                Service
               </button>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-1 italic">
-              Note: Third-party outsourced services are vendor purchases and are managed in Procurement.
             </div>
           </div>
 
@@ -225,27 +202,27 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Item Name <span className="text-rose-500">*</span>
+                Name <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Aluminium Door, Double Glazed Curtain Wall"
+                placeholder="Item name"
                 className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Item Code <span className="text-slate-400 font-normal">(Auto if empty)</span>
+                Code
               </label>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="e.g. REV-PRD-001"
+                placeholder="Auto code"
                 className="w-full px-3 py-2 text-xs font-mono uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500"
               />
             </div>

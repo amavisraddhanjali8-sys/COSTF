@@ -102,7 +102,7 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Create Historical Tariff Version
+                  New Version
                 </h2>
                 <span className="font-mono text-xs px-2 py-0.5 rounded font-bold bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                   v{nextVerNumber}
@@ -134,7 +134,7 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
           {/* Current Rate vs New Rate Banner */}
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-3 text-center">
             <div>
-              <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Active Rate</div>
+              <div className="text-[10px] text-slate-500 font-semibold uppercase">Current Rate</div>
               <div className="text-base font-bold text-slate-800 dark:text-slate-200 font-mono mt-0.5">
                 {currentRate} {tariff.unit}
               </div>

@@ -329,21 +329,10 @@ export const RecordPriceModal: React.FC<RecordPriceModalProps> = ({
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center border border-blue-200 dark:border-blue-800 text-[#0078d4]">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
-                <span>Record Supplier / Vendor Price Quote</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-                  Task 5
-                </span>
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Connects verified suppliers and items to historical price tracking without duplicate business entities.
-              </p>
-            </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+              Record Price
+            </h2>
           </div>
           <button
             type="button"
@@ -355,12 +344,11 @@ export const RecordPriceModal: React.FC<RecordPriceModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
-          {/* STEP 1: Select Verified Supplier / Service Provider */}
-          <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+          {/* STEP 1: Supplier */}
+          <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
-                <Building2 className="w-4 h-4 text-[#0078d4]" />
-                <span>1. Select Existing Supplier, Vendor, or Service Provider *</span>
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Supplier *
               </label>
               {currentSupplier && (
                 <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center space-x-1">
@@ -398,12 +386,11 @@ export const RecordPriceModal: React.FC<RecordPriceModalProps> = ({
             </div>
           </div>
 
-          {/* STEP 2: Select Item Type & Material/Service Entity */}
-          <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+          {/* STEP 2: Item */}
+          <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
-                <Package className="w-4 h-4 text-purple-600" />
-                <span>2. Select Existing Material, Outsourced Service, or Subcontractor Rate *</span>
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Item *
               </label>
               <div className="flex items-center space-x-1 bg-white dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
                 <button
@@ -784,16 +771,9 @@ export const RecordPriceModal: React.FC<RecordPriceModalProps> = ({
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-[#0078d4] hover:bg-[#006cbd] text-white font-bold rounded-lg shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2 bg-[#0078d4] hover:bg-[#006cbd] text-white font-bold rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              {submitting ? (
-                <span>Recording in PostgreSQL...</span>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Save Price Quotation</span>
-                </>
-              )}
+              {submitting ? 'Saving...' : 'Save'}
             </button>
           </div>
         </form>

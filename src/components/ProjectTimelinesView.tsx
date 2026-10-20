@@ -60,7 +60,7 @@ interface ProjectTimelinesViewProps {
 }
 
 export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
-  project,
+  project: initialProject,
   projects = [],
   onSelectProject,
   onOpenProjectPicker,
@@ -69,6 +69,8 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   users = [],
   subcontractors = []
 }) => {
+  const currentProject = initialProject || (projects.length > 0 ? projects[0] : null);
+
   // View Toggle: Calendar View vs Phase Breakdown Cards vs Split
   const [viewMode, setViewMode] = useState<'calendar' | 'cards' | 'split'>('calendar');
 
@@ -104,7 +106,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
 
   // Quick Deadline Reschedule Modal
   const [isReschedulingDeadline, setIsReschedulingDeadline] = useState(false);
-  const [newProjectDeadline, setNewProjectDeadline] = useState(project?.deliveryDeadline || '2026-12-15');
+  const [newProjectDeadline, setNewProjectDeadline] = useState(currentProject?.deliveryDeadline || '2026-12-15');
 
   // Resource Scheduling & Conflict Detection states
   const [assigningResourcePhase, setAssigningResourcePhase] = useState<ProjectPhase | null>(null);
@@ -112,8 +114,8 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   const [showConflictDrawer, setShowConflictDrawer] = useState<boolean>(true);
 
   const effectiveProjects = useMemo(() => {
-    return projects.length > 0 ? projects : project ? [project] : [];
-  }, [projects, project]);
+    return projects.length > 0 ? projects : currentProject ? [currentProject] : [];
+  }, [projects, currentProject]);
 
   // Real-time calculation of resource conflicts across all projects
   const allConflicts = useMemo(() => {
@@ -122,15 +124,15 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
 
   // Conflicts specific to current project
   const projectConflicts = useMemo(() => {
-    if (!project) return [];
+    if (!currentProject) return [];
     return allConflicts.filter(
-      (c) => c.phaseA.projectId === project.id || c.phaseB.projectId === project.id
+      (c) => c.phaseA.projectId === currentProject.id || c.phaseB.projectId === currentProject.id
     );
-  }, [allConflicts, project]);
+  }, [allConflicts, currentProject]);
 
   const handleAssignResource = (phaseId: string, assignment: PhaseResourceAssignment) => {
-    if (!project) return;
-    const updatedPhases = (project.phases || []).map((ph) => {
+    if (!currentProject) return;
+    const updatedPhases = (currentProject.phases || []).map((ph) => {
       if (ph.id === phaseId) {
         const existing = ph.assignedResources || [];
         return {
@@ -140,15 +142,15 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       }
       return ph;
     });
-    onUpdateProject({ ...project, phases: updatedPhases });
+    onUpdateProject({ ...currentProject, phases: updatedPhases });
     setAssigningResourcePhase(null);
     setReorderToast(`Assigned ${assignment.name} to phase.`);
     setTimeout(() => setReorderToast(null), 3500);
   };
 
   const handleRemoveResource = (phaseId: string, assignmentId: string) => {
-    if (!project) return;
-    const updatedPhases = (project.phases || []).map((ph) => {
+    if (!currentProject) return;
+    const updatedPhases = (currentProject.phases || []).map((ph) => {
       if (ph.id === phaseId) {
         const remaining = (ph.assignedResources || []).filter((r) => r.id !== assignmentId);
         return {
@@ -158,7 +160,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       }
       return ph;
     });
-    onUpdateProject({ ...project, phases: updatedPhases });
+    onUpdateProject({ ...currentProject, phases: updatedPhases });
     setReorderToast(`Resource assignment removed.`);
     setTimeout(() => setReorderToast(null), 3000);
   };
@@ -180,42 +182,42 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   }, [users, subcontractors]);
 
   const filteredPhases = useMemo(() => {
-    if (!project?.phases) return [];
-    if (resourceFilterId === 'all') return project.phases;
-    return project.phases.filter((p) =>
+    if (!currentProject?.phases) return [];
+    if (resourceFilterId === 'all') return currentProject.phases;
+    return currentProject.phases.filter((p) =>
       (p.assignedResources || []).some((r) => r.resourceId === resourceFilterId || r.id === resourceFilterId)
     );
-  }, [project?.phases, resourceFilterId]);
+  }, [currentProject?.phases, resourceFilterId]);
 
   // Calculate all milestones for the selected project
   const projectMilestones: ProjectMilestone[] = useMemo(() => {
-    if (!project) return [];
+    if (!currentProject) return [];
     const list: ProjectMilestone[] = [];
 
     // 1. Overall Project Delivery Deadline
-    if (project.deliveryDeadline) {
+    if (currentProject.deliveryDeadline) {
       list.push({
-        id: `ms-deadline-${project.id}`,
-        projectId: project.id,
-        projectCode: project.code,
-        projectName: project.name,
-        title: `Project Delivery Deadline: ${project.name}`,
-        date: project.deliveryDeadline,
+        id: `ms-deadline-${currentProject.id}`,
+        projectId: currentProject.id,
+        projectCode: currentProject.code,
+        projectName: currentProject.name,
+        title: `Project Delivery Deadline: ${currentProject.name}`,
+        date: currentProject.deliveryDeadline,
         type: 'project_deadline',
-        status: project.status === 'Completed' ? 'Completed' : 'In Progress',
-        description: `Contractual delivery deadline for client ${project.clientName}. Quoted value: ${formatCurrency(project.quotedPrice, project.currency)}.`
+        status: currentProject.status === 'Completed' ? 'Completed' : 'In Progress',
+        description: `Contractual delivery deadline for client ${currentProject.clientName}. Quoted value: ${formatCurrency(currentProject.quotedPrice, currentProject.currency)}.`
       });
     }
 
     // 2. Project Kickoff / Start Date
-    if (project.startDate) {
+    if (currentProject.startDate) {
       list.push({
-        id: `ms-start-${project.id}`,
-        projectId: project.id,
-        projectCode: project.code,
-        projectName: project.name,
+        id: `ms-start-${currentProject.id}`,
+        projectId: currentProject.id,
+        projectCode: currentProject.code,
+        projectName: currentProject.name,
         title: `Project Kickoff`,
-        date: project.startDate,
+        date: currentProject.startDate,
         type: 'project_start',
         status: 'Completed',
         description: `Official execution kickoff date.`
@@ -223,14 +225,14 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     }
 
     // 3. Phase Completion Dates and Start Dates (Sequenced)
-    (project.phases || []).forEach((phase, idx) => {
+    (currentProject.phases || []).forEach((phase, idx) => {
       // Phase End / Completion Date
       if (phase.endDate) {
         list.push({
           id: `ms-phase-end-${phase.id}`,
-          projectId: project.id,
-          projectCode: project.code,
-          projectName: project.name,
+          projectId: currentProject.id,
+          projectCode: currentProject.code,
+          projectName: currentProject.name,
           title: `Phase ${idx + 1}: ${phase.name} (Completion Target)`,
           date: phase.endDate,
           type: 'phase_end',
@@ -238,17 +240,17 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
           phaseName: phase.name,
           status: phase.status === 'Completed' ? 'Completed' : phase.status === 'In Progress' ? 'In Progress' : 'Not Started',
           budget: Number(phase.budget) || 0,
-          description: phase.description || `Phase ${idx + 1} completion target. Budget: ${formatCurrency(Number(phase.budget) || 0, project.currency)}.`
+          description: phase.description || `Phase ${idx + 1} completion target. Budget: ${formatCurrency(Number(phase.budget) || 0, currentProject.currency)}.`
         });
       }
 
       // Phase Start Date
-      if (phase.startDate && phase.startDate !== project.startDate) {
+      if (phase.startDate && phase.startDate !== currentProject.startDate) {
         list.push({
           id: `ms-phase-start-${phase.id}`,
-          projectId: project.id,
-          projectCode: project.code,
-          projectName: project.name,
+          projectId: currentProject.id,
+          projectCode: currentProject.code,
+          projectName: currentProject.name,
           title: `Phase ${idx + 1}: ${phase.name} (Kickoff)`,
           date: phase.startDate,
           type: 'phase_start',
@@ -262,24 +264,24 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     });
 
     // 4. Deliverables fulfillment dates
-    (project.deliverables || []).forEach((deliv) => {
+    (currentProject.deliverables || []).forEach((deliv) => {
       list.push({
         id: `ms-deliv-${deliv.id}`,
-        projectId: project.id,
-        projectCode: project.code,
-        projectName: project.name,
+        projectId: currentProject.id,
+        projectCode: currentProject.code,
+        projectName: currentProject.name,
         title: `Deliverable: ${deliv.name}`,
-        date: project.deliveryDeadline,
+        date: currentProject.deliveryDeadline,
         type: 'deliverable',
         status: deliv.status === 'Delivered' || deliv.status === 'Completed' ? 'Completed' : 'In Progress',
         budget: deliv.totalCost || 0,
-        description: `SKU ${deliv.code || deliv.id} - ${deliv.quantity} ${deliv.unit}. Quoted: ${formatCurrency(deliv.totalRevenue || deliv.quotedPrice, project.currency)}.`
+        description: `SKU ${deliv.code || deliv.id} - ${deliv.quantity} ${deliv.unit}. Quoted: ${formatCurrency(deliv.totalRevenue || deliv.quotedPrice, currentProject.currency)}.`
       });
     });
 
     // Sort chronologically
     return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [project]);
+  }, [currentProject]);
 
   // Calendar calculations
   const monthName = useMemo(() => {
@@ -311,8 +313,8 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   };
 
   const handleJumpToDeadline = () => {
-    if (!project.deliveryDeadline) return;
-    const parts = project.deliveryDeadline.split('-');
+    if (!currentProject?.deliveryDeadline) return;
+    const parts = currentProject.deliveryDeadline.split('-');
     if (parts.length >= 3) {
       const yr = parseInt(parts[0], 10);
       const mo = parseInt(parts[1], 10) - 1;
@@ -372,21 +374,21 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   const selectedDayMilestones = projectMilestones.filter(m => m.date === selectedDateStr);
 
   // Financial and Timeline statistics
-  const totalPhaseBudget = (project.phases || []).reduce((acc, p) => acc + (Number(p.budget) || 0), 0);
-  const totalPhaseActual = (project.phases || []).reduce((acc, p) => acc + (Number(p.actualCost) || 0), 0);
+  const totalPhaseBudget = (currentProject?.phases || []).reduce((acc, p) => acc + (Number(p.budget) || 0), 0);
+  const totalPhaseActual = (currentProject?.phases || []).reduce((acc, p) => acc + (Number(p.actualCost) || 0), 0);
   const totalPhaseVariance = totalPhaseBudget - totalPhaseActual;
-  const completedPhasesCount = (project.phases || []).filter(p => p.status === 'Completed').length;
+  const completedPhasesCount = (currentProject?.phases || []).filter(p => p.status === 'Completed').length;
 
   // Deadline countdown
-  const getDaysRemaining = (targetDate: string) => {
+  const getDaysRemaining = (targetDate?: string) => {
     if (!targetDate) return null;
     const diffTime = new Date(targetDate).getTime() - new Date('2026-10-15').getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
-  const deadlineDaysLeft = getDaysRemaining(project.deliveryDeadline);
+  const deadlineDaysLeft = getDaysRemaining(currentProject?.deliveryDeadline);
 
   // Find next upcoming phase completion
-  const nextPhaseCompletion = (project.phases || [])
+  const nextPhaseCompletion = (currentProject?.phases || [])
     .filter(p => p.status !== 'Completed' && new Date(p.endDate).getTime() >= new Date('2026-10-15').getTime())
     .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime())[0];
 
@@ -411,13 +413,14 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
 
   const handleDrop = (dropIndex: number, e: React.DragEvent) => {
     e.preventDefault();
+    if (!currentProject) return;
     if (draggedPhaseIndex === null || draggedPhaseIndex === dropIndex) {
       setDraggedPhaseIndex(null);
       setDragOverPhaseIndex(null);
       return;
     }
 
-    const currentPhases = [...(project.phases || [])];
+    const currentPhases = [...(currentProject.phases || [])];
     const [draggedItem] = currentPhases.splice(draggedPhaseIndex, 1);
     currentPhases.splice(dropIndex, 0, draggedItem);
 
@@ -428,7 +431,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     }));
 
     onUpdateProject({
-      ...project,
+      ...currentProject,
       phases: resequencedPhases
     });
 
@@ -444,7 +447,8 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   };
 
   const handleMovePhase = (currentIndex: number, direction: 'up' | 'down') => {
-    const currentPhases = [...(project.phases || [])];
+    if (!currentProject) return;
+    const currentPhases = [...(currentProject.phases || [])];
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= currentPhases.length) return;
 
@@ -458,7 +462,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     }));
 
     onUpdateProject({
-      ...project,
+      ...currentProject,
       phases: resequencedPhases
     });
     setReorderToast(`Moved "${temp.name}" ${direction === 'up' ? 'earlier' : 'later'} to Phase ${targetIndex + 1}.`);
@@ -468,9 +472,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   // Phase Add / Edit Handlers
   const handleSavePhase = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phaseName.trim()) return;
+    if (!currentProject || !phaseName.trim()) return;
 
-    let updatedPhases = [...(project.phases || [])];
+    let updatedPhases = [...(currentProject.phases || [])];
     if (editingPhaseId) {
       updatedPhases = updatedPhases.map(p => {
         if (p.id === editingPhaseId) {
@@ -497,13 +501,13 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
         startDate: phaseStartDate || selectedDateStr,
         endDate: phaseEndDate || selectedDateStr,
         status: phaseStatus,
-        phaseNumber: (project.phases?.length || 0) + 1
+        phaseNumber: (currentProject.phases?.length || 0) + 1
       };
       updatedPhases.push(newPhase);
     }
 
     const updatedProject = {
-      ...project,
+      ...currentProject,
       phases: updatedPhases
     };
     onUpdateProject(updatedProject);
@@ -512,19 +516,21 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   };
 
   const handleTogglePhaseStatus = (phaseId: string) => {
-    const updatedPhases = (project.phases || []).map(p => {
+    if (!currentProject) return;
+    const updatedPhases = (currentProject.phases || []).map(p => {
       if (p.id === phaseId) {
         const nextStatus = p.status === 'Completed' ? 'In Progress' : 'Completed';
         return { ...p, status: nextStatus };
       }
       return p;
     });
-    onUpdateProject({ ...project, phases: updatedPhases });
+    onUpdateProject({ ...currentProject, phases: updatedPhases });
   };
 
   const handleDeletePhase = (phaseId: string) => {
-    const updatedPhases = (project.phases || []).filter(p => p.id !== phaseId);
-    onUpdateProject({ ...project, phases: updatedPhases });
+    if (!currentProject) return;
+    const updatedPhases = (currentProject.phases || []).filter(p => p.id !== phaseId);
+    onUpdateProject({ ...currentProject, phases: updatedPhases });
   };
 
   const openEditPhase = (phase: ProjectPhase) => {
@@ -540,9 +546,10 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   };
 
   const openNewPhaseForDate = (dateStr?: string) => {
+    if (!currentProject) return;
     const targetDate = dateStr || selectedDateStr;
     setEditingPhaseId(null);
-    setPhaseName(`Phase ${(project.phases?.length || 0) + 1}: `);
+    setPhaseName(`Phase ${(currentProject.phases?.length || 0) + 1}: `);
     setPhaseDescription('');
     setPhaseBudget(45000);
     setPhaseActual(0);
@@ -554,9 +561,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
 
   const handleUpdateDeadline = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProjectDeadline) return;
+    if (!currentProject || !newProjectDeadline) return;
     onUpdateProject({
-      ...project,
+      ...currentProject,
       deliveryDeadline: newProjectDeadline
     });
     setIsReschedulingDeadline(false);
@@ -564,6 +571,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
 
   // Export to iCalendar (.ICS) Handler (Full Project or Specific Milestone)
   const handleExportICS = (targetMilestone?: ProjectMilestone) => {
+    if (!currentProject) return;
     const nowISO = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
     const formatICSDate = (dateStr: string) => {
@@ -589,23 +597,23 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
         `UID:${targetMilestone.id}-${dt}@costplanning.system`,
         `DTSTAMP:${nowISO}`,
         `DTSTART;VALUE=DATE:${dt}`,
-        `SUMMARY:${escapeICS(`[${targetMilestone.type.toUpperCase()}] ${project.code}: ${targetMilestone.title}`)}`,
-        `DESCRIPTION:${escapeICS(`${targetMilestone.description || targetMilestone.title}\\nProject: ${project.name}\\nClient: ${project.clientName}\\nStatus: ${targetMilestone.status}`)}`,
+        `SUMMARY:${escapeICS(`[${targetMilestone.type.toUpperCase()}] ${currentProject.code}: ${targetMilestone.title}`)}`,
+        `DESCRIPTION:${escapeICS(`${targetMilestone.description || targetMilestone.title}\\nProject: ${currentProject.name}\\nClient: ${currentProject.clientName}\\nStatus: ${targetMilestone.status}`)}`,
         'STATUS:CONFIRMED',
         'CATEGORIES:MILESTONE,PROJECT',
         'END:VEVENT'
       ].join('\r\n'));
     } else {
       // 1. Overall Delivery Deadline
-      if (project.deliveryDeadline) {
-        const dt = formatICSDate(project.deliveryDeadline);
+      if (currentProject.deliveryDeadline) {
+        const dt = formatICSDate(currentProject.deliveryDeadline);
         events.push([
           'BEGIN:VEVENT',
-          `UID:deadline-${project.id}-${dt}@costplanning.system`,
+          `UID:deadline-${currentProject.id}-${dt}@costplanning.system`,
           `DTSTAMP:${nowISO}`,
           `DTSTART;VALUE=DATE:${dt}`,
-          `SUMMARY:${escapeICS(`[DEADLINE] ${project.code}: ${project.name}`)}`,
-          `DESCRIPTION:${escapeICS(`Project Contract Delivery Deadline for ${project.clientName}.\\nQuoted Value: ${formatCurrency(project.quotedPrice, project.currency)}\\nTarget Margin: ${project.targetMarginPct}%`)}`,
+          `SUMMARY:${escapeICS(`[DEADLINE] ${currentProject.code}: ${currentProject.name}`)}`,
+          `DESCRIPTION:${escapeICS(`Project Contract Delivery Deadline for ${currentProject.clientName}.\\nQuoted Value: ${formatCurrency(currentProject.quotedPrice, currentProject.currency)}\\nTarget Margin: ${currentProject.targetMarginPct}%`)}`,
           'STATUS:CONFIRMED',
           'TRANSP:OPAQUE',
           'CATEGORIES:DEADLINE,PROJECT',
@@ -614,15 +622,15 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       }
 
       // 2. Project Kickoff
-      if (project.startDate) {
-        const dt = formatICSDate(project.startDate);
+      if (currentProject.startDate) {
+        const dt = formatICSDate(currentProject.startDate);
         events.push([
           'BEGIN:VEVENT',
-          `UID:start-${project.id}-${dt}@costplanning.system`,
+          `UID:start-${currentProject.id}-${dt}@costplanning.system`,
           `DTSTAMP:${nowISO}`,
           `DTSTART;VALUE=DATE:${dt}`,
-          `SUMMARY:${escapeICS(`[KICKOFF] ${project.code}: ${project.name}`)}`,
-          `DESCRIPTION:${escapeICS(`Project Kickoff for ${project.name}. Client: ${project.clientName}`)}`,
+          `SUMMARY:${escapeICS(`[KICKOFF] ${currentProject.code}: ${currentProject.name}`)}`,
+          `DESCRIPTION:${escapeICS(`Project Kickoff for ${currentProject.name}. Client: ${currentProject.clientName}`)}`,
           'STATUS:CONFIRMED',
           'CATEGORIES:KICKOFF,PROJECT',
           'END:VEVENT'
@@ -630,7 +638,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       }
 
       // 3. Phase Completion Targets & Kickoffs
-      (project.phases || []).forEach((phase, index) => {
+      (currentProject.phases || []).forEach((phase, index) => {
         if (phase.endDate) {
           const dt = formatICSDate(phase.endDate);
           events.push([
@@ -638,23 +646,23 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
             `UID:phase-end-${phase.id}-${dt}@costplanning.system`,
             `DTSTAMP:${nowISO}`,
             `DTSTART;VALUE=DATE:${dt}`,
-            `SUMMARY:${escapeICS(`[MILESTONE] ${project.code} Phase ${index + 1}: ${phase.name}`)}`,
-            `DESCRIPTION:${escapeICS(`Phase Target Completion.\\nPhase: ${phase.name}\\nScope: ${phase.description || 'N/A'}\\nBudget: ${formatCurrency(Number(phase.budget) || 0, project.currency)}\\nStatus: ${phase.status}`)}`,
+            `SUMMARY:${escapeICS(`[MILESTONE] ${currentProject.code} Phase ${index + 1}: ${phase.name}`)}`,
+            `DESCRIPTION:${escapeICS(`Phase Target Completion.\\nPhase: ${phase.name}\\nScope: ${phase.description || 'N/A'}\\nBudget: ${formatCurrency(Number(phase.budget) || 0, currentProject.currency)}\\nStatus: ${phase.status}`)}`,
             'STATUS:CONFIRMED',
             'CATEGORIES:PHASE,MILESTONE',
             'END:VEVENT'
           ].join('\r\n'));
         }
 
-        if (phase.startDate && phase.startDate !== project.startDate) {
+        if (phase.startDate && phase.startDate !== currentProject.startDate) {
           const dtStart = formatICSDate(phase.startDate);
           events.push([
             'BEGIN:VEVENT',
             `UID:phase-start-${phase.id}-${dtStart}@costplanning.system`,
             `DTSTAMP:${nowISO}`,
             `DTSTART;VALUE=DATE:${dtStart}`,
-            `SUMMARY:${escapeICS(`[PHASE START] ${project.code} Phase ${index + 1}: ${phase.name}`)}`,
-            `DESCRIPTION:${escapeICS(`Kickoff for Phase ${index + 1}: ${phase.name}.\\nBudget: ${formatCurrency(Number(phase.budget) || 0, project.currency)}`)}`,
+            `SUMMARY:${escapeICS(`[PHASE START] ${currentProject.code} Phase ${index + 1}: ${phase.name}`)}`,
+            `DESCRIPTION:${escapeICS(`Kickoff for Phase ${index + 1}: ${phase.name}.\\nBudget: ${formatCurrency(Number(phase.budget) || 0, currentProject.currency)}`)}`,
             'STATUS:CONFIRMED',
             'CATEGORIES:PHASE,START',
             'END:VEVENT'
@@ -663,15 +671,15 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       });
 
       // 4. Deliverables fulfillment targets
-      (project.deliverables || []).forEach((deliv) => {
-        const dt = formatICSDate(project.deliveryDeadline);
+      (currentProject.deliverables || []).forEach((deliv) => {
+        const dt = formatICSDate(currentProject.deliveryDeadline);
         events.push([
           'BEGIN:VEVENT',
           `UID:deliv-${deliv.id}-${dt}@costplanning.system`,
           `DTSTAMP:${nowISO}`,
           `DTSTART;VALUE=DATE:${dt}`,
-          `SUMMARY:${escapeICS(`[DELIVERABLE] ${project.code}: ${deliv.name}`)}`,
-          `DESCRIPTION:${escapeICS(`Deliverable fulfillment for ${deliv.name}.\\nSKU: ${deliv.code || deliv.id}\\nQuantity: ${deliv.quantity} ${deliv.unit}\\nQuoted Revenue: ${formatCurrency(deliv.totalRevenue || deliv.quotedPrice, project.currency)}`)}`,
+          `SUMMARY:${escapeICS(`[DELIVERABLE] ${currentProject.code}: ${deliv.name}`)}`,
+          `DESCRIPTION:${escapeICS(`Deliverable fulfillment for ${deliv.name}.\\nSKU: ${deliv.code || deliv.id}\\nQuantity: ${deliv.quantity} ${deliv.unit}\\nQuoted Revenue: ${formatCurrency(deliv.totalRevenue || deliv.quotedPrice, currentProject.currency)}`)}`,
           'STATUS:CONFIRMED',
           'CATEGORIES:DELIVERABLE,PROJECT',
           'END:VEVENT'
@@ -685,7 +693,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
       'PRODID:-//Cost and Planning Database System//Project Milestone Exporter//EN',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      `X-WR-CALNAME:${escapeICS(`${project.code} - ${targetMilestone ? targetMilestone.title : 'Milestones'}`)}`,
+      `X-WR-CALNAME:${escapeICS(`${currentProject.code} - ${targetMilestone ? targetMilestone.title : 'Milestones'}`)}`,
       `X-WR-TIMEZONE:UTC`,
       ...events,
       'END:VCALENDAR'
@@ -696,8 +704,8 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     const link = document.createElement('a');
     link.href = url;
     link.download = targetMilestone 
-      ? `${project.code}_${targetMilestone.type}_${formatICSDate(targetMilestone.date)}.ics`
-      : `${project.code}_milestones.ics`;
+      ? `${currentProject.code}_${targetMilestone.type}_${formatICSDate(targetMilestone.date)}.ics`
+      : `${currentProject.code}_milestones.ics`;
     document.body.appendChild(link);
     link.click();
     setTimeout(() => {
@@ -708,10 +716,42 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
     setIcsToast(
       targetMilestone
         ? `Exported "${targetMilestone.title}" to .ICS calendar format.`
-        : `${project.code} schedule (${events.length} milestones & deadlines) exported to .ICS. Ready for Google Calendar and Outlook!`
+        : `${currentProject.code} schedule (${events.length} milestones & deadlines) exported to .ICS. Ready for Google Calendar and Outlook!`
     );
     setTimeout(() => setIcsToast(null), 4500);
   };
+
+  // If no project is selected or available
+  if (!currentProject) {
+    return (
+      <div className="p-12 text-center bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 m-4 shadow-sm">
+        <FolderGit2 className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+        <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No project selected</h3>
+        <p className="text-slate-500 text-xs mt-1 max-w-sm mx-auto">
+          Please select a project to view its milestone calendar, phase timelines, and delivery schedule.
+        </p>
+        {projects.length > 0 && onSelectProject && (
+          <div className="mt-4 flex justify-center">
+            <select
+              onChange={(e) => {
+                const found = projects.find(p => p.id === e.target.value);
+                if (found) onSelectProject(found);
+              }}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-[#0078d4]"
+            >
+              <option value="">Select a project...</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Safe non-null reference for rendering
+  const project = currentProject;
 
   return (
     <div className="space-y-4 font-sans select-none pb-12">
