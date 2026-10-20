@@ -136,10 +136,77 @@ export const api = {
     return saved;
   },
 
-  async deleteClient(id: string): Promise<void> {
-    const res = await fetch(`/api/clients/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete client');
-    persistentDatabase.deleteClient(id);
+  async getClientById(id: string): Promise<any> {
+    const res = await fetch(`/api/clients/${id}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch client details');
+    return await res.json();
+  },
+
+  async archiveClient(id: string): Promise<any> {
+    const res = await fetch(`/api/clients/${id}/archive`, { method: 'POST' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to archive client');
+    const updated = await res.json();
+    persistentDatabase.updateClient(id, updated);
+    return updated;
+  },
+
+  async getClientProjects(clientId: string): Promise<any[]> {
+    const res = await fetch(`/api/clients/${clientId}/projects`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch client projects');
+    return await res.json();
+  },
+
+  async getClientContacts(clientId: string): Promise<any[]> {
+    const res = await fetch(`/api/clients/${clientId}/contacts`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch client contacts');
+    return await res.json();
+  },
+
+  async createClientContact(clientId: string, data: any): Promise<any> {
+    const res = await fetch(`/api/clients/${clientId}/contacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create client contact');
+    return await res.json();
+  },
+
+  async updateClientContact(clientId: string, contactId: string, data: any): Promise<any> {
+    const res = await fetch(`/api/clients/${clientId}/contacts/${contactId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update client contact');
+    return await res.json();
+  },
+
+  async deleteClientContact(clientId: string, contactId: string): Promise<void> {
+    const res = await fetch(`/api/clients/${clientId}/contacts/${contactId}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete client contact');
+  },
+
+  async getProjectClients(projectId: string): Promise<any[]> {
+    const res = await fetch(`/api/projects/${projectId}/clients`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project clients');
+    return await res.json();
+  },
+
+  async addProjectClient(projectId: string, data: any): Promise<any> {
+    const res = await fetch(`/api/projects/${projectId}/clients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to add project client');
+    return await res.json();
+  },
+
+  async removeProjectClient(projectId: string, clientId: string, relationshipType?: string): Promise<void> {
+    const url = `/api/projects/${projectId}/clients/${clientId}${relationshipType ? `?relationshipType=${encodeURIComponent(relationshipType)}` : ''}`;
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove project client');
   },
 
   // --- Categories (PostgreSQL inno_cost) ---

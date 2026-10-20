@@ -317,7 +317,7 @@ function fallbackAnalytics(projectData: any) {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -1334,16 +1334,27 @@ async function startServer() {
     }
   });
 
+  app.get('/api/clients/:id', async (req, res) => {
+    try {
+      const client = await postgresService.getClientById(req.params.id);
+      if (!client) return res.status(404).json({ error: 'Client not found' });
+      res.json(client);
+    } catch (e: any) {
+      console.error('Failed to get client:', e);
+      res.status(500).json({ error: 'Failed to fetch client details', details: e?.message });
+    }
+  });
+
   app.post('/api/clients', async (req, res) => {
     try {
-      if (!req.body || (!req.body.name && !req.body.code)) {
+      if (!req.body || (!req.body.name && !req.body.code && !req.body.clientCode)) {
         return res.status(400).json({ error: 'Client name or code is required' });
       }
       const newClient = await postgresService.createClient(req.body);
       res.status(201).json(newClient);
     } catch (e: any) {
       console.error('Failed to create client:', e);
-      res.status(500).json({ error: 'Failed to create client in PostgreSQL', details: e?.message });
+      res.status(400).json({ error: e?.message || 'Failed to create client in PostgreSQL' });
     }
   });
 
@@ -1354,17 +1365,119 @@ async function startServer() {
       res.json(updated);
     } catch (e: any) {
       console.error('Failed to update client:', e);
-      res.status(500).json({ error: 'Failed to update client', details: e?.message });
+      res.status(400).json({ error: e?.message || 'Failed to update client' });
+    }
+  });
+
+  app.post('/api/clients/:id/archive', async (req, res) => {
+    try {
+      const archived = await postgresService.archiveClient(req.params.id);
+      if (!archived) return res.status(404).json({ error: 'Client not found' });
+      res.json(archived);
+    } catch (e: any) {
+      console.error('Failed to archive client:', e);
+      res.status(500).json({ error: 'Failed to archive client', details: e?.message });
     }
   });
 
   app.delete('/api/clients/:id', async (req, res) => {
     try {
       await postgresService.deleteClient(req.params.id);
-      res.json({ success: true });
+      res.json({ success: true, message: 'Client deleted successfully' });
     } catch (e: any) {
       console.error('Failed to delete client:', e);
-      res.status(500).json({ error: 'Failed to delete client', details: e?.message });
+      res.status(400).json({ error: e?.message || 'Failed to delete client' });
+    }
+  });
+
+  app.get('/api/clients/:id/projects', async (req, res) => {
+    try {
+      const projects = await postgresService.getClientProjects(req.params.id);
+      res.json(projects);
+    } catch (e: any) {
+      console.error('Failed to get client projects:', e);
+      res.status(500).json({ error: 'Failed to fetch client projects', details: e?.message });
+    }
+  });
+
+  app.get('/api/clients/:id/contacts', async (req, res) => {
+    try {
+      const contacts = await postgresService.getClientContacts(req.params.id);
+      res.json(contacts);
+    } catch (e: any) {
+      console.error('Failed to get client contacts:', e);
+      res.status(500).json({ error: 'Failed to fetch client contacts', details: e?.message });
+    }
+  });
+
+  app.post('/api/clients/:id/contacts', async (req, res) => {
+    try {
+      if (!req.body || !req.body.name || !req.body.email) {
+        return res.status(400).json({ error: 'Contact name and email are required' });
+      }
+      const contact = await postgresService.createClientContact(req.params.id, req.body);
+      res.status(201).json(contact);
+    } catch (e: any) {
+      console.error('Failed to create client contact:', e);
+      res.status(400).json({ error: e?.message || 'Failed to create client contact' });
+    }
+  });
+
+  app.put('/api/clients/:clientId/contacts/:contactId', async (req, res) => {
+    try {
+      const updated = await postgresService.updateClientContact(req.params.contactId, req.body);
+      if (!updated) return res.status(404).json({ error: 'Contact not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update client contact:', e);
+      res.status(400).json({ error: e?.message || 'Failed to update client contact' });
+    }
+  });
+
+  app.delete('/api/clients/:clientId/contacts/:contactId', async (req, res) => {
+    try {
+      await postgresService.deleteClientContact(req.params.contactId);
+      res.json({ success: true, message: 'Contact deleted successfully' });
+    } catch (e: any) {
+      console.error('Failed to delete client contact:', e);
+      res.status(500).json({ error: 'Failed to delete client contact', details: e?.message });
+    }
+  });
+
+  app.get('/api/projects/:projectId/clients', async (req, res) => {
+    try {
+      const projectClients = await postgresService.getProjectClients(req.params.projectId);
+      res.json(projectClients);
+    } catch (e: any) {
+      console.error('Failed to get project clients:', e);
+      res.status(500).json({ error: 'Failed to fetch project clients', details: e?.message });
+    }
+  });
+
+  app.post('/api/projects/:projectId/clients', async (req, res) => {
+    try {
+      if (!req.body || (!req.body.clientId && !req.body.client_id)) {
+        return res.status(400).json({ error: 'clientId is required' });
+      }
+      const pc = await postgresService.addProjectClient(req.params.projectId, req.body);
+      res.status(201).json(pc);
+    } catch (e: any) {
+      console.error('Failed to add project client:', e);
+      res.status(400).json({ error: e?.message || 'Failed to add project client' });
+    }
+  });
+
+  app.delete('/api/projects/:projectId/clients/:clientId', async (req, res) => {
+    try {
+      await postgresService.removeProjectClient(
+        req.params.projectId,
+        req.params.clientId,
+        req.query.relationshipType as string
+      );
+      res.json({ success: true, message: 'Project client relationship removed' });
+    } catch (e: any) {
+      console.error('Failed to remove project client:', e);
+      res.status(500).json({ error: 'Failed to remove project client', details: e?.message });
     }
   });
 

@@ -487,6 +487,41 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               <span>•</span>
               <span>Updated: <strong className="text-slate-700 dark:text-slate-300">{plan.lastUpdated || plan.updatedAt?.slice(0, 10)}</strong></span>
             </div>
+
+            {/* Associated Client Banner (Requirement 13) */}
+            <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/60 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-sky-300">
+                <Building2 className="w-3.5 h-3.5 text-[#0078d4]" />
+                <span className="font-semibold text-slate-500 dark:text-slate-400">Associated Client:</span>
+                <span className="font-bold text-slate-900 dark:text-slate-100">{plan.clientName || 'General Enterprise Client'}</span>
+                {plan.clientCode && (
+                  <span className="font-mono text-[10px] px-1.5 py-0.2 bg-white dark:bg-slate-900 rounded border border-blue-200 dark:border-blue-700 text-[#0078d4]">
+                    {plan.clientCode}
+                  </span>
+                )}
+              </div>
+              {plan.clientIndustry && (
+                <span className="text-slate-500 dark:text-slate-400">
+                  Sector: <strong className="text-slate-700 dark:text-slate-300">{plan.clientIndustry}</strong>
+                </span>
+              )}
+              {plan.clientContactPerson && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Lead: <strong className="text-slate-700 dark:text-slate-300">{plan.clientContactPerson}</strong>
+                  </span>
+                </>
+              )}
+              {plan.clientEmail && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Email: <a href={`mailto:${plan.clientEmail}`} className="text-[#0078d4] hover:underline font-medium">{plan.clientEmail}</a>
+                  </span>
+                </>
+              )}
+            </div>
             {plan.description && (
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 max-w-3xl italic">{plan.description}</p>
             )}

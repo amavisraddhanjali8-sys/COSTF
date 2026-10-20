@@ -858,11 +858,22 @@ export interface BudgetaryPlan {
 
 export type ProjectPlanRecord = BudgetaryPlan;
 
+export {
+  ClientProfile,
+  ClientContact,
+  ProjectClientRelationship,
+  ClientAssociatedProject
+} from './data/categoriesAndProfiles';
+
 export interface Project {
   id: EntityId;
   code: string;
   name: string;
+  clientId?: string;
+  clientCode?: string;
   clientName: string;
+  billingClientId?: string;
+  associatedClients?: import('./data/categoriesAndProfiles').ProjectClientRelationship[];
   targetProduct: string;
   productCategory: string;
   productSubCategory: string;

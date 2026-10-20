@@ -862,32 +862,6 @@ export class PostgresService {
         CONSTRAINT uq_tariff_version UNIQUE (tariff_id, version_number)
       );
 
-      CREATE TABLE IF NOT EXISTS plan_tariffs (
-        id TEXT PRIMARY KEY,
-        plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
-        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        tariff_id TEXT NOT NULL REFERENCES tariffs(id) ON DELETE RESTRICT,
-        tariff_version_id TEXT NOT NULL REFERENCES tariff_versions(id) ON DELETE RESTRICT,
-        tariff_code TEXT NOT NULL,
-        tariff_name TEXT NOT NULL,
-        tariff_category TEXT NOT NULL,
-        calculation_method TEXT NOT NULL,
-        applicable_base TEXT NOT NULL,
-        rate_or_percentage NUMERIC(18, 4) NOT NULL,
-        fixed_charge NUMERIC(18, 4) DEFAULT 0,
-        unit TEXT DEFAULT 'unit',
-        currency TEXT NOT NULL DEFAULT 'USD',
-        effective_from DATE NOT NULL,
-        effective_to DATE,
-        base_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
-        calculated_tariff_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
-        applied_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        applied_by TEXT NOT NULL DEFAULT 'System User',
-        notes TEXT DEFAULT '',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-
       CREATE TABLE IF NOT EXISTS media_assets (
         id TEXT PRIMARY KEY,
         filename TEXT,
@@ -1056,6 +1030,32 @@ export class PostgresService {
         resource_count INT NOT NULL DEFAULT 0,
         calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS plan_tariffs (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        tariff_id TEXT NOT NULL REFERENCES tariffs(id) ON DELETE RESTRICT,
+        tariff_version_id TEXT NOT NULL REFERENCES tariff_versions(id) ON DELETE RESTRICT,
+        tariff_code TEXT NOT NULL,
+        tariff_name TEXT NOT NULL,
+        tariff_category TEXT NOT NULL,
+        calculation_method TEXT NOT NULL,
+        applicable_base TEXT NOT NULL,
+        rate_or_percentage NUMERIC(18, 4) NOT NULL,
+        fixed_charge NUMERIC(18, 4) DEFAULT 0,
+        unit TEXT DEFAULT 'unit',
+        currency TEXT NOT NULL DEFAULT 'USD',
+        effective_from DATE NOT NULL,
+        effective_to DATE,
+        base_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        calculated_tariff_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        applied_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        applied_by TEXT NOT NULL DEFAULT 'System User',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
 
     await this.seedIfEmpty();
@@ -1182,6 +1182,8 @@ export class PostgresService {
     await this.ensureMaterialCatalogueSchema();
     // Ensure system-wide barcode registry exists (Task 7)
     await this.ensureBarcodeRegistrySchema();
+    // Ensure client and project database relationships exist (Task 10)
+    await this.ensureClientProjectRelationships();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -1545,102 +1547,447 @@ export class PostgresService {
     return res.data;
   }
 
+  public async getClientById(id: string): Promise<any | null> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT * FROM clients WHERE id = $1', [id]);
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+
+    // Fetch contacts
+    const contactsRes = await db.query(
+      'SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC',
+      [id]
+    );
+    const contacts = contactsRes.rows.map((c: any) => ({
+      id: c.id,
+      clientId: c.client_id,
+      name: c.name,
+      roleOrTitle: c.role_or_title,
+      email: c.email,
+      phone: c.phone || '',
+      isPrimary: Boolean(c.is_primary),
+      isBillingContact: Boolean(c.is_billing_contact),
+      notes: c.notes || '',
+      createdAt: c.created_at,
+      updatedAt: c.updated_at
+    }));
+
+    // Fetch associated projects
+    const prjRes = await db.query(
+      `SELECT DISTINCT p.id, p.code, p.name, p.status, p.quoted_price, p.currency, p.target_margin_pct,
+              p.start_date, p.delivery_deadline, p.active_plan_id, p.created_at,
+              COALESCE(pc.relationship_type, 'Primary Client') as relationship_type,
+              COALESCE(pc.share_pct, 100) as share_pct,
+              COALESCE(pc.is_primary, (p.client_id = $1)) as is_primary
+       FROM projects p
+       LEFT JOIN project_clients pc ON pc.project_id = p.id AND pc.client_id = $1
+       WHERE p.client_id = $1 OR pc.client_id = $1
+       ORDER BY p.created_at DESC`,
+      [id]
+    );
+
+    const associatedProjects = prjRes.rows.map((p: any) => ({
+      id: p.id,
+      code: p.code,
+      name: p.name,
+      status: p.status,
+      quotedPrice: round2(p.quoted_price || 0),
+      currency: p.currency || 'USD',
+      targetMarginPct: round2(p.target_margin_pct || 25),
+      startDate: p.start_date || '',
+      deliveryDeadline: p.delivery_deadline || '',
+      activePlanId: p.active_plan_id,
+      relationshipType: p.relationship_type || 'Primary Client',
+      sharePct: Number(p.share_pct || 100),
+      isPrimary: Boolean(p.is_primary),
+      createdAt: p.created_at
+    }));
+
+    const activeCount = associatedProjects.filter(p => !['Completed', 'Archived', 'Cancelled'].includes(p.status)).length;
+    const totalVal = associatedProjects.reduce((sum, p) => decAdd(sum, p.quotedPrice), 0);
+
+    return {
+      id: r.id,
+      clientCode: r.client_code || `CLI-${r.id.slice(0, 6).toUpperCase()}`,
+      name: r.name,
+      legalName: r.legal_name || r.name,
+      taxId: r.tax_id || '',
+      tagline: r.tagline || '',
+      industry: r.industry || '',
+      location: r.location || '',
+      address: r.address || '',
+      city: r.city || '',
+      country: r.country || '',
+      status: r.status || 'Active Partner',
+      activeProjectsCount: activeCount,
+      totalQuotedValue: round2(totalVal),
+      contactPerson: r.contact_person || (contacts[0]?.name || ''),
+      email: r.email || (contacts[0]?.email || ''),
+      phone: r.phone || (contacts[0]?.phone || ''),
+      billingEmail: r.billing_email || '',
+      billingAddress: r.billing_address || '',
+      paymentTerms: r.payment_terms || 'Net 30',
+      creditLimit: round2(r.credit_limit || 0),
+      currency: r.currency || 'USD',
+      notes: r.notes || '',
+      themeId: r.theme_id || 'pacific-sky',
+      customGradient: r.custom_gradient || null,
+      contacts,
+      associatedProjects,
+      createdAt: r.created_at
+    };
+  }
+
   public async getClientsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
     const res = await db.query('SELECT * FROM clients ORDER BY created_at DESC');
-    const rows = res.rows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      tagline: r.tagline,
-      industry: r.industry,
-      location: r.location,
-      status: r.status,
-      activeProjectsCount: Number(r.active_projects_count || 0),
-      totalQuotedValue: round2(r.total_quoted_value || 0),
-      contactPerson: r.contact_person,
-      email: r.email,
-      phone: r.phone,
-      themeId: r.theme_id,
-      customGradient: r.custom_gradient,
-      createdAt: r.created_at
-    }));
-    return parseFilterPagination(rows, opts, ['name', 'industry', 'location', 'contactPerson', 'email', 'status']);
+
+    // Get all contacts grouped by client_id
+    let contactsByClient = new Map<string, any[]>();
+    try {
+      const contactsRes = await db.query('SELECT * FROM client_contacts ORDER BY is_primary DESC, created_at ASC');
+      for (const c of contactsRes.rows) {
+        const list = contactsByClient.get(c.client_id) || [];
+        list.push({
+          id: c.id,
+          clientId: c.client_id,
+          name: c.name,
+          roleOrTitle: c.role_or_title,
+          email: c.email,
+          phone: c.phone || '',
+          isPrimary: Boolean(c.is_primary),
+          isBillingContact: Boolean(c.is_billing_contact),
+          notes: c.notes || '',
+          createdAt: c.created_at
+        });
+        contactsByClient.set(c.client_id, list);
+      }
+    } catch {
+      // client_contacts table may be in creation
+    }
+
+    // Get all projects with client linkages
+    let projectsByClient = new Map<string, any[]>();
+    try {
+      const prjRes = await db.query(`
+        SELECT p.id, p.code, p.name, p.client_id, p.client_name, p.status, p.quoted_price, p.currency, p.target_margin_pct, p.start_date, p.delivery_deadline, p.active_plan_id,
+               pc.client_id as junction_client_id, pc.relationship_type
+        FROM projects p
+        LEFT JOIN project_clients pc ON pc.project_id = p.id
+      `);
+
+      for (const p of prjRes.rows) {
+        const targetClientIds = new Set<string>();
+        if (p.client_id) targetClientIds.add(p.client_id);
+        if (p.junction_client_id) targetClientIds.add(p.junction_client_id);
+
+        for (const cId of targetClientIds) {
+          const list = projectsByClient.get(cId) || [];
+          if (!list.some(existing => existing.id === p.id)) {
+            list.push({
+              id: p.id,
+              code: p.code,
+              name: p.name,
+              status: p.status,
+              quotedPrice: round2(p.quoted_price || 0),
+              currency: p.currency || 'USD',
+              targetMarginPct: round2(p.target_margin_pct || 25),
+              startDate: p.start_date || '',
+              deliveryDeadline: p.delivery_deadline || '',
+              relationshipType: p.relationship_type || 'Primary Client',
+              activePlanId: p.active_plan_id
+            });
+            projectsByClient.set(cId, list);
+          }
+        }
+      }
+    } catch {
+      // projects or project_clients table may be in creation
+    }
+
+    const rows = res.rows.map((r: any) => {
+      const clientContacts = contactsByClient.get(r.id) || [];
+      const clientProjects = projectsByClient.get(r.id) || [];
+      const activeProjectsCount = clientProjects.filter(p => !['Completed', 'Archived', 'Cancelled'].includes(p.status)).length;
+      const totalQuotedValue = clientProjects.reduce((sum, p) => decAdd(sum, p.quotedPrice), 0);
+
+      return {
+        id: r.id,
+        clientCode: r.client_code || `CLI-${r.id.slice(0, 6).toUpperCase()}`,
+        name: r.name,
+        legalName: r.legal_name || r.name,
+        taxId: r.tax_id || '',
+        tagline: r.tagline || '',
+        industry: r.industry || '',
+        location: r.location || '',
+        address: r.address || '',
+        city: r.city || '',
+        country: r.country || '',
+        status: r.status || 'Active Partner',
+        activeProjectsCount: activeProjectsCount || Number(r.active_projects_count || 0),
+        totalQuotedValue: round2(totalQuotedValue || r.total_quoted_value || 0),
+        contactPerson: r.contact_person || (clientContacts[0]?.name || ''),
+        email: r.email || (clientContacts[0]?.email || ''),
+        phone: r.phone || (clientContacts[0]?.phone || ''),
+        billingEmail: r.billing_email || '',
+        billingAddress: r.billing_address || '',
+        paymentTerms: r.payment_terms || 'Net 30',
+        creditLimit: round2(r.credit_limit || 0),
+        currency: r.currency || 'USD',
+        notes: r.notes || '',
+        themeId: r.theme_id || 'pacific-sky',
+        customGradient: r.custom_gradient || null,
+        contacts: clientContacts,
+        associatedProjects: clientProjects,
+        createdAt: r.created_at
+      };
+    });
+
+    return parseFilterPagination(rows, opts, ['name', 'clientCode', 'industry', 'location', 'contactPerson', 'email', 'status', 'tagline']);
   }
 
   public async createClient(data: any): Promise<any> {
     const db = await this.getDb();
-    const id = data.id || `cli-${Date.now()}`;
+    const id = data.id || `cli-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const name = String(data.name || 'New Client').trim();
-    const totalQuotedValue = round2(data.totalQuotedValue || 0);
+    if (!name) throw new Error('Client name is required');
+
+    // Auto-generate clientCode if not given
+    let clientCode = data.clientCode ? String(data.clientCode).trim().toUpperCase() : '';
+    if (!clientCode) {
+      const countRes = await db.query('SELECT COUNT(*) as cnt FROM clients');
+      const nextNum = Number(countRes.rows[0]?.cnt || 0) + 1;
+      clientCode = `CLI-${String(nextNum).padStart(4, '0')}`;
+      const checkCode = await db.query('SELECT id FROM clients WHERE client_code = $1', [clientCode]);
+      if (checkCode.rows.length > 0) {
+        clientCode = `CLI-${Date.now().toString().slice(-4)}`;
+      }
+    }
+
     const createdAt = data.createdAt || new Date().toISOString();
 
     await db.query(
-      `INSERT INTO clients (id, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, phone, theme_id, custom_gradient, created_at, updated_at_ts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+      `INSERT INTO clients (id, client_code, name, legal_name, tax_id, tagline, industry, location, address, city, country, status, active_projects_count, total_quoted_value, contact_person, email, phone, billing_email, billing_address, payment_terms, credit_limit, currency, notes, theme_id, custom_gradient, created_at, updated_at_ts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
+         client_code = COALESCE(EXCLUDED.client_code, clients.client_code),
+         legal_name = EXCLUDED.legal_name,
+         tax_id = EXCLUDED.tax_id,
          tagline = EXCLUDED.tagline,
          industry = EXCLUDED.industry,
          location = EXCLUDED.location,
+         address = EXCLUDED.address,
+         city = EXCLUDED.city,
+         country = EXCLUDED.country,
          status = EXCLUDED.status,
-         total_quoted_value = EXCLUDED.total_quoted_value,
          contact_person = EXCLUDED.contact_person,
          email = EXCLUDED.email,
          phone = EXCLUDED.phone,
+         billing_email = EXCLUDED.billing_email,
+         billing_address = EXCLUDED.billing_address,
+         payment_terms = EXCLUDED.payment_terms,
+         credit_limit = EXCLUDED.credit_limit,
+         currency = EXCLUDED.currency,
+         notes = EXCLUDED.notes,
          theme_id = EXCLUDED.theme_id,
          custom_gradient = EXCLUDED.custom_gradient,
          updated_at_ts = NOW()`,
       [
         id,
+        clientCode,
         name,
+        data.legalName || name,
+        data.taxId || '',
         data.tagline || '',
-        data.industry || '',
-        data.location || '',
+        data.industry || 'Commercial Enterprise',
+        data.location || 'Headquarters',
+        data.address || '',
+        data.city || '',
+        data.country || '',
         data.status || 'Active Partner',
-        Number(data.activeProjectsCount || 1),
-        totalQuotedValue,
+        0,
+        0,
         data.contactPerson || '',
         data.email || '',
         data.phone || '',
+        data.billingEmail || data.email || '',
+        data.billingAddress || data.address || '',
+        data.paymentTerms || 'Net 30',
+        round2(data.creditLimit || 0),
+        data.currency || 'USD',
+        data.notes || '',
         data.themeId || 'pacific-sky',
         data.customGradient || null,
         createdAt
       ]
     );
-    return { ...data, id, name, totalQuotedValue };
+
+    // Save contacts if supplied
+    if (Array.isArray(data.contacts) && data.contacts.length > 0) {
+      for (const ct of data.contacts) {
+        if (!ct.name || !ct.email) continue;
+        const ctId = ct.id || `ct-${id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        await db.query(
+          `INSERT INTO client_contacts (id, client_id, name, role_or_title, email, phone, is_primary, is_billing_contact, notes, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role_or_title=EXCLUDED.role_or_title, email=EXCLUDED.email, phone=EXCLUDED.phone, is_primary=EXCLUDED.is_primary, is_billing_contact=EXCLUDED.is_billing_contact, notes=EXCLUDED.notes, updated_at=NOW()`,
+          [
+            ctId,
+            id,
+            ct.name.trim(),
+            ct.roleOrTitle || 'Primary Contact',
+            ct.email.trim(),
+            ct.phone || '',
+            Boolean(ct.isPrimary),
+            Boolean(ct.isBillingContact),
+            ct.notes || ''
+          ]
+        );
+      }
+    } else if (data.contactPerson && data.email) {
+      const ctId = `ct-${id}-primary`;
+      await db.query(
+        `INSERT INTO client_contacts (id, client_id, name, role_or_title, email, phone, is_primary, is_billing_contact, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, true, true, 'Primary contact')
+         ON CONFLICT (id) DO NOTHING`,
+        [ctId, id, data.contactPerson.trim(), 'Primary Contact', data.email.trim(), data.phone || '']
+      );
+    }
+
+    return await this.getClientById(id);
   }
 
   public async updateClient(id: string, data: any): Promise<any> {
     const db = await this.getDb();
-    const existing = (await this.getClients()).find((c) => c.id === id);
+    const existing = await this.getClientById(id);
     if (!existing) return null;
+
     const merged = { ...existing, ...data };
-    const totalQuotedValue = round2(merged.totalQuotedValue || 0);
+    const name = String(merged.name || existing.name).trim();
+
     await db.query(
-      `UPDATE clients SET name=$1, tagline=$2, industry=$3, location=$4, status=$5, active_projects_count=$6, total_quoted_value=$7, contact_person=$8, email=$9, phone=$10, theme_id=$11, custom_gradient=$12, updated_at_ts=NOW() WHERE id=$13`,
+      `UPDATE clients SET
+         name=$1, client_code=COALESCE($2, client_code), legal_name=$3, tax_id=$4,
+         tagline=$5, industry=$6, location=$7, address=$8, city=$9, country=$10,
+         status=$11, contact_person=$12, email=$13, phone=$14,
+         billing_email=$15, billing_address=$16, payment_terms=$17, credit_limit=$18,
+         currency=$19, notes=$20, theme_id=$21, custom_gradient=$22, updated_at_ts=NOW()
+       WHERE id=$23`,
       [
-        merged.name,
+        name,
+        merged.clientCode || null,
+        merged.legalName || name,
+        merged.taxId || '',
         merged.tagline || '',
         merged.industry || '',
         merged.location || '',
+        merged.address || '',
+        merged.city || '',
+        merged.country || '',
         merged.status || 'Active Partner',
-        Number(merged.activeProjectsCount || 0),
-        totalQuotedValue,
         merged.contactPerson || '',
         merged.email || '',
         merged.phone || '',
+        merged.billingEmail || '',
+        merged.billingAddress || '',
+        merged.paymentTerms || 'Net 30',
+        round2(merged.creditLimit || 0),
+        merged.currency || 'USD',
+        merged.notes || '',
         merged.themeId || 'pacific-sky',
         merged.customGradient || null,
         id
       ]
     );
-    return { ...merged, totalQuotedValue };
+
+    // Keep denormalized client_name on projects in sync if name changed
+    if (name !== existing.name) {
+      await db.query('UPDATE projects SET client_name = $1 WHERE client_id = $2', [name, id]);
+    }
+
+    // Save contacts if supplied
+    if (Array.isArray(data.contacts)) {
+      for (const ct of data.contacts) {
+        if (!ct.name || !ct.email) continue;
+        const ctId = ct.id || `ct-${id}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        await db.query(
+          `INSERT INTO client_contacts (id, client_id, name, role_or_title, email, phone, is_primary, is_billing_contact, notes, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, role_or_title=EXCLUDED.role_or_title, email=EXCLUDED.email, phone=EXCLUDED.phone, is_primary=EXCLUDED.is_primary, is_billing_contact=EXCLUDED.is_billing_contact, notes=EXCLUDED.notes, updated_at=NOW()`,
+          [
+            ctId,
+            id,
+            ct.name.trim(),
+            ct.roleOrTitle || 'Primary Contact',
+            ct.email.trim(),
+            ct.phone || '',
+            Boolean(ct.isPrimary),
+            Boolean(ct.isBillingContact),
+            ct.notes || ''
+          ]
+        );
+      }
+    }
+
+    return await this.getClientById(id);
   }
 
   public async deleteClient(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query('DELETE FROM clients WHERE id=$1', [id]);
+    
+    // Check if client has associated projects (Requirement 17 & 18)
+    const checkPrj = await db.query(
+      `SELECT COUNT(DISTINCT p.id) as cnt, COUNT(DISTINCT pl.id) as plan_cnt
+       FROM projects p
+       LEFT JOIN project_plans pl ON pl.project_id = p.id
+       LEFT JOIN project_clients pc ON pc.project_id = p.id
+       WHERE p.client_id = $1 OR pc.client_id = $1`,
+      [id]
+    );
+
+    const projectCount = Number(checkPrj.rows[0]?.cnt || 0);
+    const planCount = Number(checkPrj.rows[0]?.plan_cnt || 0);
+
+    if (projectCount > 0) {
+      throw new Error(
+        `Cannot delete client: Client is linked to ${projectCount} project(s) and ${planCount} budgetary plan(s). To preserve historical quotes, plans, and financial records, archive this client instead.`
+      );
+    }
+
+    await db.query('DELETE FROM client_contacts WHERE client_id = $1', [id]);
+    await db.query('DELETE FROM project_clients WHERE client_id = $1', [id]);
+    await db.query('DELETE FROM clients WHERE id = $1', [id]);
     return true;
+  }
+
+  public async archiveClient(id: string): Promise<any> {
+    const db = await this.getDb();
+    await db.query("UPDATE clients SET status = 'Archived', updated_at_ts = NOW() WHERE id = $1", [id]);
+    return await this.getClientById(id);
+  }
+
+  public async refreshClientStats(clientId: string): Promise<void> {
+    if (!clientId) return;
+    const db = await this.getDb();
+    await db.query(
+      `UPDATE clients SET
+         active_projects_count = (
+           SELECT COUNT(DISTINCT p.id)
+           FROM projects p
+           LEFT JOIN project_clients pc ON pc.project_id = p.id
+           WHERE (p.client_id = $1 OR pc.client_id = $1)
+             AND p.status NOT IN ('Completed', 'Archived', 'Cancelled')
+         ),
+         total_quoted_value = COALESCE((
+           SELECT SUM(p.quoted_price)
+           FROM projects p
+           WHERE p.client_id = $1
+         ), 0),
+         updated_at_ts = NOW()
+       WHERE id = $1`,
+      [clientId]
+    ).catch((e) => console.warn('[PostgreSQL] refreshClientStats warning:', e.message));
   }
 
   // --- Suppliers CRUD ---
@@ -3104,7 +3451,50 @@ export class PostgresService {
 
   public async getProjectsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
-    const res = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
+    const res = await db.query(`
+      SELECT p.*,
+             c.client_code,
+             c.industry as client_industry,
+             c.location as client_location,
+             c.contact_person as client_contact_person,
+             c.email as client_email,
+             c.status as client_status
+      FROM projects p
+      LEFT JOIN clients c ON c.id = p.client_id
+      ORDER BY p.created_at DESC
+    `);
+
+    // Fetch project_clients junction table for each project
+    let clientsByProject = new Map<string, any[]>();
+    try {
+      const pcRes = await db.query(`
+        SELECT pc.*, c.name as client_name, c.client_code, c.industry, c.location, c.status as client_status
+        FROM project_clients pc
+        JOIN clients c ON c.id = pc.client_id
+        ORDER BY pc.is_primary DESC, pc.share_pct DESC
+      `);
+      for (const row of pcRes.rows) {
+        const list = clientsByProject.get(row.project_id) || [];
+        list.push({
+          id: row.id,
+          projectId: row.project_id,
+          clientId: row.client_id,
+          clientCode: row.client_code,
+          clientName: row.client_name,
+          industry: row.industry,
+          location: row.location,
+          clientStatus: row.client_status,
+          relationshipType: row.relationship_type,
+          sharePct: Number(row.share_pct || 100),
+          isPrimary: Boolean(row.is_primary),
+          notes: row.notes || ''
+        });
+        clientsByProject.set(row.project_id, list);
+      }
+    } catch {
+      // project_clients table may be initializing
+    }
+
     const allPlans = await this.getProjectPlans();
     const plansByProject = new Map<string, any[]>();
     for (const pl of allPlans) {
@@ -3120,12 +3510,27 @@ export class PostgresService {
         projectPlans.find((p) => p.isActive) ||
         projectPlans[0] ||
         null;
+      const associatedClients = clientsByProject.get(r.id) || [];
+
       return {
         id: r.id,
         code: r.code,
         name: r.name,
         clientId: r.client_id,
+        clientCode: r.client_code || '',
         clientName: r.client_name,
+        billingClientId: r.billing_client_id || r.client_id,
+        clientDetails: r.client_id ? {
+          id: r.client_id,
+          code: r.client_code,
+          name: r.client_name,
+          industry: r.client_industry,
+          location: r.client_location,
+          contactPerson: r.client_contact_person,
+          email: r.client_email,
+          status: r.client_status
+        } : null,
+        associatedClients,
         productCategory: r.product_category,
         productSubCategory: r.product_sub_category,
         moreSubCategory: r.more_sub_category,
@@ -3151,7 +3556,7 @@ export class PostgresService {
         analytics: typeof r.analytics === 'string' ? JSON.parse(r.analytics) : r.analytics || null
       };
     });
-    return parseFilterPagination(rows, opts, ['name', 'code', 'clientName', 'productCategory', 'targetProduct', 'status']);
+    return parseFilterPagination(rows, opts, ['name', 'code', 'clientName', 'clientCode', 'productCategory', 'targetProduct', 'status']);
   }
 
   public async getProjectById(id: string): Promise<any | null> {
@@ -3172,15 +3577,60 @@ export class PostgresService {
       // ignore
     }
 
+    // Determine and validate Client relationship (Requirement 4, 5, 7, 16)
+    let clientId = data.clientId || data.client_id || null;
+    let clientName = (data.clientName || data.client_name || '').trim();
+
+    if (clientId) {
+      // Validate that client reference exists before saving dependent records (Requirement 16)
+      const clientCheck = await db.query('SELECT id, name, client_code FROM clients WHERE id = $1', [clientId]);
+      if (clientCheck.rows.length === 0) {
+        throw new Error(`Invalid client reference: Client with id "${clientId}" does not exist in the database.`);
+      }
+      clientName = clientCheck.rows[0].name;
+    } else if (clientName) {
+      // Look up existing client by name to prevent duplicate clients (Requirement 7)
+      const matchClient = await db.query('SELECT id, name, client_code FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))', [clientName]);
+      if (matchClient.rows.length > 0) {
+        clientId = matchClient.rows[0].id;
+        clientName = matchClient.rows[0].name;
+      } else {
+        // Create canonical client record
+        const newCli = await this.createClient({
+          name: clientName,
+          industry: data.productCategory || 'Commercial Enterprise',
+          location: 'Corporate Partner'
+        });
+        clientId = newCli.id;
+        clientName = newCli.name;
+      }
+    } else {
+      // Default to general enterprise client
+      const defClient = await db.query("SELECT id, name FROM clients WHERE id = 'cli-default-corp' OR name = 'General Enterprise Client' LIMIT 1");
+      if (defClient.rows.length > 0) {
+        clientId = defClient.rows[0].id;
+        clientName = defClient.rows[0].name;
+      } else {
+        const newCli = await this.createClient({
+          name: 'General Enterprise Client',
+          industry: 'Commercial Enterprise'
+        });
+        clientId = newCli.id;
+        clientName = newCli.name;
+      }
+    }
+
     const quotedPrice = round2(data.quotedPrice ?? 100000);
 
     await db.query(
-      `INSERT INTO projects (id, code, name, client_id, client_name, product_category, product_sub_category, more_sub_category, target_product, quoted_price, currency, target_margin_pct, overhead_pct, contingency_pct, status, start_date, delivery_deadline, created_date, contract_locked, theme_id, custom_gradient, phases, selected_items, alternative_options, active_plan_id, notes, analytics, created_at, updated_at_ts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, NOW())
+      `INSERT INTO projects (id, code, name, client_id, client_name, billing_client_id, product_category, product_sub_category, more_sub_category, target_product, quoted_price, currency, target_margin_pct, overhead_pct, contingency_pct, status, start_date, delivery_deadline, created_date, contract_locked, theme_id, custom_gradient, phases, selected_items, alternative_options, active_plan_id, notes, analytics, created_at, updated_at_ts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, NOW())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          code = EXCLUDED.code,
+         client_id = EXCLUDED.client_id,
          client_name = EXCLUDED.client_name,
+         billing_client_id = EXCLUDED.billing_client_id,
          product_category = EXCLUDED.product_category,
          product_sub_category = EXCLUDED.product_sub_category,
          more_sub_category = EXCLUDED.more_sub_category,
@@ -3200,8 +3650,9 @@ export class PostgresService {
         id,
         code,
         data.name || 'New Project',
-        data.clientId || null,
-        data.clientName || 'Valued Client',
+        clientId,
+        clientName,
+        data.billingClientId || clientId,
         data.productCategory || '',
         data.productSubCategory || '',
         data.moreSubCategory || '',
@@ -3228,12 +3679,42 @@ export class PostgresService {
       ]
     );
 
+    // Populate project_clients junction table (Requirement 6)
+    await db.query(
+      `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary, updated_at)
+       VALUES ($1, $2, $3, 'Primary Client', 100.00, true, NOW())
+       ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET is_primary = true, updated_at = NOW()`,
+      [`pc-${id}-${clientId}-primary`, id, clientId]
+    );
+
+    // If additional client entities were specified, sync them
+    if (Array.isArray(data.associatedClients)) {
+      for (const ac of data.associatedClients) {
+        if (!ac.clientId || ac.clientId === clientId) continue;
+        await db.query(
+          `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary, notes, updated_at)
+           VALUES ($1, $2, $3, $4, $5, false, $6, NOW())
+           ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET share_pct = EXCLUDED.share_pct, notes = EXCLUDED.notes, updated_at = NOW()`,
+          [
+            `pc-${id}-${ac.clientId}-${(ac.relationshipType || 'Partner').replace(/[^a-zA-Z0-9]/g, '_')}`,
+            id,
+            ac.clientId,
+            ac.relationshipType || 'Consortium Partner',
+            round2(ac.sharePct || 50),
+            ac.notes || ''
+          ]
+        );
+      }
+    }
+
+    await this.refreshClientStats(clientId);
+
     if (Array.isArray(data.budgetaryPlans) && data.budgetaryPlans.length > 0) {
       await this.syncProjectBudgetaryPlans(id, data.budgetaryPlans, data.activePlanId);
     }
 
     const saved = (await this.getProjects()).find((p) => p.id === id);
-    return saved || { ...data, id, code, quotedPrice };
+    return saved || { ...data, id, code, clientId, clientName, quotedPrice };
   }
 
   public async updateProject(id: string, data: any): Promise<any> {
@@ -3246,12 +3727,39 @@ export class PostgresService {
 
     const merged = { ...existing, ...data };
     const quotedPrice = round2(merged.quotedPrice || 0);
+
+    // Determine and validate client
+    let clientId = merged.clientId || merged.client_id || existing.clientId;
+    let clientName = (merged.clientName || merged.client_name || existing.clientName || '').trim();
+
+    if (clientId) {
+      const clientCheck = await db.query('SELECT id, name FROM clients WHERE id = $1', [clientId]);
+      if (clientCheck.rows.length > 0) {
+        clientName = clientCheck.rows[0].name;
+      }
+    } else if (clientName) {
+      const matchClient = await db.query('SELECT id, name FROM clients WHERE LOWER(TRIM(name)) = LOWER(TRIM($1))', [clientName]);
+      if (matchClient.rows.length > 0) {
+        clientId = matchClient.rows[0].id;
+        clientName = matchClient.rows[0].name;
+      }
+    }
+
     await db.query(
-      `UPDATE projects SET code=$1, name=$2, client_name=$3, product_category=$4, product_sub_category=$5, more_sub_category=$6, target_product=$7, quoted_price=$8, currency=$9, target_margin_pct=$10, overhead_pct=$11, contingency_pct=$12, status=$13, start_date=$14, delivery_deadline=$15, contract_locked=$16, theme_id=$17, custom_gradient=$18, phases=$19, selected_items=$20, alternative_options=$21, active_plan_id=$22, notes=$23, analytics=$24, updated_at_ts=NOW() WHERE id=$25`,
+      `UPDATE projects SET
+         code=$1, name=$2, client_id=$3, client_name=$4, billing_client_id=$5,
+         product_category=$6, product_sub_category=$7, more_sub_category=$8, target_product=$9,
+         quoted_price=$10, currency=$11, target_margin_pct=$12, overhead_pct=$13, contingency_pct=$14,
+         status=$15, start_date=$16, delivery_deadline=$17, contract_locked=$18, theme_id=$19,
+         custom_gradient=$20, phases=$21, selected_items=$22, alternative_options=$23, active_plan_id=$24,
+         notes=$25, analytics=$26, updated_at_ts=NOW()
+       WHERE id=$27`,
       [
         merged.code,
         merged.name,
-        merged.clientName,
+        clientId,
+        clientName,
+        merged.billingClientId || clientId,
         merged.productCategory || '',
         merged.productSubCategory || '',
         merged.moreSubCategory || '',
@@ -3277,12 +3785,40 @@ export class PostgresService {
       ]
     );
 
+    // Update primary junction record
+    if (clientId) {
+      await db.query(
+        `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary, updated_at)
+         VALUES ($1, $2, $3, 'Primary Client', 100.00, true, NOW())
+         ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET is_primary = true, updated_at = NOW()`,
+        [`pc-${id}-${clientId}-primary`, id, clientId]
+      );
+      await this.refreshClientStats(clientId);
+    }
+    if (existing.clientId && existing.clientId !== clientId) {
+      await this.refreshClientStats(existing.clientId);
+    }
+
     if (Array.isArray(data.budgetaryPlans)) {
       await this.syncProjectBudgetaryPlans(id, data.budgetaryPlans, merged.activePlanId);
     }
 
     const updated = (await this.getProjects()).find((p) => p.id === id);
-    return updated || { ...merged, quotedPrice };
+    return updated || { ...merged, clientId, clientName, quotedPrice };
+  }
+
+  public async deleteProject(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const existing = await this.getProjectById(id);
+    const clientId = existing?.clientId;
+
+    await db.query('DELETE FROM project_clients WHERE project_id = $1', [id]);
+    await db.query('DELETE FROM projects WHERE id = $1', [id]);
+
+    if (clientId) {
+      await this.refreshClientStats(clientId);
+    }
+    return true;
   }
 
   private async syncProjectBudgetaryPlans(projectId: string, incomingPlans: any[], activePlanId?: string): Promise<void> {
@@ -3503,7 +4039,12 @@ export class PostgresService {
       projectId: r.project_id,
       projectCode: r.project_code || '',
       projectName: r.project_name || '',
+      clientId: r.client_id || '',
+      clientCode: r.client_code || '',
       clientName: r.client_name || '',
+      clientIndustry: r.client_industry || '',
+      clientContactPerson: r.client_contact_person || '',
+      clientEmail: r.client_email || '',
       name: r.name,
       description: r.description || '',
       planType: r.plan_type || 'Baseline',
@@ -3567,7 +4108,12 @@ export class PostgresService {
         pp.approval_date::text AS approval_date_iso,
         p.code AS project_code,
         p.name AS project_name,
+        p.client_id AS client_id,
         p.client_name AS client_name,
+        c.client_code AS client_code,
+        c.industry AS client_industry,
+        c.contact_person AS client_contact_person,
+        c.email AS client_email,
         p.quoted_price AS project_quoted_price,
         cs.planned_revenue AS summary_planned_revenue,
         cs.material_cost,
@@ -3588,6 +4134,7 @@ export class PostgresService {
         cs.calculated_at
       FROM project_plans pp
       INNER JOIN projects p ON p.id = pp.project_id
+      LEFT JOIN clients c ON c.id = p.client_id
       LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
       ORDER BY pp.is_active DESC, pp.is_baseline DESC, pp.updated_at DESC, pp.created_at ASC
     `);
@@ -3661,7 +4208,12 @@ export class PostgresService {
         pp.approval_date::text AS approval_date_iso,
         p.code AS project_code,
         p.name AS project_name,
+        p.client_id AS client_id,
         p.client_name AS client_name,
+        c.client_code AS client_code,
+        c.industry AS client_industry,
+        c.contact_person AS client_contact_person,
+        c.email AS client_email,
         p.quoted_price AS project_quoted_price,
         cs.planned_revenue AS summary_planned_revenue,
         cs.material_cost,
@@ -3682,6 +4234,7 @@ export class PostgresService {
         cs.calculated_at
       FROM project_plans pp
       LEFT JOIN projects p ON p.id = pp.project_id
+      LEFT JOIN clients c ON c.id = p.client_id
       LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
       WHERE pp.id = $1`,
       [planId]
@@ -3696,7 +4249,12 @@ export class PostgresService {
           pp.approval_date::text AS approval_date_iso,
           p.code AS project_code,
           p.name AS project_name,
+          p.client_id AS client_id,
           p.client_name AS client_name,
+          c.client_code AS client_code,
+          c.industry AS client_industry,
+          c.contact_person AS client_contact_person,
+          c.email AS client_email,
           p.quoted_price AS project_quoted_price,
           cs.planned_revenue AS summary_planned_revenue,
           cs.material_cost,
@@ -3717,6 +4275,7 @@ export class PostgresService {
           cs.calculated_at
         FROM project_plans pp
         LEFT JOIN projects p ON p.id = pp.project_id
+        LEFT JOIN clients c ON c.id = p.client_id
         LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
         WHERE pp.project_id = $1
         ORDER BY pp.is_active DESC, pp.is_baseline DESC, pp.created_at DESC
@@ -3757,7 +4316,12 @@ export class PostgresService {
             pp.approval_date::text AS approval_date_iso,
             p.code AS project_code,
             p.name AS project_name,
+            p.client_id AS client_id,
             p.client_name AS client_name,
+            c.client_code AS client_code,
+            c.industry AS client_industry,
+            c.contact_person AS client_contact_person,
+            c.email AS client_email,
             p.quoted_price AS project_quoted_price,
             cs.planned_revenue AS summary_planned_revenue,
             cs.material_cost,
@@ -3778,6 +4342,7 @@ export class PostgresService {
             cs.calculated_at
           FROM project_plans pp
           LEFT JOIN projects p ON p.id = pp.project_id
+          LEFT JOIN clients c ON c.id = p.client_id
           LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
           WHERE pp.id = $1`,
           [newPlanId]
@@ -10564,6 +11129,432 @@ export class PostgresService {
     } catch (e) {
       console.warn('[PostgreSQL] ensureBarcodeRegistrySchema warning:', (e as Error).message);
     }
+  }
+
+  public async ensureClientProjectRelationships(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        -- 1. Ensure clients table has all enterprise client attributes
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS client_code TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS legal_name TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS tax_id TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS address TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS city TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS country TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_email TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_address TEXT;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_terms TEXT DEFAULT 'Net 30';
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD';
+        ALTER TABLE clients ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
+
+        -- 2. Client Contacts table (multiple contacts per client)
+        CREATE TABLE IF NOT EXISTS client_contacts (
+          id TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          role_or_title TEXT DEFAULT 'Primary Contact',
+          email TEXT NOT NULL,
+          phone TEXT DEFAULT '',
+          is_primary BOOLEAN DEFAULT false,
+          is_billing_contact BOOLEAN DEFAULT false,
+          notes TEXT DEFAULT '',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_client_contacts_client_id ON client_contacts(client_id);
+        CREATE INDEX IF NOT EXISTS idx_client_contacts_email ON client_contacts(email);
+
+        -- 3. Projects client foreign keys
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS billing_client_id TEXT REFERENCES clients(id) ON DELETE RESTRICT;
+
+        -- 4. Junction Table for Multiple Client Entities / Legal Entities per Project
+        CREATE TABLE IF NOT EXISTS project_clients (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+          relationship_type TEXT NOT NULL DEFAULT 'Primary Client',
+          share_pct NUMERIC(6, 2) DEFAULT 100.00,
+          billing_contact_id TEXT REFERENCES client_contacts(id) ON DELETE SET NULL,
+          notes TEXT DEFAULT '',
+          is_primary BOOLEAN DEFAULT false,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          CONSTRAINT uq_project_client_rel UNIQUE (project_id, client_id, relationship_type)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_clients_project_id ON project_clients(project_id);
+        CREATE INDEX IF NOT EXISTS idx_project_clients_client_id ON project_clients(client_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_client_id ON projects(client_id);
+        CREATE INDEX IF NOT EXISTS idx_projects_billing_client_id ON projects(billing_client_id);
+      `);
+
+      // Populate client_code if missing
+      await db.query(`
+        UPDATE clients SET client_code = 'CLI-' || SUBSTRING(MD5(id) FROM 1 FOR 6)
+        WHERE client_code IS NULL OR client_code = ''
+      `);
+
+      // Seed primary contacts from existing clients
+      await db.query(`
+        INSERT INTO client_contacts (id, client_id, name, role_or_title, email, phone, is_primary, is_billing_contact, notes)
+        SELECT 
+          'ct-' || c.id || '-primary',
+          c.id,
+          COALESCE(NULLIF(c.contact_person, ''), c.name || ' Contact'),
+          'Primary Contact',
+          COALESCE(NULLIF(c.email, ''), 'contact@' || LOWER(REGEXP_REPLACE(c.name, '[^a-zA-Z0-9]', '', 'g')) || '.com'),
+          COALESCE(c.phone, ''),
+          true,
+          true,
+          'Primary client contact'
+        FROM clients c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM client_contacts cc WHERE cc.client_id = c.id AND cc.is_primary = true
+        )
+      `).catch(() => {});
+
+      // Data Integrity: Match existing client by name if client_id is null or missing
+      await db.query(`
+        UPDATE projects p
+        SET client_id = c.id
+        FROM clients c
+        WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c2 WHERE c2.id = p.client_id))
+          AND LOWER(TRIM(p.client_name)) = LOWER(TRIM(c.name))
+      `);
+
+      // For remaining projects with no matching client, insert canonical clients (one per unique client_name)
+      await db.query(`
+        INSERT INTO clients (id, client_code, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, created_at, created_at_ts, updated_at_ts)
+        SELECT
+          'cli-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 8),
+          'CLI-' || SUBSTRING(MD5(LOWER(TRIM(p.client_name))) FROM 1 FOR 6),
+          TRIM(p.client_name),
+          'Corporate Enterprise Partner',
+          'Commercial Enterprise',
+          'Headquarters',
+          'Active Partner',
+          0,
+          0,
+          'Account Director',
+          'contact@' || LOWER(REGEXP_REPLACE(p.client_name, '[^a-zA-Z0-9]', '', 'g')) || '.com',
+          NOW()::text,
+          NOW(),
+          NOW()
+        FROM projects p
+        WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = p.client_id))
+          AND p.client_name IS NOT NULL AND TRIM(p.client_name) != ''
+        GROUP BY TRIM(p.client_name)
+        ON CONFLICT (id) DO NOTHING
+      `);
+
+      // Link remaining projects to newly created canonical clients
+      await db.query(`
+        UPDATE projects p
+        SET client_id = c.id
+        FROM clients c
+        WHERE (p.client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c2 WHERE c2.id = p.client_id))
+          AND LOWER(TRIM(p.client_name)) = LOWER(TRIM(c.name))
+      `);
+
+      // Default fallback client if any project still has no client_id
+      await db.query(`
+        INSERT INTO clients (id, client_code, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, created_at, created_at_ts, updated_at_ts)
+        VALUES ('cli-default-corp', 'CLI-0001', 'General Enterprise Client', 'Commercial Corporate Client', 'Enterprise Systems', 'Corporate Center', 'Active Partner', 0, 0, 'Client Services', 'client-services@enterprise.com', NOW()::text, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
+      `);
+
+      await db.query(`
+        UPDATE projects
+        SET client_id = 'cli-default-corp', client_name = 'General Enterprise Client'
+        WHERE client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = projects.client_id)
+      `);
+
+      // Populate project_clients junction table
+      await db.query(`
+        INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary)
+        SELECT
+          'pc-' || p.id || '-' || p.client_id,
+          p.id,
+          p.client_id,
+          'Primary Client',
+          100.00,
+          true
+        FROM projects p
+        WHERE p.client_id IS NOT NULL
+        ON CONFLICT (project_id, client_id, relationship_type) DO NOTHING
+      `);
+
+      // Refresh stats for all clients
+      await db.query(`
+        UPDATE clients c
+        SET
+          active_projects_count = (
+            SELECT COUNT(DISTINCT p.id)
+            FROM projects p
+            WHERE p.client_id = c.id
+              AND p.status NOT IN ('Completed', 'Archived', 'Cancelled')
+          ),
+          total_quoted_value = COALESCE((
+            SELECT SUM(p.quoted_price)
+            FROM projects p
+            WHERE p.client_id = c.id
+          ), 0)
+      `);
+    } catch (e) {
+      console.warn('[PostgreSQL] ensureClientProjectRelationships warning:', (e as Error).message);
+    }
+  }
+
+  // --- Client Contacts Management ---
+  public async getClientContacts(clientId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      'SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY is_primary DESC, created_at ASC',
+      [clientId]
+    );
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      clientId: r.client_id,
+      name: r.name,
+      roleOrTitle: r.role_or_title,
+      email: r.email,
+      phone: r.phone || '',
+      isPrimary: Boolean(r.is_primary),
+      isBillingContact: Boolean(r.is_billing_contact),
+      notes: r.notes || '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  public async createClientContact(clientId: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `ct-${clientId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const name = String(data.name || '').trim();
+    const email = String(data.email || '').trim();
+    if (!name || !email) throw new Error('Contact name and email are required');
+
+    if (data.isPrimary) {
+      await db.query('UPDATE client_contacts SET is_primary = false WHERE client_id = $1', [clientId]);
+    }
+
+    await db.query(
+      `INSERT INTO client_contacts (id, client_id, name, role_or_title, email, phone, is_primary, is_billing_contact, notes, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         role_or_title = EXCLUDED.role_or_title,
+         email = EXCLUDED.email,
+         phone = EXCLUDED.phone,
+         is_primary = EXCLUDED.is_primary,
+         is_billing_contact = EXCLUDED.is_billing_contact,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()`,
+      [
+        id,
+        clientId,
+        name,
+        data.roleOrTitle || 'Contact',
+        email,
+        data.phone || '',
+        Boolean(data.isPrimary),
+        Boolean(data.isBillingContact),
+        data.notes || ''
+      ]
+    );
+
+    // If marked primary, sync to client header
+    if (data.isPrimary) {
+      await db.query(
+        'UPDATE clients SET contact_person = $1, email = $2, phone = COALESCE(NULLIF($3, \'\'), phone), updated_at_ts = NOW() WHERE id = $4',
+        [name, email, data.phone || '', clientId]
+      );
+    }
+
+    const contacts = await this.getClientContacts(clientId);
+    return contacts.find((c) => c.id === id) || { ...data, id, clientId, name, email };
+  }
+
+  public async updateClientContact(contactId: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM client_contacts WHERE id = $1', [contactId]);
+    if (existingRes.rows.length === 0) return null;
+    const existing = existingRes.rows[0];
+
+    const name = data.name ? String(data.name).trim() : existing.name;
+    const email = data.email ? String(data.email).trim() : existing.email;
+    const isPrimary = data.isPrimary !== undefined ? Boolean(data.isPrimary) : Boolean(existing.is_primary);
+
+    if (isPrimary && !existing.is_primary) {
+      await db.query('UPDATE client_contacts SET is_primary = false WHERE client_id = $1', [existing.client_id]);
+    }
+
+    await db.query(
+      `UPDATE client_contacts SET
+         name = $1,
+         role_or_title = $2,
+         email = $3,
+         phone = $4,
+         is_primary = $5,
+         is_billing_contact = $6,
+         notes = $7,
+         updated_at = NOW()
+       WHERE id = $8`,
+      [
+        name,
+        data.roleOrTitle !== undefined ? data.roleOrTitle : existing.role_or_title,
+        email,
+        data.phone !== undefined ? data.phone : existing.phone,
+        isPrimary,
+        data.isBillingContact !== undefined ? Boolean(data.isBillingContact) : Boolean(existing.is_billing_contact),
+        data.notes !== undefined ? data.notes : existing.notes,
+        contactId
+      ]
+    );
+
+    if (isPrimary) {
+      await db.query(
+        'UPDATE clients SET contact_person = $1, email = $2, phone = COALESCE(NULLIF($3, \'\'), phone), updated_at_ts = NOW() WHERE id = $4',
+        [name, email, data.phone || existing.phone || '', existing.client_id]
+      );
+    }
+
+    const contacts = await this.getClientContacts(existing.client_id);
+    return contacts.find((c) => c.id === contactId) || null;
+  }
+
+  public async deleteClientContact(contactId: string): Promise<boolean> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM client_contacts WHERE id = $1', [contactId]);
+    return true;
+  }
+
+  // --- Project Clients Junction Management ---
+  public async getProjectClients(projectId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT pc.*, c.name as client_name, c.client_code, c.industry, c.location, c.status as client_status,
+              cc.name as billing_contact_name, cc.email as billing_contact_email
+       FROM project_clients pc
+       JOIN clients c ON c.id = pc.client_id
+       LEFT JOIN client_contacts cc ON cc.id = pc.billing_contact_id
+       WHERE pc.project_id = $1
+       ORDER BY pc.is_primary DESC, pc.share_pct DESC`,
+      [projectId]
+    );
+
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      projectId: r.project_id,
+      clientId: r.client_id,
+      clientCode: r.client_code,
+      clientName: r.client_name,
+      industry: r.industry,
+      location: r.location,
+      clientStatus: r.client_status,
+      relationshipType: r.relationship_type,
+      sharePct: Number(r.share_pct || 100),
+      billingContactId: r.billing_contact_id,
+      billingContactName: r.billing_contact_name,
+      billingContactEmail: r.billing_contact_email,
+      notes: r.notes || '',
+      isPrimary: Boolean(r.is_primary),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  public async addProjectClient(projectId: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const clientId = data.clientId || data.client_id;
+    if (!clientId) throw new Error('Client ID is required');
+
+    // Verify client exists
+    const clientCheck = await db.query('SELECT id, name FROM clients WHERE id = $1', [clientId]);
+    if (clientCheck.rows.length === 0) {
+      throw new Error(`Client with ID "${clientId}" does not exist.`);
+    }
+
+    const relationshipType = data.relationshipType || 'Consortium Partner';
+    const id = data.id || `pc-${projectId}-${clientId}-${relationshipType.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    await db.query(
+      `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, billing_contact_id, notes, is_primary, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET
+         share_pct = EXCLUDED.share_pct,
+         billing_contact_id = EXCLUDED.billing_contact_id,
+         notes = EXCLUDED.notes,
+         is_primary = EXCLUDED.is_primary,
+         updated_at = NOW()`,
+      [
+        id,
+        projectId,
+        clientId,
+        relationshipType,
+        round2(data.sharePct || 100),
+        data.billingContactId || null,
+        data.notes || '',
+        Boolean(data.isPrimary)
+      ]
+    );
+
+    await this.refreshClientStats(clientId);
+    const list = await this.getProjectClients(projectId);
+    return list.find((c) => c.clientId === clientId && c.relationshipType === relationshipType) || list[0];
+  }
+
+  public async removeProjectClient(projectId: string, clientId: string, relationshipType?: string): Promise<boolean> {
+    const db = await this.getDb();
+    if (relationshipType) {
+      await db.query(
+        'DELETE FROM project_clients WHERE project_id = $1 AND client_id = $2 AND relationship_type = $3',
+        [projectId, clientId, relationshipType]
+      );
+    } else {
+      await db.query(
+        'DELETE FROM project_clients WHERE project_id = $1 AND client_id = $2',
+        [projectId, clientId]
+      );
+    }
+    await this.refreshClientStats(clientId);
+    return true;
+  }
+
+  public async getClientProjects(clientId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT DISTINCT p.id, p.code, p.name, p.status, p.quoted_price, p.currency, p.target_margin_pct,
+              p.start_date, p.delivery_deadline, p.active_plan_id, p.created_at,
+              COALESCE(pc.relationship_type, 'Primary Client') as relationship_type,
+              COALESCE(pc.share_pct, 100) as share_pct,
+              COALESCE(pc.is_primary, (p.client_id = $1)) as is_primary
+       FROM projects p
+       LEFT JOIN project_clients pc ON pc.project_id = p.id AND pc.client_id = $1
+       WHERE p.client_id = $1 OR pc.client_id = $1
+       ORDER BY p.created_at DESC`,
+      [clientId]
+    );
+
+    return res.rows.map((p: any) => ({
+      id: p.id,
+      code: p.code,
+      name: p.name,
+      status: p.status,
+      quotedPrice: round2(p.quoted_price || 0),
+      currency: p.currency || 'USD',
+      targetMarginPct: round2(p.target_margin_pct || 25),
+      startDate: p.start_date || '',
+      deliveryDeadline: p.delivery_deadline || '',
+      activePlanId: p.active_plan_id,
+      relationshipType: p.relationship_type || 'Primary Client',
+      sharePct: Number(p.share_pct || 100),
+      isPrimary: Boolean(p.is_primary),
+      createdAt: p.created_at
+    }));
   }
 
   public async getMeasurementUnits(): Promise<any[]> {

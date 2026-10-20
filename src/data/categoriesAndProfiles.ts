@@ -14,20 +14,80 @@ export interface CategoryNode {
   actionText?: string;
 }
 
+export interface ClientContact {
+  id: string;
+  clientId: string;
+  name: string;
+  roleOrTitle: string;
+  email: string;
+  phone?: string;
+  isPrimary: boolean;
+  isBillingContact?: boolean;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProjectClientRelationship {
+  id: string;
+  projectId: string;
+  clientId: string;
+  clientCode?: string;
+  clientName?: string;
+  relationshipType: 'Primary Client' | 'Billing Entity' | 'Consortium Partner' | 'Sub-contracting Entity' | 'Client Sponsor' | 'End User / Beneficiary' | string;
+  sharePct: number;
+  billingContactId?: string;
+  billingContactName?: string;
+  notes?: string;
+  isPrimary: boolean;
+  createdAt?: string;
+}
+
+export interface ClientAssociatedProject {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  quotedPrice: number;
+  currency: string;
+  targetMarginPct: number;
+  startDate?: string;
+  deliveryDeadline?: string;
+  relationshipType?: string;
+  activePlanId?: string;
+  planCount?: number;
+}
+
 export interface ClientProfile {
   id: string;
+  clientCode?: string;
   name: string;
+  legalName?: string;
+  taxId?: string;
   tagline: string;
   industry: string;
   location: string;
+  address?: string;
+  city?: string;
+  country?: string;
   status: 'Active Partner' | 'Key Account' | 'Prospective' | 'Archived' | string;
   activeProjectsCount: number;
   totalQuotedValue: number;
   contactPerson: string;
   email: string;
   phone?: string;
+  billingEmail?: string;
+  billingAddress?: string;
+  paymentTerms?: string;
+  creditLimit?: number;
+  currency?: string;
+  notes?: string;
   themeId?: string;
   customGradient?: string;
+  contacts?: ClientContact[];
+  associatedProjects?: ClientAssociatedProject[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const INITIAL_CLIENT_PROFILES: ClientProfile[] = [];
