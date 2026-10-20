@@ -50,6 +50,7 @@ import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistory
 import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
 import { persistentDatabase } from '../../services/persistentDatabase';
 import { round2 } from '../../utils/decimalMath';
+import { ApplyTariffToPlanModal } from '../tariffs/ApplyTariffToPlanModal';
 import {
   RevenueItem,
   ProjectPlanBoqItem,
@@ -57,7 +58,9 @@ import {
   Supplier,
   MaterialItem,
   OutsourcedService,
-  SubcontractorRateItem
+  SubcontractorRateItem,
+  Tariff,
+  PlanTariff
 } from '../../types';
 
 interface PlanDetailsPageProps {
@@ -81,9 +84,15 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [plan, setPlan] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'boq' | 'sections' | 'resources' | 'overheads' | 'revisions'>('boq');
+  const [activeTab, setActiveTab] = useState<'boq' | 'sections' | 'resources' | 'overheads' | 'tariffs' | 'revisions'>('boq');
   const [boqSearch, setBoqSearch] = useState('');
   const [boqTypeFilter, setBoqTypeFilter] = useState<string>('ALL');
+
+  // Tariffs allocation management state (TASK 9)
+  const [planTariffs, setPlanTariffs] = useState<PlanTariff[]>([]);
+  const [availableTariffs, setAvailableTariffs] = useState<Tariff[]>([]);
+  const [isApplyTariffModalOpen, setIsApplyTariffModalOpen] = useState(false);
+  const [deletingPlanTariffId, setDeletingPlanTariffId] = useState<string | null>(null);
 
   // Edit Metadata Modal state
   const [isEditingModalOpen, setIsEditingModalOpen] = useState(false);
@@ -180,9 +189,13 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getProjectPlanById(planId);
+      const [data, tariffsData] = await Promise.all([
+        api.getProjectPlanById(planId),
+        api.getPlanTariffs(planId).catch(() => [])
+      ]);
       if (!data) throw new Error('Plan not found in PostgreSQL database.');
       setPlan(data);
+      setPlanTariffs(tariffsData || []);
       setEditName(data.name || '');
       setEditDescription(data.description || '');
       setEditPlanType(data.planType || 'Baseline');
@@ -196,6 +209,32 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       setError(err?.message || 'Failed to load plan details from PostgreSQL');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAvailableTariffs = async () => {
+    try {
+      const list = await api.getTariffs();
+      setAvailableTariffs(list || []);
+    } catch (e) {
+      console.error('Failed to load available tariffs:', e);
+    }
+  };
+
+  const handleRemovePlanTariff = async (tariffScheduleId: string, name: string) => {
+    if (!plan) return;
+    if (!window.confirm(`Are you sure you want to remove tariff schedule "${name}" from this plan?`)) return;
+    setDeletingPlanTariffId(tariffScheduleId);
+    try {
+      await api.removePlanTariff(plan.id, tariffScheduleId);
+      showToast?.({ message: `Removed tariff "${name}" from plan.`, type: 'info' });
+      const refreshed = await api.getPlanTariffs(plan.id);
+      setPlanTariffs(refreshed || []);
+      onPlanUpdated?.();
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to remove plan tariff', type: 'error' });
+    } finally {
+      setDeletingPlanTariffId(null);
     }
   };
 
@@ -593,6 +632,17 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         >
           <TrendingUp className="w-3.5 h-3.5" />
           <span>Overhead Allocations ({(plan.overheadAllocations || []).length})</span>
+        </button>
+
+        <button
+          id="tab-plan-tariffs"
+          onClick={() => setActiveTab('tariffs')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            activeTab === 'tariffs' ? 'bg-[#0078d4] text-white' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Calculator className="w-3.5 h-3.5" />
+          <span>Applied Tariffs ({planTariffs.length})</span>
         </button>
 
         <button
@@ -1237,7 +1287,151 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         </div>
       )}
 
-      {/* 4E. REVISION HISTORY */}
+      {/* 4E. APPLIED TARIFFS (TASK 9) */}
+      {activeTab === 'tariffs' && (
+        <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-900/50">
+            <div>
+              <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <Calculator className="w-4 h-4 text-indigo-500" />
+                <span>Applied Tariff Schedules (plan_tariffs)</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                  {planTariffs.length} Active
+                </span>
+              </h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Enterprise tariff schedules applied to this plan with version-resolved rates, base amounts, and audit trail.
+              </p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                id="btn-apply-tariff-to-plan"
+                onClick={async () => {
+                  await loadAvailableTariffs();
+                  setIsApplyTariffModalOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Apply Tariff Schedule</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
+              <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-3 font-semibold">Tariff Code</th>
+                  <th className="py-2.5 px-3 font-semibold">Tariff Name & Category</th>
+                  <th className="py-2.5 px-3 font-semibold">Method & Base</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Applied Rate / Fee</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Base Amount</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Calculated Tariff</th>
+                  <th className="py-2.5 px-3 font-semibold">Effective Window</th>
+                  <th className="py-2.5 px-3 font-semibold">Notes</th>
+                  <th className="py-2.5 px-3 font-semibold text-center w-20">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                {planTariffs.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors">
+                    <td className="py-2.5 px-3 font-semibold text-indigo-600 dark:text-indigo-400">
+                      {t.tariffCode}
+                    </td>
+                    <td className="py-2.5 px-3 font-sans">
+                      <div className="font-bold text-slate-900 dark:text-slate-100">{t.tariffName}</div>
+                      <div className="text-[10px] text-slate-400">{t.tariffCategory}</div>
+                    </td>
+                    <td className="py-2.5 px-3 font-sans">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        {t.calculationMethod.replace(/_/g, ' ')}
+                      </span>
+                      <div className="text-[10px] text-slate-400 mt-0.5 font-mono">{t.applicableBase}</div>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      {t.calculationMethod === 'percentage' ? (
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{t.rateOrPercentage}%</span>
+                      ) : t.calculationMethod === 'fixed_charge' ? (
+                        <span className="font-bold">{formatCurrency(t.fixedCharge, t.currency || activeCurrency)}</span>
+                      ) : (
+                        <span>{t.rateOrPercentage}% + {formatCurrency(t.fixedCharge, t.currency || activeCurrency)}</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">
+                      {formatCurrency(t.baseAmount, t.currency || activeCurrency)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                      {formatCurrency(t.calculatedTariffAmount, t.currency || activeCurrency)}
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-[10px] text-slate-500">
+                      {t.effectiveFrom} {t.effectiveTo ? `→ ${t.effectiveTo}` : '(Ongoing)'}
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-[11px] text-slate-500 max-w-[200px] truncate" title={t.notes}>
+                      {t.notes || '-'}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePlanTariff(t.id, t.tariffName)}
+                        disabled={deletingPlanTariffId === t.id}
+                        className="p-1 text-slate-500 hover:text-rose-600 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition-colors disabled:opacity-50"
+                        title="Remove tariff from plan"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {planTariffs.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400 font-sans">
+                      <Calculator className="w-8 h-8 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
+                      <div className="font-semibold text-slate-700 dark:text-slate-300">No tariffs applied to this plan.</div>
+                      <div className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                        Tariffs are not automatically applied unless explicitly assigned to this plan. Click below to apply a tariff schedule.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await loadAvailableTariffs();
+                          setIsApplyTariffModalOpen(true);
+                        }}
+                        className="mt-3 inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shadow-2xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Apply Tariff Schedule</span>
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+
+              {planTariffs.length > 0 && (
+                <tfoot className="bg-slate-50 dark:bg-slate-900/90 font-mono border-t-2 border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <td colSpan={5} className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-slate-100 text-right">
+                      Total Applied Plan Tariffs:
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                      {formatCurrency(
+                        planTariffs.reduce((sum, item) => sum + (Number(item.calculatedTariffAmount) || 0), 0),
+                        activeCurrency
+                      )}
+                    </td>
+                    <td colSpan={3}></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 4F. REVISION HISTORY */}
       {activeTab === 'revisions' && (
         <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
           <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
@@ -1582,6 +1776,27 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             onPlanUpdated?.();
           }}
           showToast={showToast}
+        />
+      )}
+
+      {/* Apply Tariff To Plan Modal (TASK 9) */}
+      {isApplyTariffModalOpen && (
+        <ApplyTariffToPlanModal
+          isOpen={isApplyTariffModalOpen}
+          onClose={() => setIsApplyTariffModalOpen(false)}
+          planId={plan.id}
+          projectId={plan.projectId}
+          planName={plan.name}
+          projectCurrency={activeCurrency}
+          tariffs={availableTariffs}
+          onSuccess={async () => {
+            setIsApplyTariffModalOpen(false);
+            const refreshed = await api.getPlanTariffs(plan.id);
+            setPlanTariffs(refreshed || []);
+            onPlanUpdated?.();
+            showToast?.({ message: 'Applied tariff schedule to plan successfully.', type: 'success' });
+          }}
+          showToast={(msg) => showToast?.(msg)}
         />
       )}
     </div>

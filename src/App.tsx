@@ -13,6 +13,7 @@ import { ProjectHomeView } from './components/ProjectHomeView';
 import { PlanDetailsPage } from './components/project/PlanDetailsPage';
 import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
 import { RevenueCataloguePortal } from './components/revenue/RevenueCataloguePortal';
+import { TariffManagementPortal } from './components/tariffs/TariffManagementPortal';
 import { ProcurementPriceHistoryModal } from './components/pricing/ProcurementPriceHistoryModal';
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
@@ -1679,6 +1680,17 @@ export default function App() {
               setActiveTab('plan-details');
             }}
             showNotification={(msg) => showToast({ message: msg, type: 'info' })}
+          />
+        )}
+
+        {activeTab === 'tariffs-portal' && (
+          <TariffManagementPortal
+            currentUser={currentUser}
+            onNavigateToPlan={(planId) => {
+              setSelectedPlanId(planId);
+              setActiveTab('plan-details');
+            }}
+            showToast={(msg) => showToast({ message: msg, type: 'info' })}
           />
         )}
 

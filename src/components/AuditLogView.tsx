@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Shield,
   Search,
@@ -16,67 +16,92 @@ import {
   AlertCircle,
   CheckCircle2,
   Lock,
-  Terminal,
   ChevronDown,
   ChevronRight,
-  HelpCircle,
-  X,
+  ChevronLeft,
   Calendar,
   Sparkles,
-  SlidersHorizontal
+  Tag,
+  DollarSign,
+  ArrowRight,
+  FolderGit2,
+  X,
+  FileText,
+  SlidersHorizontal,
+  Code2
 } from 'lucide-react';
-import { AuditLogRecord, AppUser } from '../types';
-import { parseSmartSearch, evaluateSmartSearch, SearchableField } from '../utils/smartSearch';
+import { AuditLogRecord, AppUser, Project } from '../types';
+import { api } from '../services/api';
 
 interface AuditLogViewProps {
   currentUser: AppUser;
-  auditLogs: AuditLogRecord[];
+  auditLogs?: AuditLogRecord[];
+  projects?: Project[];
+  users?: AppUser[];
   onRefresh?: () => void;
   showToast: (msg: string) => void;
 }
 
 export const AuditLogView: React.FC<AuditLogViewProps> = ({
   currentUser,
-  auditLogs,
+  auditLogs: initialLogs = [],
+  projects = [],
+  users = [],
   onRefresh,
   showToast
 }) => {
+  // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedModule, setSelectedModule] = useState<string>('ALL');
+  const [selectedUser, setSelectedUser] = useState<string>('ALL');
   const [selectedAction, setSelectedAction] = useState<string>('ALL');
-  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
-  const [dateFilter, setDateFilter] = useState<string>('ALL'); // ALL, TODAY, WEEK, MONTH
+  const [selectedEntity, setSelectedEntity] = useState<string>('ALL');
+  const [selectedProject, setSelectedProject] = useState<string>('ALL');
+  const [selectedPlan, setSelectedPlan] = useState<string>('ALL');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [datePreset, setDatePreset] = useState<string>('ALL'); // ALL, TODAY, WEEK, MONTH
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
+
+  // Data & Expanded Row State
+  const [logs, setLogs] = useState<AuditLogRecord[]>(initialLogs);
+  const [loading, setLoading] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
-  const [showSearchTips, setShowSearchTips] = useState(false);
 
   // ACCESS GUARD: Only viewable by Admin
   if (currentUser.role !== 'ADMIN') {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-xs space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+        <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center shadow-xs space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-600 flex items-center justify-center mx-auto">
             <Lock className="w-8 h-8" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Restricted Access: System Audit Log</h2>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              Restricted Access: Enterprise Compliance Audit Log
+            </h2>
             <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-              Under corporate compliance and security protocols, the system audit trail is classified and strictly viewable only by <strong className="text-slate-800">Administrators</strong>.
+              Under corporate compliance and security protocols, the system audit trail is classified and strictly viewable only by <strong className="text-slate-800 dark:text-slate-200">Administrators</strong>.
             </p>
           </div>
 
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-left text-xs max-w-sm mx-auto space-y-2">
+          <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-left text-xs max-w-sm mx-auto space-y-2">
             <div className="flex justify-between">
-              <span className="text-slate-500">Your Current Session:</span>
-              <span className="font-semibold text-slate-800">{currentUser.name}</span>
+              <span className="text-slate-500">Your Session:</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">{currentUser.name}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Employee ID:</span>
-              <span className="font-mono text-slate-700">{currentUser.employeeId}</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">{currentUser.employeeId}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Assigned Role:</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800">
-                Project Manager
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
+                {currentUser.role}
               </span>
             </div>
           </div>
@@ -89,514 +114,652 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({
     );
   }
 
-  // Smart Search & Filter Evaluation
-  const parsedQuery = useMemo(() => parseSmartSearch(searchQuery), [searchQuery]);
+  // Fetch paginated audit logs from server
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      // Calculate effective date range if preset is active
+      let effectiveFrom = fromDate;
+      let effectiveTo = toDate;
+      const todayStr = new Date().toISOString().slice(0, 10);
 
-  const filteredLogs = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (datePreset === 'TODAY') {
+        effectiveFrom = todayStr;
+        effectiveTo = todayStr;
+      } else if (datePreset === 'WEEK') {
+        effectiveFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        effectiveTo = todayStr;
+      } else if (datePreset === 'MONTH') {
+        effectiveFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        effectiveTo = todayStr;
+      }
 
-    return auditLogs.filter(log => {
-      // 1. Module filter
-      if (selectedModule !== 'ALL' && log.module !== selectedModule) return false;
+      const res = await api.getAuditLogsPaginated({
+        page: currentPage,
+        limit: pageSize,
+        search: searchQuery.trim() || undefined,
+        actorId: selectedUser !== 'ALL' ? selectedUser : undefined,
+        action: selectedAction !== 'ALL' ? selectedAction : undefined,
+        entityType: selectedEntity !== 'ALL' ? selectedEntity : undefined,
+        projectId: selectedProject !== 'ALL' ? selectedProject : undefined,
+        planId: selectedPlan !== 'ALL' ? selectedPlan : undefined,
+        fromDate: effectiveFrom || undefined,
+        toDate: effectiveTo || undefined
+      });
 
-      // 2. Action filter
-      if (selectedAction !== 'ALL' && log.action !== selectedAction) return false;
+      if (res && Array.isArray(res.data)) {
+        setLogs(res.data);
+        setTotalCount(res.total);
+        setTotalPages(res.totalPages || 1);
+      }
+    } catch (err: any) {
+      console.warn('Could not fetch server audit logs, falling back to cached:', err);
+      if (initialLogs.length > 0) {
+        setLogs(initialLogs);
+        setTotalCount(initialLogs.length);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      // 3. Status filter
-      if (selectedStatus !== 'ALL' && log.status !== selectedStatus) return false;
+  useEffect(() => {
+    void fetchLogs();
+  }, [
+    currentPage,
+    pageSize,
+    selectedUser,
+    selectedAction,
+    selectedEntity,
+    selectedProject,
+    selectedPlan,
+    datePreset,
+    fromDate,
+    toDate
+  ]);
 
-      // 4. Date filter
-      const logDate = (log.timestamp || '').slice(0, 10);
-      if (dateFilter === 'TODAY' && logDate !== todayStr) return false;
-      if (dateFilter === 'WEEK' && logDate < oneWeekAgo) return false;
-      if (dateFilter === 'MONTH' && logDate < oneMonthAgo) return false;
+  // Debounced search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentPage(1);
+      void fetchLogs();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-      // 5. Smart search evaluation
-      if (!parsedQuery.raw) return true;
+  // Unique lists for filter dropdowns
+  const availableUsers = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users) map.set(u.id, u.name);
+    for (const l of logs) if (l.actorId && l.actorName) map.set(l.actorId, l.actorName);
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [users, logs]);
 
-      const fields: SearchableField[] = [
-        { name: 'actor', value: log.actorName, weight: 2 },
-        { name: 'actorname', value: log.actorName, weight: 2 },
-        { name: 'actorid', value: log.actorId, weight: 3 },
-        { name: 'employeeid', value: log.actorId, weight: 3 },
-        { name: 'role', value: log.actorRole, weight: 1 },
-        { name: 'action', value: log.action, weight: 2 },
-        { name: 'module', value: log.module, weight: 2 },
-        { name: 'recordid', value: log.recordId || '', weight: 3 },
-        { name: 'code', value: log.recordId || '', weight: 3 },
-        { name: 'sku', value: log.recordId || '', weight: 3 },
-        { name: 'recordname', value: log.recordName || '', weight: 2 },
-        { name: 'name', value: log.recordName || '', weight: 2 },
-        { name: 'details', value: log.details || '', weight: 1 },
-        { name: 'ip', value: log.ipAddress || '', weight: 1 },
-        { name: 'ipaddress', value: log.ipAddress || '', weight: 1 },
-        { name: 'status', value: log.status, weight: 1 },
-        { name: 'timestamp', value: log.timestamp, weight: 1 }
-      ];
+  const availableActions = [
+    'ALL',
+    'UPDATE_PLAN_SELLING_RATE',
+    'UPDATE_PROJECT_PLAN',
+    'CREATE_PROJECT',
+    'CREATE_PROJECT_PLAN',
+    'ADD_PLAN_BOQ_ITEM',
+    'DELETE_PLAN_BOQ_ITEM',
+    'UPDATE_COMMERCIAL_RATE',
+    'CREATE_TARIFF',
+    'UPDATE_TARIFF',
+    'CREATE_TARIFF_VERSION',
+    'APPLY_TARIFF_TO_PLAN',
+    'REMOVE_TARIFF_FROM_PLAN',
+    'UPDATE_OVERHEAD_ALLOCATION',
+    'UPDATE_MATERIAL',
+    'RECORD_SUPPLIER_QUOTATION',
+    'INVENTORY_IN',
+    'INVENTORY_OUT',
+    'USER_LOGIN',
+    'USER_CREATED'
+  ];
 
-      const res = evaluateSmartSearch(parsedQuery, fields);
-      return res.matches;
-    });
-  }, [auditLogs, selectedModule, selectedAction, selectedStatus, dateFilter, parsedQuery]);
+  const availableEntities = [
+    'ALL',
+    'PlanBoqItem',
+    'ProjectPlan',
+    'Project',
+    'Tariff',
+    'TariffVersion',
+    'PlanTariff',
+    'RevenueItem',
+    'Material',
+    'SupplierQuotation',
+    'OverheadAllocation',
+    'Inventory',
+    'User'
+  ];
 
-  // Export audit log to CSV
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSelectedUser('ALL');
+    setSelectedAction('ALL');
+    setSelectedEntity('ALL');
+    setSelectedProject('ALL');
+    setSelectedPlan('ALL');
+    setFromDate('');
+    setToDate('');
+    setDatePreset('ALL');
+    setCurrentPage(1);
+  };
+
+  // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Timestamp', 'Actor ID', 'Actor Name', 'Actor Role', 'Action', 'Module', 'Record ID', 'Record Name', 'Details', 'IP Address', 'Status'];
-    const rows = filteredLogs.map(l => [
+    const headers = [
+      'Audit Event ID',
+      'Timestamp',
+      'Actor ID',
+      'Actor Name',
+      'Actor Role',
+      'Action Type',
+      'Entity Type',
+      'Entity ID',
+      'Project ID',
+      'Plan ID',
+      'Change Reason',
+      'Details',
+      'IP Address',
+      'Status'
+    ];
+    const rows = logs.map(l => [
+      `"${l.id}"`,
       `"${l.timestamp}"`,
       `"${l.actorId}"`,
       `"${l.actorName}"`,
       `"${l.actorRole}"`,
-      `"${l.action}"`,
-      `"${l.module}"`,
-      `"${l.recordId || ''}"`,
-      `"${(l.recordName || '').replace(/"/g, '""')}"`,
+      `"${l.actionType || l.action}"`,
+      `"${l.entityType || l.module}"`,
+      `"${l.entityId || l.recordId || ''}"`,
+      `"${l.projectId || ''}"`,
+      `"${l.planId || ''}"`,
+      `"${(l.changeReason || '').replace(/"/g, '""')}"`,
       `"${(l.details || '').replace(/"/g, '""')}"`,
-      `"${l.ipAddress}"`,
+      `"${l.ipAddress || '127.0.0.1'}"`,
       `"${l.status}"`
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `FXTT_Audit_Log_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Enterprise_Audit_Trail_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
-    showToast('Audit log transcript exported to CSV.');
+    document.body.removeChild(link);
+    showToast('Audit trail exported to CSV.');
   };
 
-  // Quick Preset Handlers
-  const applyPreset = (type: string) => {
-    switch (type) {
-      case 'inventory':
-        setSelectedModule('Inventory');
-        setSelectedAction('ALL');
-        setDateFilter('ALL');
-        break;
-      case 'pricing':
-        setSelectedModule('ALL');
-        setSelectedAction('PRICE_UPDATE');
-        setDateFilter('ALL');
-        break;
-      case 'security':
-        setSelectedModule('Auth');
-        setSelectedAction('ALL');
-        setDateFilter('ALL');
-        break;
-      case 'users':
-        setSelectedModule('Users');
-        setSelectedAction('ALL');
-        setDateFilter('ALL');
-        break;
-      case 'today':
-        setSelectedModule('ALL');
-        setSelectedAction('ALL');
-        setDateFilter('TODAY');
-        break;
-      case 'reset':
-        setSelectedModule('ALL');
-        setSelectedAction('ALL');
-        setSelectedStatus('ALL');
-        setDateFilter('ALL');
-        setSearchQuery('');
-        break;
-      default:
-        break;
-    }
-  };
-
-  // Get action styling
   const getActionBadge = (action: string) => {
-    switch (action) {
-      case 'INVENTORY_IN':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <ArrowDownLeft className="w-3 h-3" />
-            <span>INVENTORY IN</span>
-          </span>
-        );
-      case 'INVENTORY_OUT':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-            <ArrowUpRight className="w-3 h-3" />
-            <span>INVENTORY OUT</span>
-          </span>
-        );
-      case 'PRICE_UPDATE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-            <span>PRICE REVISION</span>
-          </span>
-        );
-      case 'USER_CREATED':
-      case 'USER_APPROVED':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-            <User className="w-3 h-3" />
-            <span>USER PROVISIONED</span>
-          </span>
-        );
-      case 'USER_LOGIN':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-            <Lock className="w-3 h-3" />
-            <span>AUTH LOGIN</span>
-          </span>
-        );
-      case 'USER_LOGOUT':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-            <Lock className="w-3 h-3" />
-            <span>AUTH LOGOUT</span>
-          </span>
-        );
-      case 'SETTINGS_UPDATE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200">
-            <Settings className="w-3 h-3" />
-            <span>CONFIG UPDATE</span>
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-            <span>{action}</span>
-          </span>
-        );
+    if (action.includes('SELLING_RATE') || action.includes('COMMERCIAL')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          <DollarSign className="w-3 h-3 text-amber-500" />
+          <span>{action}</span>
+        </span>
+      );
     }
+    if (action.includes('TARIFF')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+          <Tag className="w-3 h-3 text-purple-500" />
+          <span>{action}</span>
+        </span>
+      );
+    }
+    if (action.includes('PLAN') || action.includes('PROJECT')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+          <FolderGit2 className="w-3 h-3 text-blue-500" />
+          <span>{action}</span>
+        </span>
+      );
+    }
+    if (action.includes('INVENTORY')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+          <Package className="w-3 h-3 text-emerald-500" />
+          <span>{action}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+        <span>{action}</span>
+      </span>
+    );
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
-      {/* Header Banner - Simple UI design like Home Tab */}
-      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 sm:p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center space-x-2.5">
-          <div className="p-2 rounded-lg bg-[#0078d4]/10 text-[#0078d4]">
-            <Shield className="w-4 h-4" />
+      {/* Header Banner */}
+      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-xs shrink-0">
+            <Shield className="w-6 h-6 text-amber-400" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                Audit Trail
-              </h2>
-              <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[10px] font-bold rounded">
-                Admin
+              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                Enterprise Regulatory Audit Trail
+              </h1>
+              <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold rounded">
+                PostgreSQL Immutable
               </span>
             </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Comprehensive trace of financial rates, selling price changes, tariff versions, and enterprise project mutations.
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 shrink-0">
           <button
             type="button"
             onClick={handleExportCSV}
-            className="px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer flex items-center space-x-1"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center space-x-1.5"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
+            <Download className="w-3.5 h-3.5 text-amber-400" />
+            <span>Export Audit CSV</span>
           </button>
 
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={() => {
-                onRefresh();
-                showToast('Audit trail refreshed.');
-              }}
-              className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg shadow-2xs transition-colors cursor-pointer"
-              title="Refresh"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              void fetchLogs();
+              showToast('Audit trail refreshed.');
+            }}
+            className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs transition-colors cursor-pointer"
+            title="Refresh logs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
-      {/* Quick Filter Presets - Simple Words */}
+      {/* Date Presets Row */}
       <div className="flex items-center gap-1.5 flex-wrap text-xs">
-        <button
-          onClick={() => applyPreset('reset')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            selectedModule === 'ALL' && selectedAction === 'ALL' && dateFilter === 'ALL'
-              ? 'bg-[#0078d4] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          All
-        </button>
-        <button
-          onClick={() => applyPreset('today')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            dateFilter === 'TODAY'
-              ? 'bg-[#0078d4] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Today
-        </button>
-        <button
-          onClick={() => applyPreset('inventory')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            selectedModule === 'Inventory'
-              ? 'bg-[#0078d4] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Inventory
-        </button>
-        <button
-          onClick={() => applyPreset('pricing')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            selectedAction === 'PRICE_UPDATE'
-              ? 'bg-[#0078d4] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Pricing
-        </button>
-        <button
-          onClick={() => applyPreset('users')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            selectedModule === 'Users'
-              ? 'bg-[#003049] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Users
-        </button>
-        <button
-          onClick={() => applyPreset('security')}
-          className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-            selectedModule === 'Auth'
-              ? 'bg-[#003049] text-white'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          Auth
-        </button>
-        {(selectedModule !== 'ALL' || selectedAction !== 'ALL' || selectedStatus !== 'ALL' || dateFilter !== 'ALL' || searchQuery) && (
+        <span className="text-[11px] font-semibold text-slate-400 mr-1 flex items-center space-x-1">
+          <Calendar className="w-3 h-3" />
+          <span>Timeline:</span>
+        </span>
+        {['ALL', 'TODAY', 'WEEK', 'MONTH'].map((preset) => (
           <button
-            onClick={() => applyPreset('reset')}
-            className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all inline-flex items-center gap-1 ml-auto cursor-pointer"
+            key={preset}
+            type="button"
+            onClick={() => {
+              setDatePreset(preset);
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              datePreset === preset
+                ? 'bg-amber-600 text-white shadow-2xs'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+            }`}
           >
-            <X className="w-3 h-3" /> Reset
+            {preset === 'ALL' ? 'All Time' : preset === 'TODAY' ? 'Today' : preset === 'WEEK' ? 'Last 7 Days' : 'Last 30 Days'}
+          </button>
+        ))}
+
+        <div className="flex items-center space-x-1.5 ml-2">
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              setDatePreset('CUSTOM');
+              setCurrentPage(1);
+            }}
+            className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-[11px] bg-white dark:bg-slate-900"
+            title="From Date"
+          />
+          <span className="text-slate-400 text-xs">to</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              setDatePreset('CUSTOM');
+              setCurrentPage(1);
+            }}
+            className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 text-[11px] bg-white dark:bg-slate-900"
+            title="To Date"
+          />
+        </div>
+
+        {(searchQuery || selectedUser !== 'ALL' || selectedAction !== 'ALL' || selectedEntity !== 'ALL' || selectedProject !== 'ALL' || selectedPlan !== 'ALL' || datePreset !== 'ALL') && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="px-2.5 py-1 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all inline-flex items-center gap-1 ml-auto cursor-pointer"
+          >
+            <X className="w-3 h-3" /> Reset Filters
           </button>
         )}
       </div>
 
-      {/* Filter & Search Bar - Simple UI */}
-      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Simple Search */}
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search audit trail..."
-              className="w-full pl-9 pr-8 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0078d4]"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+      {/* Structured Filter Controls Bar */}
+      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search audit events by action, reason, actor name, user ID, details, or record..."
+            className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Multi-Dimensional Filter Dropdowns (User, Action, Entity, Project, Plan) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 text-xs">
+          {/* User / Actor Filter */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+              Actor / User
+            </label>
+            <select
+              value={selectedUser}
+              onChange={(e) => {
+                setSelectedUser(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+            >
+              <option value="ALL">All Actors</option>
+              {availableUsers.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.name} ({u.id})
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Module Selector */}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-slate-500 font-medium text-[11px]">Module:</span>
-            <div className="inline-flex h-8 p-0.5 bg-slate-100 rounded-lg border border-slate-200 shadow-2xs">
-              {['ALL', 'Inventory', 'Materials', 'Users', 'Settings', 'Auth'].map((mod) => (
-                <button
-                  key={mod}
-                  type="button"
-                  onClick={() => setSelectedModule(mod)}
-                  className={`px-2.5 h-full rounded-md text-[11px] font-medium cursor-pointer transition-all ${
-                    selectedModule === mod
-                      ? 'bg-white text-slate-900 font-semibold shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {mod}
-                </button>
-              ))}
-            </div>
-
-            <span className="text-slate-300 mx-1">|</span>
-
-            {/* Action Selector */}
-            <span className="text-slate-500 text-[11px]">Action:</span>
+          {/* Action Type Filter */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+              Action Type
+            </label>
             <select
               value={selectedAction}
-              onChange={(e) => setSelectedAction(e.target.value)}
-              className="h-8 px-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003049]"
+              onChange={(e) => {
+                setSelectedAction(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
             >
-              <option value="ALL">All Actions</option>
-              <option value="INVENTORY_IN">Inventory IN</option>
-              <option value="INVENTORY_OUT">Inventory OUT</option>
-              <option value="PRICE_UPDATE">Price Update</option>
-              <option value="USER_CREATED">User Created</option>
-              <option value="USER_APPROVED">User Approved</option>
-              <option value="SETTINGS_UPDATE">Settings Update</option>
-              <option value="USER_LOGIN">User Login</option>
-              <option value="USER_LOGOUT">User Logout</option>
+              {availableActions.map(act => (
+                <option key={act} value={act}>
+                  {act === 'ALL' ? 'All Action Types' : act}
+                </option>
+              ))}
             </select>
+          </div>
 
-            {/* Date Window */}
+          {/* Entity Type Filter */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+              Entity Type
+            </label>
             <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="h-8 px-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003049]"
+              value={selectedEntity}
+              onChange={(e) => {
+                setSelectedEntity(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
             >
-              <option value="ALL">All Time</option>
-              <option value="TODAY">Today Only</option>
-              <option value="WEEK">Past 7 Days</option>
-              <option value="MONTH">Past 30 Days</option>
+              {availableEntities.map(ent => (
+                <option key={ent} value={ent}>
+                  {ent === 'ALL' ? 'All Entities' : ent}
+                </option>
+              ))}
             </select>
+          </div>
 
-            <span className="ml-auto text-[11px] text-slate-500 font-mono">
-              {filteredLogs.length} / {auditLogs.length} entries
-            </span>
+          {/* Related Project Filter */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+              Related Project
+            </label>
+            <select
+              value={selectedProject}
+              onChange={(e) => {
+                setSelectedProject(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+            >
+              <option value="ALL">All Projects</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  [{p.code || p.id}] {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Related Plan Filter */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+              Plan ID / Filter
+            </label>
+            <input
+              type="text"
+              value={selectedPlan === 'ALL' ? '' : selectedPlan}
+              onChange={(e) => {
+                setSelectedPlan(e.target.value.trim() ? e.target.value.trim() : 'ALL');
+                setCurrentPage(1);
+              }}
+              placeholder="e.g. plan-123..."
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-mono"
+            />
           </div>
         </div>
       </div>
 
-      {/* LIST VIEW UI OF AUDIT RECORDS */}
-      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs">
+      {/* Main Audit Trail Table */}
+      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-800 dark:text-slate-200">
-            <thead className="bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 uppercase text-[10px] border-b border-slate-200 dark:border-slate-800 font-semibold">
-              <tr>
-                <th className="py-2.5 px-3 whitespace-nowrap">Time</th>
-                <th className="py-2.5 px-3">Actor</th>
-                <th className="py-2.5 px-3">Action</th>
-                <th className="py-2.5 px-3">Module</th>
-                <th className="py-2.5 px-3">Record</th>
-                <th className="py-2.5 px-3 min-w-[240px]">Details</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">IP</th>
-                <th className="py-2.5 px-3 text-right">Status</th>
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 font-bold uppercase text-[10px]">
+                <th className="py-3 px-4 w-10"></th>
+                <th className="py-3 px-4">Event Timestamp</th>
+                <th className="py-3 px-4">Actor</th>
+                <th className="py-3 px-4">Action & Entity</th>
+                <th className="py-3 px-4">Project & Plan</th>
+                <th className="py-3 px-4">Audit Details & Reason</th>
+                <th className="py-3 px-4 text-center">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredLogs.length === 0 ? (
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+              {loading && logs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400 italic">
-                    No records found.
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
+                    <span>Loading audit records from PostgreSQL...</span>
+                  </td>
+                </tr>
+              ) : logs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <Shield className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+                    <p className="font-semibold text-slate-600 dark:text-slate-400">No audit records match filters</p>
+                    <p className="text-[11px] text-slate-400 mt-1">Try resetting search criteria or broadening date bounds.</p>
                   </td>
                 </tr>
               ) : (
-                filteredLogs.map((log) => {
+                logs.map((log) => {
                   const isExpanded = expandedLogId === log.id;
+                  const hasBeforeAfter = Boolean(log.beforeState || log.afterState);
+
                   return (
                     <React.Fragment key={log.id}>
                       <tr
                         onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                        className={`hover:bg-slate-50/80 transition-colors cursor-pointer ${
-                          isExpanded ? 'bg-sky-50/40' : ''
+                        className={`hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition-colors cursor-pointer ${
+                          isExpanded ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
                         }`}
                       >
-                        <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-500">
-                          <div className="flex items-center gap-1.5">
-                            {isExpanded ? (
-                              <ChevronDown className="w-3 h-3 text-slate-400" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3 text-slate-400" />
-                            )}
-                            <Clock className="w-3 h-3 text-slate-400" />
-                            <span>{log.timestamp}</span>
+                        {/* Toggle Icon */}
+                        <td className="py-3 px-3 text-center text-slate-400">
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-amber-600" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </td>
+
+                        {/* Timestamp */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="font-mono text-[11px] text-slate-800 dark:text-slate-200">
+                            {(log.timestamp || '').replace('T', ' ').slice(0, 19)}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            {log.id}
                           </div>
                         </td>
 
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <div className="font-semibold text-slate-900">{log.actorName}</div>
-                          <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-                            <span>{log.actorId}</span>
-                            <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
-                              log.actorRole === 'ADMIN' ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'
-                            }`}>
-                              {log.actorRole === 'ADMIN' ? 'ADM' : 'PM'}
+                        {/* Actor */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="font-bold text-slate-800 dark:text-slate-200">
+                            {log.actorName || 'System'}
+                          </div>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span className="font-mono text-[10px] text-slate-400">
+                              {log.actorId}
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {log.actorRole}
                             </span>
                           </div>
                         </td>
 
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          {getActionBadge(log.action)}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                            {log.module}
-                          </span>
-                        </td>
-
-                        <td className="py-2.5 px-3">
-                          {log.recordName ? (
-                            <div>
-                              <div className="font-medium text-slate-900 truncate max-w-[180px]">
-                                {log.recordName}
-                              </div>
-                              {log.recordId && (
-                                <div className="text-[10px] text-slate-400 font-mono">
-                                  {log.recordId}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic font-mono text-[11px]">{log.recordId || '—'}</span>
-                          )}
-                        </td>
-
-                        <td className="py-2.5 px-3 text-slate-700 leading-relaxed text-[11px]">
-                          {log.details}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-[11px] text-slate-500 font-mono">
-                          <div className="flex items-center gap-1">
-                            <Terminal className="w-3 h-3 text-slate-400" />
-                            <span>{log.ipAddress}</span>
+                        {/* Action & Entity */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center space-x-1.5">
+                            {getActionBadge(log.actionType || log.action)}
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-semibold mt-1">
+                            {log.entityType || log.module}: <span className="font-mono text-slate-700 dark:text-slate-300">{log.entityId || log.recordId || '—'}</span>
                           </div>
                         </td>
 
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Verified</span>
+                        {/* Project & Plan */}
+                        <td className="py-3 px-4">
+                          {log.projectId ? (
+                            <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                              Project: <span className="font-mono text-blue-600 dark:text-blue-400">{log.projectId}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                          {log.planId && (
+                            <div className="text-[10px] text-slate-500 font-mono">
+                              Plan: {log.planId}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Details & Change Reason */}
+                        <td className="py-3 px-4 max-w-md">
+                          <div className="text-slate-700 dark:text-slate-300 line-clamp-2">
+                            {log.details}
+                          </div>
+                          {log.changeReason && (
+                            <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">
+                              Reason: {log.changeReason}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            log.status === 'Success'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                          }`}>
+                            {log.status}
                           </span>
                         </td>
                       </tr>
 
-                      {/* Expandable row detail */}
+                      {/* Expanded Before-and-After & Metadata Drawer */}
                       {isExpanded && (
-                        <tr className="bg-slate-50/70 border-b border-slate-200">
-                          <td colSpan={8} className="px-6 py-3">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+                        <tr className="bg-slate-50/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800">
+                          <td colSpan={7} className="p-4 pl-12 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Before State */}
+                              <div className="p-3.5 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                                <div className="flex items-center space-x-1.5 text-slate-500 text-[10px] font-bold uppercase">
+                                  <Clock className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Before Mutation State</span>
+                                </div>
+                                {log.beforeState ? (
+                                  <pre className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-800 dark:text-slate-200 overflow-x-auto border border-slate-200 dark:border-slate-800">
+                                    {JSON.stringify(log.beforeState, null, 2)}
+                                  </pre>
+                                ) : (
+                                  <div className="text-[11px] text-slate-400 italic py-2">
+                                    No prior state (Initial creation or record creation event).
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* After State */}
+                              <div className="p-3.5 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                                <div className="flex items-center space-x-1.5 text-slate-500 text-[10px] font-bold uppercase">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>After Mutation State (Applied)</span>
+                                </div>
+                                {log.afterState ? (
+                                  <pre className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 font-mono text-[11px] text-slate-800 dark:text-slate-200 overflow-x-auto border border-slate-200 dark:border-slate-800">
+                                    {JSON.stringify(log.afterState, null, 2)}
+                                  </pre>
+                                ) : (
+                                  <div className="text-[11px] text-slate-400 italic py-2">
+                                    No direct after-state snapshot recorded.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Additional Context & Metadata */}
+                            <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] flex flex-wrap items-center gap-4 text-slate-500">
                               <div>
-                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Audit Identifier:</span>
-                                <span className="text-slate-800 font-semibold">{log.id}</span>
+                                <span>Event ID:</span> <strong className="font-mono text-slate-700 dark:text-slate-300">{log.id}</strong>
                               </div>
                               <div>
-                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Full Action Descriptor:</span>
-                                <span className="text-slate-800 font-semibold">{log.action} ({log.module})</span>
+                                <span>Actor User ID:</span> <strong className="font-mono text-slate-700 dark:text-slate-300">{log.actorId}</strong>
                               </div>
                               <div>
-                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Network Origin:</span>
-                                <span className="text-slate-800">{log.ipAddress} (Authenticated Secure Node)</span>
+                                <span>IP Address:</span> <strong className="font-mono text-slate-700 dark:text-slate-300">{log.ipAddress || '127.0.0.1'}</strong>
                               </div>
-                              <div className="md:col-span-3 pt-2 border-t border-slate-200/80">
-                                <span className="text-slate-400 block text-[10px] uppercase font-bold">Operational Context & Parameters:</span>
-                                <p className="text-slate-700 text-xs mt-1 font-sans bg-white p-2 rounded border border-slate-200">
-                                  {log.details}
-                                </p>
-                              </div>
+                              {log.requestId && (
+                                <div>
+                                  <span>Correlation ID:</span> <strong className="font-mono text-slate-700 dark:text-slate-300">{log.requestId}</strong>
+                                </div>
+                              )}
+                              {log.metadata && Object.keys(log.metadata).length > 0 && (
+                                <div className="w-full mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                  <span className="font-bold">Contextual Metadata:</span>{' '}
+                                  <code className="text-slate-700 dark:text-slate-300">{JSON.stringify(log.metadata)}</code>
+                                </div>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -609,17 +772,51 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({
           </table>
         </div>
 
-        {/* Footer pagination info */}
-        <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-          <div>
-            Showing <strong className="text-slate-800">{filteredLogs.length}</strong> of <strong className="text-slate-800">{auditLogs.length}</strong> immutable system records
+        {/* Pagination Bar */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="text-slate-500 text-[11px]">
+            Showing <strong className="text-slate-800 dark:text-slate-200">{logs.length}</strong> of{' '}
+            <strong className="text-slate-800 dark:text-slate-200">{totalCount}</strong> audit events • Page{' '}
+            <strong className="text-slate-800 dark:text-slate-200">{currentPage}</strong> of{' '}
+            <strong className="text-slate-800 dark:text-slate-200">{totalPages}</strong>
           </div>
-          <div className="text-[11px] text-slate-400">
-            All records cryptographically stamped and synchronized across sessions
+
+          <div className="flex items-center space-x-2">
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-[11px]"
+            >
+              <option value="25">25 per page</option>
+              <option value="50">50 per page</option>
+              <option value="100">100 per page</option>
+            </select>
+
+            <button
+              type="button"
+              disabled={currentPage <= 1 || loading}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold disabled:opacity-40 cursor-pointer flex items-center space-x-1"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Prev</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={currentPage >= totalPages || loading}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-semibold disabled:opacity-40 cursor-pointer flex items-center space-x-1"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 };
-

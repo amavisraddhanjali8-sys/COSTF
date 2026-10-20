@@ -60,9 +60,13 @@ export interface ListQueryOptions {
   costStage?: string;
   itemType?: string;
   itemId?: string;
-  currency?: string;
   projectPlanId?: string;
   planId?: string;
+  actorId?: string;
+  actionType?: string;
+  tariffId?: string;
+  calculationMethod?: string;
+  applicableBase?: string;
 }
 
 export interface PaginatedResult<T> {
@@ -796,6 +800,92 @@ export class PostgresService {
         ip_address TEXT,
         status TEXT DEFAULT 'Success',
         created_at_ts TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS action_type TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_type TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS project_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS plan_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS correlation_id TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS change_reason TEXT;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS before_state JSONB DEFAULT NULL;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS after_state JSONB DEFAULT NULL;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS diff JSONB DEFAULT NULL;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+      ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;
+
+      CREATE TABLE IF NOT EXISTS tariffs (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        calculation_method TEXT NOT NULL DEFAULT 'percentage',
+        rate_or_percentage NUMERIC(18, 4) NOT NULL DEFAULT 0,
+        fixed_charge NUMERIC(18, 4) DEFAULT 0,
+        unit TEXT NOT NULL DEFAULT 'unit',
+        applicable_base TEXT NOT NULL DEFAULT 'material_cost',
+        currency TEXT NOT NULL DEFAULT 'USD',
+        effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+        effective_to DATE,
+        status TEXT NOT NULL DEFAULT 'Active',
+        source_reference TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT 'System User',
+        updated_by TEXT NOT NULL DEFAULT 'System User',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS tariff_versions (
+        id TEXT PRIMARY KEY,
+        tariff_id TEXT NOT NULL REFERENCES tariffs(id) ON DELETE CASCADE,
+        tariff_code TEXT NOT NULL,
+        version_number INT NOT NULL DEFAULT 1,
+        rate_or_percentage NUMERIC(18, 4) NOT NULL DEFAULT 0,
+        fixed_charge NUMERIC(18, 4) DEFAULT 0,
+        calculation_method TEXT NOT NULL DEFAULT 'percentage',
+        applicable_base TEXT NOT NULL DEFAULT 'material_cost',
+        unit TEXT NOT NULL DEFAULT 'unit',
+        currency TEXT NOT NULL DEFAULT 'USD',
+        effective_from DATE NOT NULL,
+        effective_to DATE,
+        status TEXT NOT NULL DEFAULT 'Active',
+        source_reference TEXT DEFAULT '',
+        change_reason TEXT DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT 'System User',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_tariff_version UNIQUE (tariff_id, version_number)
+      );
+
+      CREATE TABLE IF NOT EXISTS plan_tariffs (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        tariff_id TEXT NOT NULL REFERENCES tariffs(id) ON DELETE RESTRICT,
+        tariff_version_id TEXT NOT NULL REFERENCES tariff_versions(id) ON DELETE RESTRICT,
+        tariff_code TEXT NOT NULL,
+        tariff_name TEXT NOT NULL,
+        tariff_category TEXT NOT NULL,
+        calculation_method TEXT NOT NULL,
+        applicable_base TEXT NOT NULL,
+        rate_or_percentage NUMERIC(18, 4) NOT NULL,
+        fixed_charge NUMERIC(18, 4) DEFAULT 0,
+        unit TEXT DEFAULT 'unit',
+        currency TEXT NOT NULL DEFAULT 'USD',
+        effective_from DATE NOT NULL,
+        effective_to DATE,
+        base_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        calculated_tariff_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+        applied_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        applied_by TEXT NOT NULL DEFAULT 'System User',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
       CREATE TABLE IF NOT EXISTS media_assets (
@@ -5790,7 +5880,7 @@ export class PostgresService {
     });
   }
 
-  // --- Audit Logs CRUD ---
+  // --- Audit Logs CRUD & Immutability (TASK 9) ---
   public async getAuditLogs(opts?: ListQueryOptions): Promise<any[]> {
     const res = await this.getAuditLogsPaginated(opts);
     return res.data;
@@ -5798,48 +5888,1149 @@ export class PostgresService {
 
   public async getAuditLogsPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
-    const res = await db.query('SELECT * FROM audit_logs ORDER BY created_at_ts DESC, timestamp DESC LIMIT 1000');
-    const rows = res.rows.map((r: any) => ({
+    const page = Math.max(1, Number(opts?.page || 1));
+    const limit = Math.max(1, Math.min(500, Number(opts?.limit || 50)));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (opts?.actorId && opts.actorId !== 'ALL') {
+      conditions.push(`actor_id = $${paramIdx++}`);
+      params.push(opts.actorId);
+    }
+    if (opts?.action && opts.action !== 'ALL') {
+      conditions.push(`(action = $${paramIdx} OR action_type = $${paramIdx})`);
+      paramIdx++;
+      params.push(opts.action);
+    }
+    if (opts?.actionType && opts.actionType !== 'ALL') {
+      conditions.push(`(action_type = $${paramIdx} OR action = $${paramIdx})`);
+      paramIdx++;
+      params.push(opts.actionType);
+    }
+    if (opts?.module && opts.module !== 'ALL') {
+      conditions.push(`module = $${paramIdx++}`);
+      params.push(opts.module);
+    }
+    if (opts?.entityType && opts.entityType !== 'ALL') {
+      conditions.push(`entity_type = $${paramIdx++}`);
+      params.push(opts.entityType);
+    }
+    if (opts?.entityId && opts.entityId !== 'ALL') {
+      conditions.push(`(entity_id = $${paramIdx} OR record_id = $${paramIdx})`);
+      paramIdx++;
+      params.push(opts.entityId);
+    }
+    if (opts?.projectId && opts.projectId !== 'ALL') {
+      conditions.push(`project_id = $${paramIdx++}`);
+      params.push(opts.projectId);
+    }
+    if (opts?.planId && opts.planId !== 'ALL') {
+      conditions.push(`plan_id = $${paramIdx++}`);
+      params.push(opts.planId);
+    }
+    if (opts?.status && opts.status !== 'ALL') {
+      conditions.push(`status = $${paramIdx++}`);
+      params.push(opts.status);
+    }
+    if (opts?.fromDate) {
+      conditions.push(`(timestamp >= $${paramIdx} OR created_at_ts >= $${paramIdx}::date)`);
+      paramIdx++;
+      params.push(opts.fromDate);
+    }
+    if (opts?.toDate) {
+      conditions.push(`(timestamp <= ($${paramIdx} || ' 23:59:59') OR created_at_ts <= ($${paramIdx}::date + INTERVAL '1 day'))`);
+      paramIdx++;
+      params.push(opts.toDate);
+    }
+    if (opts?.search && opts.search.trim()) {
+      const s = `%${opts.search.trim().toLowerCase()}%`;
+      conditions.push(`(
+        LOWER(action) LIKE $${paramIdx} OR
+        LOWER(COALESCE(action_type, '')) LIKE $${paramIdx} OR
+        LOWER(module) LIKE $${paramIdx} OR
+        LOWER(COALESCE(entity_type, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(entity_id, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(record_name, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(actor_name, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(actor_id, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(details, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(change_reason, '')) LIKE $${paramIdx}
+      )`);
+      paramIdx++;
+      params.push(s);
+    }
+
+    const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countRes = await db.query(`SELECT COUNT(*)::int as total FROM audit_logs ${whereSql}`, params);
+    const total = Number(countRes.rows[0]?.total || 0);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    const dataQuery = `
+      SELECT * FROM audit_logs
+      ${whereSql}
+      ORDER BY created_at_ts DESC, timestamp DESC
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+    `;
+    const dataRes = await db.query(dataQuery, [...params, limit, offset]);
+
+    const data = dataRes.rows.map((r: any) => ({
       id: r.id,
       timestamp: r.timestamp,
+      createdAtTs: r.created_at_ts ? new Date(r.created_at_ts).toISOString() : r.timestamp,
       actorId: r.actor_id,
       actorName: r.actor_name,
       actorRole: r.actor_role,
       action: r.action,
+      actionType: r.action_type || r.action,
       module: r.module,
-      recordId: r.record_id,
+      entityType: r.entity_type || r.module,
+      entityId: r.entity_id || r.record_id,
+      recordId: r.record_id || r.entity_id,
       recordName: r.record_name,
+      projectId: r.project_id,
+      planId: r.plan_id,
+      requestId: r.request_id,
+      correlationId: r.correlation_id,
+      changeReason: r.change_reason,
+      beforeState: typeof r.before_state === 'string' ? JSON.parse(r.before_state) : r.before_state,
+      afterState: typeof r.after_state === 'string' ? JSON.parse(r.after_state) : r.after_state,
+      diff: typeof r.diff === 'string' ? JSON.parse(r.diff) : r.diff,
+      metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata || {}),
+      userAgent: r.user_agent,
       details: r.details,
       ipAddress: r.ip_address,
       status: r.status
     }));
-    return parseFilterPagination(rows, opts, ['actorName', 'actorId', 'action', 'module', 'recordId', 'recordName', 'details']);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages
+    };
   }
 
-  public async createAuditLog(data: any): Promise<any> {
-    const db = await this.getDb();
-    const id = data.id || `log-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+  public async createAuditLog(
+    data: any,
+    txQuery?: (sql: string, params?: any[]) => Promise<any>
+  ): Promise<any> {
+    const q = txQuery || (await this.getDb()).query.bind(await this.getDb());
+    const id = data.id || `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const timestamp = data.timestamp || new Date().toISOString();
-    await db.query(
-      `INSERT INTO audit_logs (id, timestamp, actor_id, actor_name, actor_role, action, module, record_id, record_name, details, ip_address, status, created_at_ts)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-       ON CONFLICT (id) DO NOTHING`,
+    const actorId = String(data.actorId || 'usr-system');
+    const actorName = String(data.actorName || 'System User');
+    const actorRole = String(data.actorRole || 'ADMIN');
+    const action = String(data.action || data.actionType || 'SYSTEM_EVENT');
+    const actionType = String(data.actionType || action);
+    const module = String(data.module || 'System');
+    const entityType = String(data.entityType || module);
+    const entityId = String(data.entityId || data.recordId || '');
+    const recordId = data.recordId ? String(data.recordId) : entityId;
+    const recordName = data.recordName ? String(data.recordName) : '';
+    const projectId = data.projectId ? String(data.projectId) : null;
+    const planId = data.planId ? String(data.planId) : null;
+    const requestId = data.requestId ? String(data.requestId) : null;
+    const correlationId = data.correlationId ? String(data.correlationId) : null;
+    const changeReason = String(data.changeReason || data.reason || '');
+
+    // Scrub sensitive credentials, keys, passwords, and tokens
+    const sanitizeObj = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(sanitizeObj);
+      const clean: Record<string, any> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (/password|token|secret|mfa|auth|cookie|hash|salt|key/i.test(k)) {
+          clean[k] = '[REDACTED]';
+        } else if (v && typeof v === 'object') {
+          clean[k] = sanitizeObj(v);
+        } else {
+          clean[k] = v;
+        }
+      }
+      return clean;
+    };
+
+    const beforeState = data.beforeState ? sanitizeObj(data.beforeState) : null;
+    const afterState = data.afterState ? sanitizeObj(data.afterState) : null;
+    const diff = data.diff ? sanitizeObj(data.diff) : null;
+    const metadata = data.metadata ? sanitizeObj(data.metadata) : {};
+    const userAgent = String(data.userAgent || '');
+    const details = typeof data.details === 'string' ? data.details : JSON.stringify(data.details || '');
+    const ipAddress = String(data.ipAddress || '127.0.0.1');
+    const status = String(data.status || 'Success');
+
+    await q(
+      `INSERT INTO audit_logs (
+        id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+        entity_type, entity_id, record_id, record_name, project_id, plan_id,
+        request_id, correlation_id, change_reason, before_state, after_state, diff,
+        metadata, user_agent, details, ip_address, status, created_at_ts
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14,
+        $15, $16, $17, $18, $19, $20,
+        $21, $22, $23, $24, $25, NOW()
+      ) ON CONFLICT (id) DO NOTHING`,
       [
         id,
         timestamp,
-        data.actorId || 'usr-admin',
-        data.actorName || 'System Auditor',
-        data.actorRole || 'ADMIN',
-        data.action || 'SYSTEM_EVENT',
-        data.module || 'System',
-        data.recordId || '',
-        data.recordName || '',
-        data.details || '',
-        data.ipAddress || '127.0.0.1',
-        data.status || 'Success'
+        actorId,
+        actorName,
+        actorRole,
+        action,
+        actionType,
+        module,
+        entityType,
+        entityId,
+        recordId,
+        recordName,
+        projectId,
+        planId,
+        requestId,
+        correlationId,
+        changeReason,
+        beforeState ? JSON.stringify(beforeState) : null,
+        afterState ? JSON.stringify(afterState) : null,
+        diff ? JSON.stringify(diff) : null,
+        JSON.stringify(metadata),
+        userAgent,
+        details,
+        ipAddress,
+        status
       ]
     );
-    return { ...data, id, timestamp };
+
+    return {
+      id,
+      timestamp,
+      actorId,
+      actorName,
+      actorRole,
+      action,
+      actionType,
+      module,
+      entityType,
+      entityId,
+      recordId,
+      recordName,
+      projectId,
+      planId,
+      requestId,
+      correlationId,
+      changeReason,
+      beforeState,
+      afterState,
+      diff,
+      metadata,
+      userAgent,
+      details,
+      ipAddress,
+      status
+    };
+  }
+
+  // ============================================================================
+  // ENTERPRISE TARIFF MANAGEMENT METHODS (TASK 9)
+  // ============================================================================
+
+  public async getTariffs(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    const page = Math.max(1, Number(opts?.page || 1));
+    const limit = Math.max(1, Math.min(200, Number(opts?.limit || 50)));
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (opts?.category && opts.category !== 'ALL') {
+      conditions.push(`LOWER(t.category) = LOWER($${paramIdx++})`);
+      params.push(opts.category);
+    }
+    if (opts?.status && opts.status !== 'ALL') {
+      conditions.push(`t.status = $${paramIdx++}`);
+      params.push(opts.status);
+    }
+    if (opts?.calculationMethod && opts.calculationMethod !== 'ALL') {
+      conditions.push(`t.calculation_method = $${paramIdx++}`);
+      params.push(opts.calculationMethod);
+    }
+    if (opts?.applicableBase && opts.applicableBase !== 'ALL') {
+      conditions.push(`t.applicable_base = $${paramIdx++}`);
+      params.push(opts.applicableBase);
+    }
+    if (opts?.search && opts.search.trim()) {
+      const s = `%${opts.search.trim().toLowerCase()}%`;
+      conditions.push(`(
+        LOWER(t.code) LIKE $${paramIdx} OR
+        LOWER(t.name) LIKE $${paramIdx} OR
+        LOWER(t.category) LIKE $${paramIdx} OR
+        LOWER(COALESCE(t.description, '')) LIKE $${paramIdx} OR
+        LOWER(COALESCE(t.source_reference, '')) LIKE $${paramIdx}
+      )`);
+      paramIdx++;
+      params.push(s);
+    }
+
+    const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countRes = await db.query(`SELECT COUNT(*)::int as total FROM tariffs t ${whereSql}`, params);
+    const total = Number(countRes.rows[0]?.total || 0);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    const query = `
+      SELECT t.*,
+        (SELECT COUNT(*)::int FROM tariff_versions tv WHERE tv.tariff_id = t.id) as versions_count,
+        (SELECT COUNT(*)::int FROM plan_tariffs pt WHERE pt.tariff_id = t.id) as applied_plans_count
+      FROM tariffs t
+      ${whereSql}
+      ORDER BY t.created_at DESC, t.code ASC
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+    `;
+
+    const dataRes = await db.query(query, [...params, limit, offset]);
+
+    const data = await Promise.all(
+      dataRes.rows.map(async (r: any) => {
+        // Fetch current active version
+        const curVerRes = await db.query(
+          `SELECT * FROM tariff_versions
+           WHERE tariff_id = $1 AND status = 'Active'
+           ORDER BY effective_from DESC, version_number DESC LIMIT 1`,
+          [r.id]
+        );
+        const curVer = curVerRes.rows[0] || null;
+
+        return {
+          id: r.id,
+          code: r.code,
+          name: r.name,
+          category: r.category,
+          calculationMethod: r.calculation_method,
+          rateOrPercentage: Number(r.rate_or_percentage || 0),
+          fixedCharge: Number(r.fixed_charge || 0),
+          unit: r.unit,
+          applicableBase: r.applicable_base,
+          currency: r.currency || 'USD',
+          effectiveFrom: r.effective_from ? String(r.effective_from).slice(0, 10) : '',
+          effectiveTo: r.effective_to ? String(r.effective_to).slice(0, 10) : null,
+          status: r.status,
+          sourceReference: r.source_reference || '',
+          description: r.description || '',
+          notes: r.notes || '',
+          createdBy: r.created_by,
+          updatedBy: r.updated_by,
+          createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+          versionsCount: Number(r.versions_count || 1),
+          appliedPlansCount: Number(r.applied_plans_count || 0),
+          currentVersion: curVer ? {
+            id: curVer.id,
+            tariffId: curVer.tariff_id,
+            tariffCode: curVer.tariff_code,
+            versionNumber: Number(curVer.version_number),
+            rateOrPercentage: Number(curVer.rate_or_percentage || 0),
+            fixedCharge: Number(curVer.fixed_charge || 0),
+            calculationMethod: curVer.calculation_method,
+            applicableBase: curVer.applicable_base,
+            unit: curVer.unit,
+            currency: curVer.currency,
+            effectiveFrom: curVer.effective_from ? String(curVer.effective_from).slice(0, 10) : '',
+            effectiveTo: curVer.effective_to ? String(curVer.effective_to).slice(0, 10) : null,
+            status: curVer.status,
+            sourceReference: curVer.source_reference,
+            changeReason: curVer.change_reason,
+            notes: curVer.notes,
+            createdBy: curVer.created_by,
+            createdAt: curVer.created_at ? new Date(curVer.created_at).toISOString() : new Date().toISOString()
+          } : undefined
+        };
+      })
+    );
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages
+    };
+  }
+
+  public async getTariffById(id: string): Promise<any | null> {
+    const db = await this.getDb();
+    const tRes = await db.query('SELECT * FROM tariffs WHERE id = $1 OR code = $1', [id]);
+    if (tRes.rows.length === 0) return null;
+    const r = tRes.rows[0];
+
+    const vRes = await db.query(
+      'SELECT * FROM tariff_versions WHERE tariff_id = $1 ORDER BY version_number DESC, effective_from DESC',
+      [r.id]
+    );
+
+    const versions = vRes.rows.map((v: any) => ({
+      id: v.id,
+      tariffId: v.tariff_id,
+      tariffCode: v.tariff_code,
+      versionNumber: Number(v.version_number),
+      rateOrPercentage: Number(v.rate_or_percentage || 0),
+      fixedCharge: Number(v.fixed_charge || 0),
+      calculationMethod: v.calculation_method,
+      applicableBase: v.applicable_base,
+      unit: v.unit,
+      currency: v.currency,
+      effectiveFrom: v.effective_from ? String(v.effective_from).slice(0, 10) : '',
+      effectiveTo: v.effective_to ? String(v.effective_to).slice(0, 10) : null,
+      status: v.status,
+      sourceReference: v.source_reference || '',
+      changeReason: v.change_reason || '',
+      notes: v.notes || '',
+      createdBy: v.created_by,
+      createdAt: v.created_at ? new Date(v.created_at).toISOString() : new Date().toISOString()
+    }));
+
+    const appliedRes = await db.query('SELECT COUNT(*)::int as cnt FROM plan_tariffs WHERE tariff_id = $1', [r.id]);
+
+    return {
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      category: r.category,
+      calculationMethod: r.calculation_method,
+      rateOrPercentage: Number(r.rate_or_percentage || 0),
+      fixedCharge: Number(r.fixed_charge || 0),
+      unit: r.unit,
+      applicableBase: r.applicable_base,
+      currency: r.currency || 'USD',
+      effectiveFrom: r.effective_from ? String(r.effective_from).slice(0, 10) : '',
+      effectiveTo: r.effective_to ? String(r.effective_to).slice(0, 10) : null,
+      status: r.status,
+      sourceReference: r.source_reference || '',
+      description: r.description || '',
+      notes: r.notes || '',
+      createdBy: r.created_by,
+      updatedBy: r.updated_by,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      versionsCount: versions.length,
+      appliedPlansCount: Number(appliedRes.rows[0]?.cnt || 0),
+      versions,
+      currentVersion: versions[0] || null
+    };
+  }
+
+  public async createTariff(data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const id = data.id || `trf-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const code = String(data.code || `TRF-${Date.now().toString().slice(-6)}`).trim().toUpperCase();
+      const name = String(data.name || '').trim();
+      if (!name) {
+        throw Object.assign(new Error('Tariff name is required'), { status: 400 });
+      }
+
+      // Check code uniqueness
+      const dup = await q('SELECT id FROM tariffs WHERE code = $1', [code]);
+      if (dup.rows.length > 0) {
+        throw Object.assign(new Error(`Tariff code '${code}' already exists`), { status: 409 });
+      }
+
+      const category = String(data.category || 'Surface Finishing').trim();
+      const calculationMethod = String(data.calculationMethod || 'percentage');
+      const rateOrPercentage = round4(Number(data.rateOrPercentage ?? data.rate ?? 0));
+      const fixedCharge = round4(Number(data.fixedCharge ?? 0));
+      const unit = String(data.unit || 'unit').trim();
+      const applicableBase = String(data.applicableBase || 'material_cost');
+      const currency = String(data.currency || 'USD');
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const effectiveFrom = formatSqlDate(data.effectiveFrom, todayIso);
+      const effectiveTo = data.effectiveTo ? formatSqlDate(data.effectiveTo, '') : null;
+      const status = String(data.status || 'Active');
+      const sourceReference = String(data.sourceReference || '');
+      const description = String(data.description || '');
+      const notes = String(data.notes || '');
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+
+      // 1. Insert master tariff record
+      await q(
+        `INSERT INTO tariffs (
+          id, code, name, category, calculation_method, rate_or_percentage, fixed_charge,
+          unit, applicable_base, currency, effective_from, effective_to, status,
+          source_reference, description, notes, created_by, updated_by, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11::date, $12::date, $13,
+          $14, $15, $16, $17, $18, NOW(), NOW()
+        )`,
+        [
+          id, code, name, category, calculationMethod, rateOrPercentage, fixedCharge,
+          unit, applicableBase, currency, effectiveFrom, effectiveTo, status,
+          sourceReference, description, notes, actorName, actorName
+        ]
+      );
+
+      // 2. Insert initial version 1
+      const versionId = `trfv-${id}-v1`;
+      await q(
+        `INSERT INTO tariff_versions (
+          id, tariff_id, tariff_code, version_number, rate_or_percentage, fixed_charge,
+          calculation_method, applicable_base, unit, currency, effective_from, effective_to,
+          status, source_reference, change_reason, notes, created_by, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, 1, $4, $5,
+          $6, $7, $8, $9, $10::date, $11::date,
+          'Active', $12, $13, $14, $15, NOW(), NOW()
+        )`,
+        [
+          versionId, id, code, rateOrPercentage, fixedCharge,
+          calculationMethod, applicableBase, unit, currency, effectiveFrom, effectiveTo,
+          sourceReference, data.changeReason || 'Initial baseline tariff version', notes, actorName
+        ]
+      );
+
+      // 3. Record audit log in same transaction
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, change_reason, after_state, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'CREATE_TARIFF', 'CREATE_TARIFF', 'Tariffs',
+          'Tariff', $6, $6, $7, $8, $9, $10, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          id,
+          name,
+          data.changeReason || 'Created enterprise tariff definition',
+          JSON.stringify({ code, name, category, calculationMethod, rateOrPercentage, fixedCharge, effectiveFrom, effectiveTo }),
+          `Created tariff schedule '${code}' - ${name} (${rateOrPercentage} ${unit})`
+        ]
+      );
+
+      return {
+        id,
+        code,
+        name,
+        category,
+        calculationMethod,
+        rateOrPercentage,
+        fixedCharge,
+        unit,
+        applicableBase,
+        currency,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        sourceReference,
+        description,
+        notes,
+        createdBy: actorName,
+        updatedBy: actorName,
+        versionsCount: 1
+      };
+    });
+  }
+
+  public async updateTariff(id: string, data: any, actor?: { id?: string; name?: string; role?: string }): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const curRes = await q('SELECT * FROM tariffs WHERE id = $1 FOR UPDATE', [id]);
+      if (curRes.rows.length === 0) {
+        throw Object.assign(new Error(`Tariff '${id}' not found`), { status: 404 });
+      }
+      const existing = curRes.rows[0];
+
+      const name = data.name !== undefined ? String(data.name).trim() : existing.name;
+      const category = data.category !== undefined ? String(data.category).trim() : existing.category;
+      const description = data.description !== undefined ? String(data.description) : (existing.description || '');
+      const status = data.status !== undefined ? String(data.status) : existing.status;
+      const sourceReference = data.sourceReference !== undefined ? String(data.sourceReference) : (existing.source_reference || '');
+      const notes = data.notes !== undefined ? String(data.notes) : (existing.notes || '');
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+
+      await q(
+        `UPDATE tariffs SET
+          name = $1, category = $2, description = $3, status = $4,
+          source_reference = $5, notes = $6, updated_by = $7, updated_at = NOW()
+         WHERE id = $8`,
+        [name, category, description, status, sourceReference, notes, actorName, id]
+      );
+
+      // Record audit event in same transaction
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, change_reason, before_state, after_state, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'UPDATE_TARIFF', 'UPDATE_TARIFF', 'Tariffs',
+          'Tariff', $6, $6, $7, $8, $9, $10, $11, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          id,
+          name,
+          data.changeReason || 'Updated tariff master definition',
+          JSON.stringify({ name: existing.name, category: existing.category, status: existing.status }),
+          JSON.stringify({ name, category, status }),
+          `Updated tariff master '${existing.code}': status ${existing.status} -> ${status}`
+        ]
+      );
+
+      return {
+        id,
+        code: existing.code,
+        name,
+        category,
+        status,
+        description,
+        sourceReference,
+        notes,
+        updatedBy: actorName
+      };
+    });
+  }
+
+  /**
+   * Create a new historical Tariff Version (Requirements 15, 16, 17, 18).
+   * Does NOT overwrite past rates. Retains all versions for historical audit.
+   */
+  public async createTariffVersion(
+    tariffId: string,
+    data: any,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const curRes = await q('SELECT * FROM tariffs WHERE id = $1 FOR UPDATE', [tariffId]);
+      if (curRes.rows.length === 0) {
+        throw Object.assign(new Error(`Tariff '${tariffId}' not found`), { status: 404 });
+      }
+      const tariff = curRes.rows[0];
+
+      // Find max version number
+      const vCountRes = await q(
+        'SELECT COALESCE(MAX(version_number), 0) as max_v FROM tariff_versions WHERE tariff_id = $1',
+        [tariffId]
+      );
+      const nextVersionNumber = Number(vCountRes.rows[0]?.max_v || 0) + 1;
+
+      // Find previous active version
+      const prevVerRes = await q(
+        `SELECT * FROM tariff_versions WHERE tariff_id = $1 ORDER BY version_number DESC LIMIT 1`,
+        [tariffId]
+      );
+      const prevVer = prevVerRes.rows[0] || null;
+
+      const rateOrPercentage = round4(Number(data.rateOrPercentage ?? data.rate ?? tariff.rate_or_percentage ?? 0));
+      const fixedCharge = round4(Number(data.fixedCharge ?? tariff.fixed_charge ?? 0));
+      const calculationMethod = String(data.calculationMethod || tariff.calculation_method || 'percentage');
+      const applicableBase = String(data.applicableBase || tariff.applicable_base || 'material_cost');
+      const unit = String(data.unit || tariff.unit || 'unit');
+      const currency = String(data.currency || tariff.currency || 'USD');
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const effectiveFrom = formatSqlDate(data.effectiveFrom, todayIso);
+      const effectiveTo = data.effectiveTo ? formatSqlDate(data.effectiveTo, '') : null;
+      const status = String(data.status || 'Active');
+      const sourceReference = String(data.sourceReference || tariff.source_reference || '');
+      const changeReason = String(data.changeReason || `New tariff version ${nextVersionNumber} schedule adjustment`);
+      const notes = String(data.notes || '');
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+
+      // If previous version was open-ended (effective_to is null) and earlier than new effectiveFrom,
+      // close previous version effective_to to the day before new effectiveFrom (Requirement 17, 18)
+      if (prevVer && !prevVer.effective_to && effectiveFrom > String(prevVer.effective_from).slice(0, 10)) {
+        const fromDateObj = new Date(effectiveFrom);
+        fromDateObj.setDate(fromDateObj.getDate() - 1);
+        const dayBefore = fromDateObj.toISOString().slice(0, 10);
+        await q(
+          'UPDATE tariff_versions SET effective_to = $1::date, updated_at = NOW() WHERE id = $2',
+          [dayBefore, prevVer.id]
+        );
+      }
+
+      const versionId = `trfv-${tariffId}-v${nextVersionNumber}-${Date.now()}`;
+      await q(
+        `INSERT INTO tariff_versions (
+          id, tariff_id, tariff_code, version_number, rate_or_percentage, fixed_charge,
+          calculation_method, applicable_base, unit, currency, effective_from, effective_to,
+          status, source_reference, change_reason, notes, created_by, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10, $11::date, $12::date,
+          $13, $14, $15, $16, $17, NOW(), NOW()
+        )`,
+        [
+          versionId, tariffId, tariff.code, nextVersionNumber, rateOrPercentage, fixedCharge,
+          calculationMethod, applicableBase, unit, currency, effectiveFrom, effectiveTo,
+          status, sourceReference, changeReason, notes, actorName
+        ]
+      );
+
+      // Update current rates on master tariff
+      await q(
+        `UPDATE tariffs SET
+          rate_or_percentage = $1, fixed_charge = $2, calculation_method = $3,
+          applicable_base = $4, unit = $5, effective_from = $6::date, effective_to = $7::date,
+          updated_by = $8, updated_at = NOW()
+         WHERE id = $9`,
+        [
+          rateOrPercentage, fixedCharge, calculationMethod,
+          applicableBase, unit, effectiveFrom, effectiveTo,
+          actorName, tariffId
+        ]
+      );
+
+      // Record audit log in same transaction (Requirement 4, 9, 15)
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, change_reason, before_state, after_state, diff, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'CREATE_TARIFF_VERSION', 'CREATE_TARIFF_VERSION', 'Tariffs',
+          'TariffVersion', $6, $6, $7, $8, $9, $10, $11, $12, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          versionId,
+          `${tariff.name} (v${nextVersionNumber})`,
+          changeReason,
+          prevVer ? JSON.stringify({
+            versionNumber: prevVer.version_number,
+            rateOrPercentage: Number(prevVer.rate_or_percentage),
+            effectiveFrom: String(prevVer.effective_from).slice(0, 10),
+            effectiveTo: prevVer.effective_to ? String(prevVer.effective_to).slice(0, 10) : null
+          }) : null,
+          JSON.stringify({
+            versionNumber: nextVersionNumber,
+            rateOrPercentage,
+            fixedCharge,
+            effectiveFrom,
+            effectiveTo,
+            calculationMethod
+          }),
+          JSON.stringify({
+            previousRate: prevVer ? Number(prevVer.rate_or_percentage) : null,
+            newRate: rateOrPercentage,
+            changePct: prevVer && Number(prevVer.rate_or_percentage) > 0 ? round2(((rateOrPercentage - Number(prevVer.rate_or_percentage)) / Number(prevVer.rate_or_percentage)) * 100) : null
+          }),
+          `Created tariff version v${nextVersionNumber} for ${tariff.code}: rate ${prevVer ? prevVer.rate_or_percentage : 'None'} -> ${rateOrPercentage} (Effective: ${effectiveFrom})`
+        ]
+      );
+
+      return {
+        id: versionId,
+        tariffId,
+        tariffCode: tariff.code,
+        versionNumber: nextVersionNumber,
+        rateOrPercentage,
+        fixedCharge,
+        calculationMethod,
+        applicableBase,
+        unit,
+        currency,
+        effectiveFrom,
+        effectiveTo,
+        status,
+        sourceReference,
+        changeReason,
+        notes,
+        createdBy: actorName
+      };
+    });
+  }
+
+  /**
+   * Resolve appropriate tariff version based on effective date and business rules (Requirements 17, 18)
+   */
+  public async resolveTariffVersion(
+    tariffId: string,
+    targetDate?: string,
+    queryRunner?: (sql: string, params?: any[]) => Promise<{ rows: any[] }>
+  ): Promise<any | null> {
+    const db = await this.getDb();
+    const qFn = queryRunner || ((sql: string, params?: any[]) => (db as any).query(sql, params));
+    const dateStr = formatSqlDate(targetDate, new Date().toISOString().slice(0, 10));
+
+    // 1. Look for active version that encloses the target date:
+    // effective_from <= dateStr AND (effective_to IS NULL OR effective_to >= dateStr)
+    const activeRes = await qFn(
+      `SELECT tv.*, t.name as tariff_name, t.category as tariff_category
+       FROM tariff_versions tv
+       JOIN tariffs t ON t.id = tv.tariff_id
+       WHERE (tv.tariff_id = $1 OR tv.tariff_code = $1)
+         AND tv.status = 'Active'
+         AND tv.effective_from <= $2::date
+         AND (tv.effective_to IS NULL OR tv.effective_to >= $2::date)
+       ORDER BY tv.effective_from DESC, tv.version_number DESC
+       LIMIT 1`,
+      [tariffId, dateStr]
+    );
+
+    if (activeRes.rows.length > 0) {
+      const r = activeRes.rows[0];
+      return {
+        id: r.id,
+        tariffId: r.tariff_id,
+        tariffCode: r.tariff_code,
+        tariffName: r.tariff_name,
+        tariffCategory: r.tariff_category,
+        versionNumber: Number(r.version_number),
+        rateOrPercentage: Number(r.rate_or_percentage || 0),
+        fixedCharge: Number(r.fixed_charge || 0),
+        calculationMethod: r.calculation_method,
+        applicableBase: r.applicable_base,
+        unit: r.unit,
+        currency: r.currency,
+        effectiveFrom: formatSqlDate(r.effective_from),
+        effectiveTo: r.effective_to ? formatSqlDate(r.effective_to) : null,
+        status: r.status,
+        resolvedDate: dateStr,
+        matchType: 'exact_effective_range'
+      };
+    }
+
+    // 2. Fall back to the most recent version effective on or before dateStr
+    const fallbackRes = await qFn(
+      `SELECT tv.*, t.name as tariff_name, t.category as tariff_category
+       FROM tariff_versions tv
+       JOIN tariffs t ON t.id = tv.tariff_id
+       WHERE (tv.tariff_id = $1 OR tv.tariff_code = $1)
+         AND tv.effective_from <= $2::date
+       ORDER BY tv.effective_from DESC, tv.version_number DESC
+       LIMIT 1`,
+      [tariffId, dateStr]
+    );
+
+    if (fallbackRes.rows.length > 0) {
+      const r = fallbackRes.rows[0];
+      return {
+        id: r.id,
+        tariffId: r.tariff_id,
+        tariffCode: r.tariff_code,
+        tariffName: r.tariff_name,
+        tariffCategory: r.tariff_category,
+        versionNumber: Number(r.version_number),
+        rateOrPercentage: Number(r.rate_or_percentage || 0),
+        fixedCharge: Number(r.fixed_charge || 0),
+        calculationMethod: r.calculation_method,
+        applicableBase: r.applicable_base,
+        unit: r.unit,
+        currency: r.currency,
+        effectiveFrom: formatSqlDate(r.effective_from),
+        effectiveTo: r.effective_to ? formatSqlDate(r.effective_to) : null,
+        status: r.status,
+        resolvedDate: dateStr,
+        matchType: 'prior_effective_version'
+      };
+    }
+
+    // 3. Last fallback: latest available version
+    const latestRes = await qFn(
+      `SELECT tv.*, t.name as tariff_name, t.category as tariff_category
+       FROM tariff_versions tv
+       JOIN tariffs t ON t.id = tv.tariff_id
+       WHERE tv.tariff_id = $1 OR tv.tariff_code = $1
+       ORDER BY tv.version_number DESC LIMIT 1`,
+      [tariffId]
+    );
+
+    if (latestRes.rows.length > 0) {
+      const r = latestRes.rows[0];
+      return {
+        id: r.id,
+        tariffId: r.tariff_id,
+        tariffCode: r.tariff_code,
+        tariffName: r.tariff_name,
+        tariffCategory: r.tariff_category,
+        versionNumber: Number(r.version_number),
+        rateOrPercentage: Number(r.rate_or_percentage || 0),
+        fixedCharge: Number(r.fixed_charge || 0),
+        calculationMethod: r.calculation_method,
+        applicableBase: r.applicable_base,
+        unit: r.unit,
+        currency: r.currency,
+        effectiveFrom: formatSqlDate(r.effective_from),
+        effectiveTo: r.effective_to ? formatSqlDate(r.effective_to) : null,
+        status: r.status,
+        resolvedDate: dateStr,
+        matchType: 'latest_fallback'
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Get all tariffs applied to a specific project plan (Requirements 19, 20)
+   */
+  public async getPlanTariffs(planId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT pt.*, t.name as current_tariff_name
+       FROM plan_tariffs pt
+       LEFT JOIN tariffs t ON t.id = pt.tariff_id
+       WHERE pt.plan_id = $1
+       ORDER BY pt.created_at ASC`,
+      [planId]
+    );
+
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      planId: r.plan_id,
+      projectId: r.project_id,
+      tariffId: r.tariff_id,
+      tariffVersionId: r.tariff_version_id,
+      tariffCode: r.tariff_code,
+      tariffName: r.tariff_name,
+      tariffCategory: r.tariff_category,
+      calculationMethod: r.calculation_method,
+      applicableBase: r.applicable_base,
+      rateOrPercentage: Number(r.rate_or_percentage || 0),
+      fixedCharge: Number(r.fixed_charge || 0),
+      unit: r.unit,
+      currency: r.currency || 'USD',
+      effectiveFrom: r.effective_from ? String(r.effective_from).slice(0, 10) : '',
+      effectiveTo: r.effective_to ? String(r.effective_to).slice(0, 10) : null,
+      baseAmount: Number(r.base_amount || 0),
+      calculatedTariffAmount: Number(r.calculated_tariff_amount || 0),
+      appliedDate: r.applied_date ? String(r.applied_date).slice(0, 10) : '',
+      appliedBy: r.applied_by,
+      notes: r.notes || '',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+    }));
+  }
+
+  /**
+   * Apply an explicit tariff to a project plan (Requirements 19, 20)
+   * Records the exact tariff version, calculation parameters, and values used.
+   */
+  public async applyTariffToPlan(
+    planId: string,
+    data: any,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<any> {
+    return this.withTransaction(async (q) => {
+      // 1. Verify plan exists
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1 FOR UPDATE', [planId]);
+      if (planRes.rows.length === 0) {
+        throw Object.assign(new Error(`Project plan '${planId}' not found`), { status: 404 });
+      }
+      const plan = planRes.rows[0];
+      const projectId = plan.project_id;
+
+      // 2. Resolve tariff version based on effective date
+      const tariffId = data.tariffId;
+      if (!tariffId) {
+        throw Object.assign(new Error('tariffId is required to apply a tariff'), { status: 400 });
+      }
+
+      const targetDate = formatSqlDate(data.effectiveDate || data.appliedDate || plan.effective_date, new Date().toISOString().slice(0, 10));
+      const resolvedVersion = await this.resolveTariffVersion(tariffId, targetDate, q);
+      if (!resolvedVersion) {
+        throw Object.assign(new Error(`No active tariff version found for '${tariffId}' on date '${targetDate}'`), { status: 404 });
+      }
+
+      // 3. Calculate base amount according to applicable_base
+      let baseAmount = 0;
+      if (data.baseAmount !== undefined && Number(data.baseAmount) >= 0) {
+        baseAmount = round2(Number(data.baseAmount));
+      } else {
+        // Compute dynamically from plan items
+        const applicableBase = resolvedVersion.applicableBase;
+        if (applicableBase === 'material_cost') {
+          const matRes = await q(
+            `SELECT COALESCE(SUM(total_cost), 0) as total FROM project_plan_boq_items
+             WHERE plan_id = $1 AND (LOWER(category) LIKE '%material%' OR item_type = 'material')`,
+            [planId]
+          );
+          baseAmount = round2(Number(matRes.rows[0]?.total || 0));
+        } else if (applicableBase === 'labour_cost') {
+          const labRes = await q(
+            `SELECT COALESCE(SUM(total_cost), 0) as total FROM project_plan_boq_items
+             WHERE plan_id = $1 AND (LOWER(category) LIKE '%subcontract%' OR LOWER(category) LIKE '%labour%' OR item_type = 'subcontractor')`,
+            [planId]
+          );
+          baseAmount = round2(Number(labRes.rows[0]?.total || 0));
+        } else if (applicableBase === 'outsourced_cost') {
+          const outRes = await q(
+            `SELECT COALESCE(SUM(total_cost), 0) as total FROM project_plan_boq_items
+             WHERE plan_id = $1 AND (LOWER(category) LIKE '%outsourced%' OR item_type = 'outsourced')`,
+            [planId]
+          );
+          baseAmount = round2(Number(outRes.rows[0]?.total || 0));
+        } else if (applicableBase === 'total_direct_cost') {
+          const dirRes = await q('SELECT COALESCE(SUM(total_cost), 0) as total FROM project_plan_boq_items WHERE plan_id = $1', [planId]);
+          baseAmount = round2(Number(dirRes.rows[0]?.total || 0));
+        } else if (applicableBase === 'total_revenue') {
+          baseAmount = round2(Number(plan.planned_revenue || 0));
+        } else if (applicableBase === 'quantity') {
+          baseAmount = round2(Number(data.quantity || 1));
+        }
+      }
+
+      // 4. Calculate tariff cost
+      let calculatedTariffAmount = 0;
+      const rate = resolvedVersion.rateOrPercentage;
+      const fixedCharge = resolvedVersion.fixedCharge || 0;
+
+      if (resolvedVersion.calculationMethod === 'percentage') {
+        calculatedTariffAmount = round2(decMul(baseAmount, decDiv(rate, 100)));
+      } else if (resolvedVersion.calculationMethod === 'unit_rate') {
+        const qty = Number(data.quantity || baseAmount || 1);
+        calculatedTariffAmount = round2(decMul(qty, rate));
+      } else if (resolvedVersion.calculationMethod === 'fixed_charge') {
+        calculatedTariffAmount = round2(fixedCharge);
+      } else if (resolvedVersion.calculationMethod === 'hybrid') {
+        calculatedTariffAmount = round2(decAdd(fixedCharge, decMul(baseAmount, decDiv(rate, 100))));
+      } else {
+        calculatedTariffAmount = round2(decMul(baseAmount, decDiv(rate, 100)));
+      }
+
+      const planTariffId = data.id || `plt-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+
+      // 5. Insert plan_tariffs record
+      await q(
+        `INSERT INTO plan_tariffs (
+          id, plan_id, project_id, tariff_id, tariff_version_id, tariff_code, tariff_name,
+          tariff_category, calculation_method, applicable_base, rate_or_percentage, fixed_charge,
+          unit, currency, effective_from, effective_to, base_amount, calculated_tariff_amount,
+          applied_date, applied_by, notes, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12,
+          $13, $14, $15::date, $16::date, $17, $18,
+          $19::date, $20, $21, NOW(), NOW()
+        )`,
+        [
+          planTariffId, planId, projectId, resolvedVersion.tariffId, resolvedVersion.id,
+          resolvedVersion.tariffCode, resolvedVersion.tariffName, resolvedVersion.tariffCategory,
+          resolvedVersion.calculationMethod, resolvedVersion.applicableBase, rate, fixedCharge,
+          resolvedVersion.unit, resolvedVersion.currency, formatSqlDate(resolvedVersion.effectiveFrom), resolvedVersion.effectiveTo ? formatSqlDate(resolvedVersion.effectiveTo) : null,
+          baseAmount, calculatedTariffAmount, targetDate, actorName, data.notes || ''
+        ]
+      );
+
+      // 6. Record audit log in same transaction (Requirements 4, 9, 19)
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, project_id, plan_id,
+          change_reason, after_state, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'APPLY_TARIFF_TO_PLAN', 'APPLY_TARIFF_TO_PLAN', 'Tariffs',
+          'PlanTariff', $6, $6, $7, $8, $9, $10, $11, $12, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          planTariffId,
+          `${resolvedVersion.tariffName} (${resolvedVersion.tariffCode})`,
+          projectId,
+          planId,
+          `Applied tariff schedule '${resolvedVersion.tariffCode}' to plan ${plan.plan_number || planId}`,
+          JSON.stringify({
+            tariffCode: resolvedVersion.tariffCode,
+            versionNumber: resolvedVersion.versionNumber,
+            rateOrPercentage: rate,
+            baseAmount,
+            calculatedTariffAmount,
+            appliedDate: targetDate
+          }),
+          `Applied tariff ${resolvedVersion.tariffCode} (v${resolvedVersion.versionNumber}) to Plan ${plan.plan_number || planId}: calculated ${calculatedTariffAmount} ${resolvedVersion.currency}`
+        ]
+      );
+
+      return {
+        id: planTariffId,
+        planId,
+        projectId,
+        tariffId: resolvedVersion.tariffId,
+        tariffVersionId: resolvedVersion.id,
+        tariffCode: resolvedVersion.tariffCode,
+        tariffName: resolvedVersion.tariffName,
+        tariffCategory: resolvedVersion.tariffCategory,
+        calculationMethod: resolvedVersion.calculationMethod,
+        applicableBase: resolvedVersion.applicableBase,
+        rateOrPercentage: rate,
+        fixedCharge,
+        baseAmount,
+        calculatedTariffAmount,
+        appliedDate: targetDate,
+        appliedBy: actorName
+      };
+    });
+  }
+
+  public async removePlanTariff(
+    planId: string,
+    planTariffId: string,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<boolean> {
+    return this.withTransaction(async (q) => {
+      const curRes = await q('SELECT * FROM plan_tariffs WHERE id = $1 AND plan_id = $2 FOR UPDATE', [planTariffId, planId]);
+      if (curRes.rows.length === 0) return false;
+      const existing = curRes.rows[0];
+
+      await q('DELETE FROM plan_tariffs WHERE id = $1', [planTariffId]);
+
+      // Record audit log in same transaction
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, project_id, plan_id,
+          change_reason, before_state, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'REMOVE_TARIFF_FROM_PLAN', 'REMOVE_TARIFF_FROM_PLAN', 'Tariffs',
+          'PlanTariff', $6, $6, $7, $8, $9, 'Removed tariff from plan', $10, $11, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actor?.id || 'usr-system',
+          actor?.name || 'System User',
+          actor?.role || 'PROJECT_MANAGER',
+          planTariffId,
+          existing.tariff_name,
+          existing.project_id,
+          planId,
+          JSON.stringify({ tariffCode: existing.tariff_code, calculatedAmount: existing.calculated_tariff_amount }),
+          `Removed applied tariff ${existing.tariff_code} from plan ${planId}`
+        ]
+      );
+
+      return true;
+    });
   }
 
   // ============================================================================
@@ -7942,6 +9133,70 @@ export class PostgresService {
         };
       }
 
+      // Record in audit_logs inside same transaction (Task 9 Requirements 3, 4, 9)
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const auditAction = rateChanged ? 'UPDATE_PLAN_SELLING_RATE' : 'UPDATE_PLAN_BOQ_ITEM';
+      const beforeState = {
+        sellingRate: oldRate,
+        rate: oldRate,
+        quantity: oldQty,
+        unit: oldUnit,
+        discountPct: round2(existing.discount_pct || 0),
+        taxTreatment: existing.tax_treatment || 'Standard (0%)',
+        totalRevenue: round2(decMul(oldQty, oldRate))
+      };
+      const afterState = {
+        sellingRate: newRate,
+        rate: newRate,
+        quantity: newQty,
+        unit: newUnit,
+        discountPct: newDiscountPct,
+        taxTreatment: newTaxTreatment,
+        totalRevenue: totalRevenue
+      };
+      const diff = {
+        rateChange: round4(decSub(newRate, oldRate)),
+        revenueChange: round2(decSub(totalRevenue, round2(decMul(oldQty, oldRate)))),
+        fieldsChanged
+      };
+      const auditChangeReason = String(data.changeReason || (rateChanged ? `Revised plan selling rate from ${oldRate} to ${newRate}` : 'Updated plan BOQ terms'));
+
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, project_id, plan_id,
+          change_reason, before_state, after_state, diff, metadata, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20, $21, $22, NOW()
+        ) ON CONFLICT (id) DO NOTHING`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actor?.id || 'usr-system',
+          actor?.name || 'System User',
+          actor?.role || 'PROJECT_MANAGER',
+          auditAction,
+          auditAction,
+          'Commercial',
+          'PlanBoqItem',
+          boqItemId,
+          boqItemId,
+          existing.name || existing.description || 'Plan Commercial BOQ Item',
+          projectId,
+          planId,
+          auditChangeReason,
+          JSON.stringify(beforeState),
+          JSON.stringify(afterState),
+          JSON.stringify(diff),
+          JSON.stringify({ planNumber: plan?.plan_number, projectName: plan?.name, revenueItemId }),
+          `Plan ${plan?.plan_number || planId}: BOQ item ${boqItemId} selling rate changed from ${oldRate} to ${newRate} (${auditChangeReason})`,
+          '127.0.0.1',
+          'Success'
+        ]
+      );
+
       // Recalculate plan financials
       await this.recalculatePlanFinancials(planId, q);
 
@@ -9335,7 +10590,7 @@ export class PostgresService {
       'suppliers', 'materials', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
-      'users', 'account_requests', 'media_assets', 'audit_logs', 'schema_migrations'
+      'users', 'account_requests', 'media_assets', 'audit_logs', 'tariffs', 'tariff_versions', 'plan_tariffs', 'schema_migrations'
     ];
     const counts: Record<string, number> = {};
     for (const t of tables) {

@@ -20,7 +20,10 @@ import {
   RevenueRateHistoryRecord,
   ProjectPlanBoqItem,
   ProcurementPriceRecord,
-  PriceComparisonSummary
+  PriceComparisonSummary,
+  Tariff,
+  TariffVersion,
+  PlanTariff
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -48,6 +51,13 @@ export interface ListQueryParams {
   currency?: string;
   projectPlanId?: string;
   planId?: string;
+  projectId?: string;
+  actorId?: string;
+  action?: string;
+  actionType?: string;
+  tariffId?: string;
+  calculationMethod?: string;
+  applicableBase?: string;
   fromDate?: string;
   toDate?: string;
   paginated?: boolean;
@@ -1456,6 +1466,91 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to register barcode');
     return await res.json();
+  },
+
+  // ============================================================================
+  // ENTERPRISE TARIFF MANAGEMENT API (TASK 9)
+  // ============================================================================
+
+  async getTariffs(params?: ListQueryParams): Promise<Tariff[]> {
+    const res = await fetch(`/api/tariffs?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch tariffs');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
+  async getTariffsPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<Tariff>> {
+    const res = await fetch(`/api/tariffs?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch paginated tariffs');
+    return await res.json();
+  },
+
+  async getTariffById(id: string): Promise<Tariff> {
+    const res = await fetch(`/api/tariffs/${encodeURIComponent(id)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch tariff details');
+    return await res.json();
+  },
+
+  async createTariff(data: Partial<Tariff> & { changeReason?: string }): Promise<Tariff> {
+    const res = await fetch('/api/tariffs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create tariff schedule');
+    return await res.json();
+  },
+
+  async updateTariff(id: string, data: Partial<Tariff> & { changeReason?: string }): Promise<Tariff> {
+    const res = await fetch(`/api/tariffs/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update tariff schedule');
+    return await res.json();
+  },
+
+  async createTariffVersion(tariffId: string, data: Partial<TariffVersion>): Promise<TariffVersion> {
+    const res = await fetch(`/api/tariffs/${encodeURIComponent(tariffId)}/versions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create new tariff version');
+    return await res.json();
+  },
+
+  async resolveTariffVersion(tariffId: string, date?: string): Promise<TariffVersion & { matchType?: string; resolvedDate?: string }> {
+    const url = date
+      ? `/api/tariffs/${encodeURIComponent(tariffId)}/resolve?date=${encodeURIComponent(date)}`
+      : `/api/tariffs/${encodeURIComponent(tariffId)}/resolve`;
+    const res = await fetch(url);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to resolve tariff version for date');
+    return await res.json();
+  },
+
+  async getPlanTariffs(planId: string): Promise<PlanTariff[]> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/tariffs`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan tariffs');
+    return await res.json();
+  },
+
+  async applyTariffToPlan(planId: string, data: Partial<PlanTariff> & { effectiveDate?: string; quantity?: number }): Promise<PlanTariff> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/tariffs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to apply tariff to plan');
+    return await res.json();
+  },
+
+  async removePlanTariff(planId: string, planTariffId: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/tariffs/${encodeURIComponent(planTariffId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove tariff from plan');
   }
 };
 

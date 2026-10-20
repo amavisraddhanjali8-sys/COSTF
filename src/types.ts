@@ -943,14 +943,28 @@ export interface AuditLogRecord {
   timestamp: string;
   actorId: string;
   actorName: string;
-  actorRole: UserRole;
+  actorRole: UserRole | string;
   action: string;
-  module: 'Inventory' | 'Materials' | 'Users' | 'Settings' | 'Auth' | 'Projects' | 'Catalog';
+  actionType?: string;
+  module: 'Inventory' | 'Materials' | 'Users' | 'Settings' | 'Auth' | 'Projects' | 'Catalog' | 'Commercial' | 'Overheads' | 'Procurement' | 'Tariffs' | string;
   recordId?: string;
   recordName?: string;
+  entityType?: string;
+  entityId?: string;
+  projectId?: string;
+  planId?: string;
+  requestId?: string;
+  correlationId?: string;
+  changeReason?: string;
+  beforeState?: Record<string, any> | null;
+  afterState?: Record<string, any> | null;
+  diff?: Record<string, any> | null;
+  metadata?: Record<string, any> | null;
+  userAgent?: string;
   details: string;
   ipAddress: string;
   status: 'Success' | 'Warning' | 'Failed';
+  createdAtTs?: string;
 }
 
 export interface CalendarEvent {
@@ -1205,5 +1219,84 @@ export interface BarcodeLookupResult {
   }>;
 }
 
+// ============================================================================
+// TARIFF MANAGEMENT INTERFACES (TASK 9)
+// ============================================================================
 
+export type TariffCalculationMethod = 'percentage' | 'unit_rate' | 'fixed_charge' | 'tiered_volume' | 'hybrid';
+export type TariffApplicableBase = 'material_cost' | 'labour_cost' | 'outsourced_cost' | 'total_direct_cost' | 'total_revenue' | 'quantity' | 'fixed';
+export type TariffStatus = 'Active' | 'Inactive' | 'Archived' | 'Pending';
 
+export interface Tariff {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  calculationMethod: TariffCalculationMethod;
+  rateOrPercentage: number;
+  fixedCharge?: number;
+  unit: string;
+  applicableBase: TariffApplicableBase;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  status: TariffStatus;
+  sourceReference?: string;
+  description?: string;
+  notes?: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  versionsCount?: number;
+  currentVersion?: TariffVersion;
+  versions?: TariffVersion[];
+}
+
+export interface TariffVersion {
+  id: string;
+  tariffId: string;
+  tariffCode: string;
+  versionNumber: number;
+  rateOrPercentage: number;
+  fixedCharge?: number;
+  calculationMethod: TariffCalculationMethod;
+  applicableBase: TariffApplicableBase;
+  unit: string;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  status: 'Active' | 'Superseded' | 'Draft' | 'Archived';
+  sourceReference?: string;
+  changeReason?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanTariff {
+  id: string;
+  planId: string;
+  projectId: string;
+  tariffId: string;
+  tariffVersionId: string;
+  tariffCode: string;
+  tariffName: string;
+  tariffCategory: string;
+  calculationMethod: TariffCalculationMethod;
+  applicableBase: TariffApplicableBase;
+  rateOrPercentage: number;
+  fixedCharge?: number;
+  unit?: string;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  baseAmount: number;
+  calculatedTariffAmount: number;
+  appliedDate: string;
+  appliedBy: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}

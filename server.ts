@@ -74,6 +74,12 @@ function extractListOptions(query: any): ListQueryOptions & { paginated?: boolea
     currency: query?.currency ? String(query.currency) : undefined,
     projectPlanId: query?.projectPlanId ? String(query.projectPlanId) : query?.planId ? String(query.planId) : undefined,
     planId: query?.planId ? String(query.planId) : undefined,
+    actorId: query?.actorId ? String(query.actorId) : undefined,
+    action: query?.action ? String(query.action) : undefined,
+    actionType: query?.actionType ? String(query.actionType) : undefined,
+    tariffId: query?.tariffId ? String(query.tariffId) : undefined,
+    calculationMethod: query?.calculationMethod ? String(query.calculationMethod) : undefined,
+    applicableBase: query?.applicableBase ? String(query.applicableBase) : undefined,
     fromDate: query?.fromDate ? String(query.fromDate) : undefined,
     toDate: query?.toDate ? String(query.toDate) : undefined,
     paginated: query?.paginated === 'true' || query?.paginated === '1' || (query?.page !== undefined && query?.limit !== undefined)
@@ -1941,19 +1947,174 @@ async function startServer() {
     }
   });
 
-  app.post('/api/audit-logs', async (req, res) => {
+  app.post('/api/audit-logs', async (req: any, res) => {
     try {
-      const actor = (req as any).user;
+      const actor = req.user;
+      if (!actor) {
+        return res.status(401).json({ error: 'Please sign in to record audit events' });
+      }
+      // Strict actor validation: actor identity comes from authenticated session only (Requirement 6)
       const created = await postgresService.createAuditLog({
         ...req.body,
-        actorId: actor?.id || req.body?.actorId,
-        actorName: actor?.name || req.body?.actorName,
-        actorRole: actor?.role || req.body?.actorRole
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        ipAddress: req.ip || req.socket?.remoteAddress || '127.0.0.1',
+        userAgent: req.headers['user-agent'] || ''
       });
       res.status(201).json(created);
     } catch (e: any) {
       console.error('Failed to create audit log:', e);
       res.status(500).json({ error: 'Failed to create audit log', details: e?.message });
+    }
+  });
+
+  // Protect audit history from unauthorized modification or deletion (Requirement 7)
+  app.put(['/api/audit-logs', '/api/audit-logs/:id'], (_req, res) => {
+    return res.status(403).json({ error: 'Audit history is strictly immutable and protected from alteration.' });
+  });
+
+  app.patch(['/api/audit-logs', '/api/audit-logs/:id'], (_req, res) => {
+    return res.status(403).json({ error: 'Audit history is strictly immutable and protected from alteration.' });
+  });
+
+  app.delete(['/api/audit-logs', '/api/audit-logs/:id'], (_req, res) => {
+    return res.status(403).json({ error: 'Audit history is strictly immutable and cannot be deleted.' });
+  });
+
+  // --- Enterprise Tariff Management API (TASK 9) ---
+  app.get('/api/tariffs', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getTariffs(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch tariffs:', e);
+      res.status(500).json({ error: 'Failed to fetch tariffs', details: e?.message });
+    }
+  });
+
+  app.get('/api/tariffs/:id', async (req, res) => {
+    try {
+      const tariff = await postgresService.getTariffById(req.params.id);
+      if (!tariff) return res.status(404).json({ error: 'Tariff not found' });
+      res.json(tariff);
+    } catch (e: any) {
+      console.error('Failed to fetch tariff details:', e);
+      res.status(500).json({ error: 'Failed to fetch tariff details', details: e?.message });
+    }
+  });
+
+  app.post('/api/tariffs', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createTariff(req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to create tariff:', e);
+      res.status(500).json({ error: 'Failed to create tariff', details: e?.message });
+    }
+  });
+
+  app.put('/api/tariffs/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateTariff(req.params.id, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update tariff:', e);
+      res.status(500).json({ error: 'Failed to update tariff', details: e?.message });
+    }
+  });
+
+  app.post('/api/tariffs/:id/versions', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createTariffVersion(req.params.id, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to create tariff version:', e);
+      res.status(500).json({ error: 'Failed to create tariff version', details: e?.message });
+    }
+  });
+
+  app.get('/api/tariffs/:id/resolve', async (req, res) => {
+    try {
+      const date = req.query.date ? String(req.query.date) : undefined;
+      const resolved = await postgresService.resolveTariffVersion(req.params.id, date);
+      if (!resolved) return res.status(404).json({ error: 'No applicable tariff version found' });
+      res.json(resolved);
+    } catch (e: any) {
+      console.error('Failed to resolve tariff version:', e);
+      res.status(500).json({ error: 'Failed to resolve tariff version', details: e?.message });
+    }
+  });
+
+  const planTariffRoutes = [
+    '/api/project-plans/:planId/tariffs',
+    '/api/plans/:planId/tariffs'
+  ];
+
+  app.get(planTariffRoutes, async (req, res) => {
+    try {
+      const tariffs = await postgresService.getPlanTariffs(req.params.planId);
+      res.json(tariffs);
+    } catch (e: any) {
+      console.error('Failed to fetch plan tariffs:', e);
+      res.status(500).json({ error: 'Failed to fetch plan tariffs', details: e?.message });
+    }
+  });
+
+  app.post(planTariffRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.applyTariffToPlan(req.params.planId, req.body, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.status(201).json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to apply tariff to plan:', e);
+      res.status(500).json({ error: 'Failed to apply tariff to plan', details: e?.message });
+    }
+  });
+
+  const planTariffItemRoutes = [
+    '/api/project-plans/:planId/tariffs/:tariffId',
+    '/api/plans/:planId/tariffs/:tariffId'
+  ];
+
+  app.delete(planTariffItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const ok = await postgresService.removePlanTariff(req.params.planId, req.params.tariffId, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!ok) return res.status(404).json({ error: 'Plan tariff not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to remove plan tariff:', e);
+      res.status(500).json({ error: 'Failed to remove plan tariff', details: e?.message });
     }
   });
 

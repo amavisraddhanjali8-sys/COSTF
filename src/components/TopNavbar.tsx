@@ -30,7 +30,8 @@ import {
   Check,
   AlertTriangle,
   Clock,
-  Tag
+  Tag,
+  Calculator
 } from 'lucide-react';
 import { NotificationCenterDropdown } from './NotificationCenterDropdown';
 import { calculateProjectProfitability, getMarginThreshold } from '../utils/profitabilityMonitor';
@@ -83,6 +84,7 @@ export type ActiveTab =
   | 'overhead-portal'
   | 'revenue-portal'
   | 'price-history-portal'
+  | 'tariffs-portal'
   | 'audit-log'
   | 'settings'
   | 'plan-details';
@@ -397,6 +399,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
         return 'Overhead Cost Portal';
       case 'revenue-portal':
         return 'Revenue & Commercial Catalogue';
+      case 'tariffs-portal':
+        return 'Enterprise Tariff Management';
+      case 'price-history-portal':
+        return 'Procurement Price History';
       case 'settings':
         return 'System Settings';
       default:
@@ -1142,6 +1148,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           >
             <Tag className="w-3.5 h-3.5 text-emerald-400" />
             <span>Price History</span>
+          </button>
+
+          {/* Enterprise Tariff Management Portal (TASK 9) */}
+          <button
+            type="button"
+            id="nav-tab-tariffs"
+            onClick={() => onSelectTab('tariffs-portal')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'tariffs-portal'
+                ? 'bg-[#003049] text-white shadow-2xs'
+                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+            }`}
+            title="Enterprise Tariff Schedules, Versioning & Plan Linkage"
+          >
+            <Calculator className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Tariffs</span>
           </button>
 
           {/* Audit Log (Admin Only) */}
