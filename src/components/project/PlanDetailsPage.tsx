@@ -79,6 +79,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   onNavigateBack,
   onPlanUpdated,
   onOpenProject,
+  onOpenOverheadPortal,
   showToast
 }) => {
   const [plan, setPlan] = useState<any | null>(null);

@@ -38,6 +38,7 @@ import {
 import { api } from '../../services/api';
 import { formatCurrency, SUPPORTED_CURRENCIES } from '../../utils/currency';
 import { RecordPriceModal } from './RecordPriceModal';
+import { calcPctChange } from '../../utils/decimalMath';
 
 interface ProcurementPriceHistoryModalProps {
   isOpen: boolean;

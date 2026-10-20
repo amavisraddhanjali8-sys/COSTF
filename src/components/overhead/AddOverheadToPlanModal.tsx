@@ -62,7 +62,8 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
       try {
         const res = await api.getOverheadItems({ limit: 100 });
         if (mounted) {
-          const available = (res.data || []).filter((i) => !existingAllocatedItemIds.includes(i.id));
+          const list: OverheadItem[] = Array.isArray(res) ? res : (res as any)?.data || [];
+          const available = list.filter((i) => !existingAllocatedItemIds.includes(i.id));
           setOverheadItems(available);
           if (available.length > 0 && !selectedItemId) {
             applySelectedItem(available[0]);
@@ -84,7 +85,8 @@ export const AddOverheadToPlanModal: React.FC<AddOverheadToPlanModalProps> = ({
 
   const applySelectedItem = (item: OverheadItem) => {
     setSelectedItemId(item.id);
-    const method = item.defaultCalculationMethod === 'percentage_of_direct' ? 'percentage_of_direct' : item.defaultCalculationMethod === 'unit_rate' ? 'unit_rate' : 'fixed_amount';
+    const m = String(item.defaultCalculationMethod || '');
+    const method = m.includes('percentage') ? 'percentage_of_direct' : m.includes('unit') ? 'unit_rate' : 'fixed_amount';
     setAllocationMethod(method);
     setAllocationBase(item.defaultCostBase || 'total_direct_cost');
     setRate(item.defaultRate ?? 0);

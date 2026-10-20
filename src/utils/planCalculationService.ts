@@ -446,13 +446,13 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
 
   // 3. Process Overhead Allocations
   const customOverheads = rawOverheads.filter(
-    (o) =>
+    (o: any) =>
       o &&
       (o.category || o.overheadItemName || o.overheadItemId || o.overhead_item_name || o.overhead_item_id || o.allocatedAmount !== undefined || o.allocated_amount !== undefined)
   );
 
   let extraOverheadAmount = 0;
-  const normalizedCustomOverheads: ProjectPlanOverheadAllocation[] = customOverheads.map((o, idx) => {
+  const normalizedCustomOverheads: ProjectPlanOverheadAllocation[] = customOverheads.map((o: any, idx) => {
     const rawMethod = String(
       o.allocationMethod || o.allocation_method ||
       (o.allocationType === 'fixed' || o.allocation_type === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base')

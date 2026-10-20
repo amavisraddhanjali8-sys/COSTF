@@ -1574,6 +1574,9 @@ async function startServer() {
       res.status(201).json(newMat);
     } catch (e: any) {
       if (e?.status) return res.status(e.status).json({ error: e.message });
+      if (e?.code === '23505' || e?.message?.includes('violates unique constraint') || e?.message?.includes('duplicate key')) {
+        return res.status(409).json({ error: 'Conflict: Duplicate code or barcode violates unique constraint', details: e?.message });
+      }
       console.error('Failed to create material:', e);
       res.status(500).json({ error: 'Failed to create material in PostgreSQL', details: e?.message });
     }
@@ -1586,6 +1589,9 @@ async function startServer() {
       res.json(updated);
     } catch (e: any) {
       if (e?.status) return res.status(e.status).json({ error: e.message });
+      if (e?.code === '23505' || e?.message?.includes('violates unique constraint') || e?.message?.includes('duplicate key')) {
+        return res.status(409).json({ error: 'Conflict: Duplicate code or barcode violates unique constraint', details: e?.message });
+      }
       console.error('Failed to update material:', e);
       res.status(500).json({ error: 'Failed to update material', details: e?.message });
     }

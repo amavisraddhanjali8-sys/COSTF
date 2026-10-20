@@ -84,7 +84,7 @@ export const RevenueItemRateHistoryModal: React.FC<RevenueItemRateHistoryModalPr
 
   // Unique projects list for dropdown
   const projectsList = Array.from(
-    new Map(
+    new Map<string, { id: string; name: string }>(
       historyRecords.map((r) => [r.projectId, { id: r.projectId, name: r.projectName || r.projectCode || r.projectId }])
     ).values()
   );

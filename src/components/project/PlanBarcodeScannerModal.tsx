@@ -198,7 +198,7 @@ export const PlanBarcodeScannerModal: React.FC<PlanBarcodeScannerModalProps> = (
         onDuplicate: incrementIfExists ? 'increment' : 'prevent'
       };
 
-      const res = await api.addRevenueItemToPlan(planId, payload);
+      const res: any = await api.addRevenueItemToPlan(planId, payload);
 
       if (res?.duplicatePrevented && !res?.incremented) {
         showToast?.({

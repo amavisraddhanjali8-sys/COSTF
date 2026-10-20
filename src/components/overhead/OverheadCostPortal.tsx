@@ -53,9 +53,9 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
         api.getOverheadCategories(),
         api.getOverheadAuditLogs({ limit: 50 })
       ]);
-      setItems(itemsRes.data || []);
+      setItems(Array.isArray(itemsRes) ? itemsRes : (itemsRes as any)?.data || []);
       setCategories(catsRes || []);
-      setAuditLogs(logsRes.data || []);
+      setAuditLogs(Array.isArray(logsRes) ? logsRes : (logsRes as any)?.data || []);
     } catch (e: any) {
       console.error('Failed to load overhead portal data:', e);
     } finally {

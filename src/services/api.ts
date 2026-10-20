@@ -23,7 +23,8 @@ import {
   PriceComparisonSummary,
   Tariff,
   TariffVersion,
-  PlanTariff
+  PlanTariff,
+  MeasurementUnit
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -148,6 +149,14 @@ export const api = {
     const updated = await res.json();
     persistentDatabase.updateClient(id, updated);
     return updated;
+  },
+
+  async deleteClient(id: string): Promise<any> {
+    const res = await fetch(`/api/clients/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete client');
+    const out = await res.json().catch(() => ({ success: true }));
+    persistentDatabase.deleteClient(id);
+    return out;
   },
 
   async getClientProjects(clientId: string): Promise<any[]> {

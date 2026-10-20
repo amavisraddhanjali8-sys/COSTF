@@ -67,6 +67,7 @@ export interface ListQueryOptions {
   tariffId?: string;
   calculationMethod?: string;
   applicableBase?: string;
+  currency?: string;
 }
 
 export interface PaginatedResult<T> {
@@ -2322,6 +2323,8 @@ export class PostgresService {
     let barcode = data.barcode ? String(data.barcode).trim().toUpperCase() : '';
     if (!barcode) {
       barcode = await this.generateUniqueBarcode('material', code);
+    } else {
+      await this.validateBarcodeUnique(barcode, id, 'material');
     }
     const description = (data.description || '').trim();
     const unit = (data.unit || 'pcs').trim();
@@ -10682,6 +10685,25 @@ export class PostgresService {
       }
     }
     return `${prefix}-${Date.now().toString().slice(-6)}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  }
+
+  public async validateBarcodeUnique(barcode: string, entityId?: string, entityType?: string): Promise<void> {
+    const clean = String(barcode || '').trim().toUpperCase();
+    if (!clean) return;
+    const db = await this.getDb();
+    const existing = await db.query(
+      'SELECT entity_type, entity_id, entity_name, entity_code FROM barcode_registry WHERE barcode = $1',
+      [clean]
+    );
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0];
+      if (row.entity_id !== entityId || (entityType && row.entity_type !== entityType)) {
+        throw Object.assign(
+          new Error(`Barcode '${clean}' is already assigned to ${row.entity_type} '${row.entity_name}' (${row.entity_code}). Barcodes must be globally unique across all business entities.`),
+          { status: 409, conflictEntity: row }
+        );
+      }
+    }
   }
 
   public async registerBarcode(data: {

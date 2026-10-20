@@ -867,8 +867,9 @@ export interface BudgetaryPlan {
 }
 
 export type ProjectPlanRecord = BudgetaryPlan;
+export type ProjectPlan = BudgetaryPlan;
 
-export {
+export type {
   ClientProfile,
   ClientContact,
   ProjectClientRelationship,

@@ -65,7 +65,7 @@ export const ProjectCommercialHistoryModal: React.FC<ProjectCommercialHistoryMod
   if (!isOpen) return null;
 
   const plansList = Array.from(
-    new Map(
+    new Map<string, { id: string; label: string }>(
       records.map((r) => [r.projectPlanId, { id: r.projectPlanId, label: r.planNumber || r.planName || r.projectPlanId }])
     ).values()
   );
