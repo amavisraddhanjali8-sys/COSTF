@@ -180,7 +180,7 @@ function parseFilterPagination(
       filtered = filtered.filter((r) => String(r.entityType || '').toLowerCase() === opts.entityType!.toLowerCase());
     }
     if (opts.entityId) {
-      filtered = filtered.filter((r) => r.entityId === opts.entityId);
+      filtered = filtered.filter((r) => r.entityId === opts.entityId || r.revenueItemId === opts.entityId || r.itemId === opts.entityId || r.materialId === opts.entityId);
     }
     if (opts.priceType && opts.priceType !== 'ALL') {
       const ptLower = opts.priceType.toLowerCase();
@@ -1098,6 +1098,21 @@ export class PostgresService {
     const db = this.db!;
     try {
       await db.exec(`
+        -- Ensure project_plans has summary cache columns
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS direct_cost NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS total_planned_cost NUMERIC(18, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS gross_margin_pct NUMERIC(8, 2) DEFAULT 0;
+        ALTER TABLE project_plans ADD COLUMN IF NOT EXISTS profit_margin_pct NUMERIC(8, 2) DEFAULT 0;
+
+        -- Ensure project_plan_overhead_allocations has backwards-compatibility columns
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS overhead_item_id TEXT;
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS allocation_method TEXT DEFAULT 'fixed_amount';
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS allocation_base TEXT DEFAULT 'total_direct_cost';
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS allocation_rate NUMERIC(18, 4) DEFAULT 0;
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS unit_quantity NUMERIC(18, 4) DEFAULT 1;
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS effective_date DATE DEFAULT CURRENT_DATE;
+        ALTER TABLE project_plan_overhead_allocations ADD COLUMN IF NOT EXISTS allocated_by TEXT DEFAULT 'System';
+
         -- Overhead Cost System
         CREATE TABLE IF NOT EXISTS overhead_categories (
           id TEXT PRIMARY KEY,
@@ -4048,25 +4063,27 @@ export class PostgresService {
       }
 
       // 8. Insert overhead allocations
-      for (let i = 0; i < calc.normalizedOverheadAllocations.length; i++) {
-        const ovh = calc.normalizedOverheadAllocations[i];
-        const ovhId = `ovh-${planId}-${i + 1}-${Math.floor(1000 + Math.random() * 9000)}`;
-        await q(
-          `INSERT INTO project_plan_overhead_allocations (
-            id, plan_id, project_id, category, allocation_type, rate_pct, base_amount, allocated_amount, notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            ovhId,
-            planId,
-            projectId,
-            ovh.category,
-            ovh.allocationType,
-            ovh.ratePct,
-            ovh.baseAmount,
-            ovh.allocatedAmount,
-            ovh.notes || ''
-          ]
-        );
+      if (Array.isArray(data.overheadAllocations) && data.overheadAllocations.length > 0) {
+        for (let i = 0; i < calc.normalizedOverheadAllocations.length; i++) {
+          const ovh = calc.normalizedOverheadAllocations[i];
+          const ovhId = `ovh-${planId}-${i + 1}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await q(
+            `INSERT INTO project_plan_overhead_allocations (
+              id, plan_id, project_id, category, allocation_type, rate_pct, base_amount, allocated_amount, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+              ovhId,
+              planId,
+              projectId,
+              ovh.category,
+              ovh.allocationType,
+              ovh.ratePct,
+              ovh.baseAmount,
+              ovh.allocatedAmount,
+              ovh.notes || ''
+            ]
+          );
+        }
       }
 
       // 9. Insert cost summary
@@ -4734,6 +4751,146 @@ export class PostgresService {
       );
     });
     return true;
+  }
+
+  /**
+   * Project-Level Multiple Plans Comparison (TASK 8)
+   * Evaluates all plans belonging to a project side-by-side with revenue, direct cost,
+   * overhead, total cost, gross profit, net planned profit, margin, status, and baseline variance.
+   * Enforces rules for identifying current/approved plan and isolating alternative scenario figures.
+   */
+  public async getProjectPlansComparison(projectId: string): Promise<any> {
+    const db = await this.getDb();
+    const projRes = await db.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (projRes.rows.length === 0) {
+      throw Object.assign(new Error(`Project with ID "${projectId}" not found`), { status: 404 });
+    }
+    const proj = projRes.rows[0];
+
+    const plansRes = await db.query(`
+      SELECT
+        pp.*,
+        pp.effective_date::text AS effective_date_iso,
+        pp.approval_date::text AS approval_date_iso,
+        cs.planned_revenue AS cs_planned_revenue,
+        cs.material_cost,
+        cs.subcontractor_cost,
+        cs.outsourced_cost,
+        cs.resource_cost,
+        cs.direct_cost,
+        cs.overhead_amount,
+        cs.contingency_amount,
+        cs.allocated_overhead,
+        cs.total_planned_cost,
+        cs.gross_profit,
+        cs.gross_margin_pct,
+        cs.planned_profit,
+        cs.profit_margin_pct,
+        cs.boq_item_count,
+        cs.section_count,
+        cs.resource_count
+      FROM project_plans pp
+      LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
+      WHERE pp.project_id = $1
+      ORDER BY pp.is_active DESC, pp.is_baseline DESC, pp.created_at ASC
+    `, [projectId]);
+
+    const rawPlans = plansRes.rows;
+
+    // Rules for current or approved plan (Req 14)
+    const activePlanRow = rawPlans.find((p) => p.is_active) || rawPlans[0];
+    const baselinePlanRow = rawPlans.find((p) => p.is_baseline) || rawPlans[0];
+    const approvedPlanRow =
+      rawPlans.find((p) => p.status === 'Approved' && p.is_active) ||
+      rawPlans.find((p) => p.status === 'Approved') ||
+      baselinePlanRow;
+
+    const baseRevenue = round2(baselinePlanRow?.cs_planned_revenue ?? baselinePlanRow?.planned_revenue ?? 0);
+    const baseDirectCost = round2(baselinePlanRow?.direct_cost ?? 0);
+    const baseOverhead = round2(baselinePlanRow?.allocated_overhead ?? 0);
+    const baseTotalCost = round2(baselinePlanRow?.total_planned_cost ?? 0);
+    const baseProfit = round2(baselinePlanRow?.planned_profit ?? 0);
+
+    const plans = rawPlans.map((r: any) => {
+      const revenue = round2(r.cs_planned_revenue ?? r.planned_revenue ?? 0);
+      const directCost = round2(r.direct_cost ?? 0);
+      const overhead = round2(r.allocated_overhead ?? 0);
+      const totalCost = round2(r.total_planned_cost ?? 0);
+      const grossProfit = round2(r.gross_profit ?? decSub(revenue, directCost));
+      const netPlannedProfit = round2(r.planned_profit ?? decSub(revenue, totalCost));
+      const margin = round2(r.profit_margin_pct ?? (revenue > 0 ? decMul(decDiv(grossProfit, revenue), 100) : 0));
+      const isBaseline = Boolean(r.is_baseline);
+      const isActive = Boolean(r.is_active);
+      const isApproved = r.status === 'Approved' || Boolean(r.approval_date);
+
+      const costVarianceToBaseline = round2(decSub(totalCost, baseTotalCost));
+      const revenueVarianceToBaseline = round2(decSub(revenue, baseRevenue));
+      const profitVarianceToBaseline = round2(decSub(netPlannedProfit, baseProfit));
+
+      return {
+        id: r.id,
+        planNumber: r.plan_number,
+        name: r.name,
+        description: r.description || '',
+        planType: r.plan_type || (isBaseline ? 'Baseline' : 'Alternative'),
+        status: r.status || 'Draft',
+        isBaseline,
+        isActive,
+        isApproved,
+        revisionNumber: Number(r.revision_number || 1),
+        versionLabel: r.version_label || `v${r.revision_number || 1}.0`,
+        currency: r.currency || proj.currency || 'USD',
+        revenue,
+        directCost,
+        overhead,
+        totalCost,
+        grossProfit,
+        netPlannedProfit,
+        margin,
+        targetMarginPct: round2(r.target_margin_pct || 25),
+        overheadPct: round2(r.overhead_pct || 8.5),
+        contingencyPct: round2(r.contingency_pct || 5.0),
+        boqItemCount: Number(r.boq_item_count || 0),
+        effectiveDate: formatSqlDate(r.effective_date_iso, ''),
+        updatedAt: r.updated_at,
+        varianceToBaseline: {
+          costDifference: costVarianceToBaseline,
+          costDiffPct: baseTotalCost > 0 ? round2(decMul(decDiv(costVarianceToBaseline, baseTotalCost), 100)) : 0,
+          revenueDifference: revenueVarianceToBaseline,
+          profitDifference: profitVarianceToBaseline
+        }
+      };
+    });
+
+    return {
+      projectId: proj.id,
+      projectCode: proj.code,
+      projectName: proj.name,
+      clientName: proj.client_name,
+      quotedPrice: round2(proj.quoted_price || 0),
+      currency: proj.currency || 'USD',
+      activePlanId: activePlanRow?.id || null,
+      approvedPlanId: approvedPlanRow?.id || null,
+      currentApprovedPlan: approvedPlanRow
+        ? {
+            id: approvedPlanRow.id,
+            planNumber: approvedPlanRow.plan_number,
+            name: approvedPlanRow.name,
+            status: approvedPlanRow.status,
+            versionLabel: approvedPlanRow.version_label,
+            totalPlannedCost: round2(approvedPlanRow.total_planned_cost ?? 0),
+            plannedRevenue: round2(approvedPlanRow.cs_planned_revenue ?? approvedPlanRow.planned_revenue ?? 0)
+          }
+        : null,
+      rules: {
+        inclusionRule: 'Project portfolio roll-ups and quote summaries use exclusively the Approved/Active plan.',
+        alternativePlansIsolationRule:
+          'Alternative plans (B, C, etc.) are maintained as independent trade scenarios and are NOT combined or summed into project portfolio totals.',
+        childRecordLinkageRule:
+          'Child records (BOQ line items, overhead allocations, resource assignments, and commercial rates) reference their specific planId with cascade protections.'
+      },
+      plans
+    };
   }
 
   // --- Categories CRUD ---
@@ -7834,6 +7991,7 @@ export class PostgresService {
 
     let rows: any[] = res.rows.map((r: any) => ({
       id: r.id,
+      entityId: r.revenue_item_id,
       revenueItemId: r.revenue_item_id,
       revenueItemCode: r.revenue_item_code,
       revenueItemName: r.revenue_item_name,
@@ -7869,6 +8027,10 @@ export class PostgresService {
       if (opts.projectId && opts.projectId !== 'ALL') {
         rows = rows.filter((r) => r.projectId === opts.projectId);
       }
+      if (opts.planId || (opts as any).projectPlanId) {
+        const pid = opts.planId || (opts as any).projectPlanId;
+        rows = rows.filter((r) => r.projectPlanId === pid);
+      }
     }
 
     return parseFilterPagination(
@@ -7881,6 +8043,10 @@ export class PostgresService {
 
   public async getProjectCommercialHistory(projectId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     return this.getRevenueRateHistory({ ...(opts || {}), projectId });
+  }
+
+  public async getPlanCommercialHistory(planId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    return this.getRevenueRateHistory({ ...(opts || {}), planId });
   }
 
   public async getRevenueItemRateHistory(revenueItemId: string, opts?: ListQueryOptions): Promise<PaginatedResult<any>> {

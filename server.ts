@@ -76,7 +76,7 @@ function extractListOptions(query: any): ListQueryOptions & { paginated?: boolea
     planId: query?.planId ? String(query.planId) : undefined,
     fromDate: query?.fromDate ? String(query.fromDate) : undefined,
     toDate: query?.toDate ? String(query.toDate) : undefined,
-    paginated: query?.paginated === 'true' || query?.paginated === '1'
+    paginated: query?.paginated === 'true' || query?.paginated === '1' || (query?.page !== undefined && query?.limit !== undefined)
   };
 }
 
@@ -2053,6 +2053,17 @@ async function startServer() {
   });
 
   // --- Project Plans API (Normalized PostgreSQL Project Planning System) ---
+  app.get('/api/projects/:projectId/plans/comparison', async (req, res) => {
+    try {
+      const comparison = await postgresService.getProjectPlansComparison(req.params.projectId);
+      res.json(comparison);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to get project plans comparison:', e);
+      res.status(500).json({ error: 'Failed to fetch project plans comparison', details: e?.message });
+    }
+  });
+
   app.get('/api/projects/:projectId/plans', async (req, res) => {
     try {
       const project = await postgresService.getProjectById(req.params.projectId);
@@ -2728,6 +2739,17 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to fetch project commercial history:', e);
       res.status(500).json({ error: 'Failed to fetch project commercial history', details: e?.message });
+    }
+  });
+
+  app.get(['/api/project-plans/:planId/commercial-history', '/api/plans/:planId/commercial-history'], async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getPlanCommercialHistory(req.params.planId, opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch plan commercial history:', e);
+      res.status(500).json({ error: 'Failed to fetch plan commercial history', details: e?.message });
     }
   });
 

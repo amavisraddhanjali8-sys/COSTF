@@ -846,6 +846,19 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete project plan');
   },
 
+  async getProjectPlansComparison(projectId: string): Promise<any> {
+    const res = await fetch(`/api/projects/${projectId}/plans/comparison`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project plans comparison');
+    return await res.json();
+  },
+
+  async getPlanCommercialHistory(planId: string, params?: ListQueryParams): Promise<any[]> {
+    const res = await fetch(`/api/project-plans/${planId}/commercial-history?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan commercial history');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
   // --- Company Details (PostgreSQL inno_cost) ---
   async getCompanyDetails(): Promise<CompanyDetails> {
     const res = await fetch(`/api/company-details`);

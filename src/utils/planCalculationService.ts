@@ -51,18 +51,22 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
 
   const normalizedBoqItems: ProjectPlanBoqItem[] = rawItems.map((it, idx) => {
     const qty = Math.max(0, round4(it.quantity ?? 1));
-    const unitCost = Math.max(0, round4(it.unitCost ?? 0));
-    const discountPct = Math.max(0, Math.min(100, round2(it.discountPct ?? 0)));
+    const unitCost = Math.max(0, round4(it.unitCost ?? (it as any).unit_cost ?? 0));
+    const discountPct = Math.max(0, Math.min(100, round2(it.discountPct ?? (it as any).discount_pct ?? 0)));
     const { totalAmount } = calcDiscountedLine(qty, unitCost, discountPct);
-    const lineCost = round2(totalAmount);
+    const lineCost = (it as any).total_cost !== undefined && Number((it as any).total_cost) > 0
+      ? round2((it as any).total_cost)
+      : round2(totalAmount);
 
-    const markupPct = round2(it.markupPct ?? 30);
+    const markupPct = round2(it.markupPct ?? (it as any).markup_pct ?? 30);
     const explicitRate = it.rate !== undefined && Number(it.rate) > 0
       ? round4(it.rate)
       : it.sellingRate !== undefined && Number(it.sellingRate) > 0
       ? round4(it.sellingRate)
       : it.billableRate !== undefined && Number(it.billableRate) > 0
       ? round4(it.billableRate)
+      : (it as any).billable_rate !== undefined && Number((it as any).billable_rate) > 0
+      ? round4((it as any).billable_rate)
       : round4(decMul(unitCost, decAdd(1, decDiv(markupPct, 100))));
 
     const billableRate = explicitRate;
@@ -72,10 +76,12 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     const calcLineRevenue = round2(decMul(qty, decMul(rate, decSub(1, decDiv(discountPct, 100)))));
     const totalRevenue = it.totalRevenue !== undefined && Number(it.totalRevenue) > 0
       ? round2(it.totalRevenue)
+      : (it as any).total_revenue !== undefined && Number((it as any).total_revenue) > 0
+      ? round2((it as any).total_revenue)
       : calcLineRevenue;
     const grossProfit = round2(decSub(totalRevenue, lineCost));
 
-    const itemTypeRaw = String(it.type || 'material').toLowerCase();
+    const itemTypeRaw = String(it.type || (it as any).item_type || 'material').toLowerCase();
     const itemType: ProjectPlanBoqItem['type'] =
       itemTypeRaw === 'product'
         ? 'product'
@@ -107,16 +113,16 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       id: it.id || `boq-${Date.now()}-${idx}`,
       planId: input.planId,
       projectId: input.projectId,
-      sectionId: it.sectionId,
-      phaseId: it.phaseId || 'phase-01',
+      sectionId: it.sectionId || (it as any).section_id,
+      phaseId: it.phaseId || (it as any).phase_id || 'phase-01',
       type: itemType,
-      itemId: it.itemId || it.itemCode || `ITM-${idx + 1}`,
-      itemCode: it.itemCode || it.itemId || `ITM-${idx + 1}`,
-      revenueItemId: (it as any).revenueItemId || undefined,
+      itemId: it.itemId || it.itemCode || (it as any).catalog_item_id || (it as any).item_code || `ITM-${idx + 1}`,
+      itemCode: it.itemCode || it.itemId || (it as any).item_code || (it as any).catalog_item_id || `ITM-${idx + 1}`,
+      revenueItemId: (it as any).revenueItemId || (it as any).revenue_item_id || undefined,
       name: String(it.name || 'Line Item').trim(),
       category: it.category || '',
-      subCategory: (it as any).subCategory || '',
-      supplierOrProvider: it.supplierOrProvider || 'Approved Vendor',
+      subCategory: (it as any).subCategory || (it as any).sub_category || '',
+      supplierOrProvider: it.supplierOrProvider || (it as any).supplier_or_provider || 'Approved Vendor',
       description: it.description || '',
       quantity: qty,
       unit: it.unit || 'pcs',
@@ -127,16 +133,16 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       totalCost: lineCost,
       markupPct,
       billableRate,
-      taxTreatment: (it as any).taxTreatment || 'Standard (0%)',
-      taxRatePct: round2((it as any).taxRatePct ?? 0),
-      taxAmount: round2((it as any).taxAmount ?? 0),
+      taxTreatment: (it as any).taxTreatment || (it as any).tax_treatment || 'Standard (0%)',
+      taxRatePct: round2((it as any).taxRatePct ?? (it as any).tax_rate_pct ?? 0),
+      taxAmount: round2((it as any).taxAmount ?? (it as any).tax_amount ?? 0),
       totalRevenue,
       grossProfit,
       currency: it.currency || 'USD',
-      nativeUnitCost: it.nativeUnitCost !== undefined ? round4(it.nativeUnitCost) : unitCost,
-      consumptionRate: it.consumptionRate !== undefined ? round2(it.consumptionRate) : 100,
+      nativeUnitCost: it.nativeUnitCost !== undefined ? round4(it.nativeUnitCost) : (it as any).native_unit_cost !== undefined ? round4((it as any).native_unit_cost) : unitCost,
+      consumptionRate: it.consumptionRate !== undefined ? round2(it.consumptionRate) : (it as any).consumption_rate !== undefined ? round2((it as any).consumption_rate) : 100,
       notes: it.notes || '',
-      lineOrder: it.lineOrder !== undefined ? Number(it.lineOrder) : idx + 1,
+      lineOrder: it.lineOrder !== undefined ? Number(it.lineOrder) : (it as any).line_order !== undefined ? Number((it as any).line_order) : idx + 1,
       snapshotData: (it as any).snapshotData || (it as any).snapshot_data || undefined,
       commercialContext: (it as any).commercialContext || (it as any).commercial_context || undefined
     };
@@ -144,26 +150,28 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
 
   let resourceCost = 0;
   const normalizedResources: ProjectPlanResource[] = rawResources.map((r, idx) => {
-    const allocatedHours = Math.max(0, round2(r.allocatedHours ?? 0));
-    const hourlyRate = Math.max(0, round4(r.hourlyRate ?? 0));
+    const allocatedHours = Math.max(0, round2(r.allocatedHours ?? (r as any).allocated_hours ?? 0));
+    const hourlyRate = Math.max(0, round4(r.hourlyRate ?? (r as any).hourly_rate ?? 0));
     const totalCost = r.totalCost !== undefined && Number(r.totalCost) > 0
       ? round2(r.totalCost)
+      : (r as any).total_cost !== undefined && Number((r as any).total_cost) > 0
+      ? round2((r as any).total_cost)
       : round2(decMul(allocatedHours, hourlyRate));
     resourceCost = round2(decAdd(resourceCost, totalCost));
     return {
       id: r.id || `res-${Date.now()}-${idx}`,
       planId: input.planId,
       projectId: input.projectId,
-      sectionId: r.sectionId,
-      resourceId: r.resourceId || `R-${idx + 1}`,
-      resourceType: (r.resourceType === 'team_member' || r.resourceType === 'equipment' ? r.resourceType : 'subcontractor'),
+      sectionId: r.sectionId || (r as any).section_id,
+      resourceId: r.resourceId || (r as any).resource_id || `R-${idx + 1}`,
+      resourceType: (r.resourceType === 'team_member' || (r as any).resource_type === 'team_member' || r.resourceType === 'equipment' || (r as any).resource_type === 'equipment' ? (r.resourceType || (r as any).resource_type) : 'subcontractor'),
       name: String(r.name || 'Assigned Resource').trim(),
-      roleOrTrade: r.roleOrTrade || 'Specialist',
+      roleOrTrade: r.roleOrTrade || (r as any).role_or_trade || 'Specialist',
       allocatedHours,
       hourlyRate,
       totalCost,
-      startDate: r.startDate,
-      endDate: r.endDate,
+      startDate: r.startDate || (r as any).start_date_iso || (r as any).start_date,
+      endDate: r.endDate || (r as any).end_date_iso || (r as any).end_date,
       notes: r.notes || ''
     };
   });
@@ -184,13 +192,15 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   const customOverheads = rawOverheads.filter(
     (o) =>
       o &&
-      (o.category || o.overheadItemName || o.overheadItemId) &&
-      !['General Overhead', 'Contingency Reserve', 'Labor Burden'].includes(String(o.category || ''))
+      (o.category || o.overheadItemName || o.overheadItemId || o.overhead_item_name || o.overhead_item_id)
   );
 
   let extraOverheadAmount = 0;
   const normalizedCustomOverheads: ProjectPlanOverheadAllocation[] = customOverheads.map((o, idx) => {
-    const rawMethod = String(o.allocationMethod || (o.allocationType === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base'));
+    const rawMethod = String(
+      o.allocationMethod || o.allocation_method ||
+      (o.allocationType === 'fixed' || o.allocation_type === 'fixed' ? 'fixed_amount' : 'percentage_of_cost_base')
+    );
     const method: ProjectPlanOverheadAllocation['allocationMethod'] =
       rawMethod === 'rate_per_unit'
         ? 'rate_per_unit'
@@ -200,12 +210,13 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
         ? 'proportional_defined_base'
         : 'percentage_of_cost_base';
 
-    const allocBase: ProjectPlanOverheadAllocation['allocationBase'] = (o.allocationBase as any) || 'total_direct_cost';
-    const rate = round4(Number(o.allocationRate ?? o.ratePct ?? 0));
-    const unitQty = Math.max(0, round4(Number(o.unitQuantity ?? 1)));
+    const allocBase: ProjectPlanOverheadAllocation['allocationBase'] =
+      (o.allocationBase || o.allocation_base as any) || 'total_direct_cost';
+    const rate = round4(Number(o.allocationRate ?? o.allocation_rate ?? o.ratePct ?? o.rate_pct ?? 0));
+    const unitQty = Math.max(0, round4(Number(o.unitQuantity ?? o.unit_quantity ?? 1)));
 
     // Determine relevant base dynamically based on allocation base
-    let baseAmount = round2(Number(o.baseAmount || 0));
+    let baseAmount = round2(Number(o.baseAmount ?? o.base_amount ?? 0));
     if (allocBase === 'material_cost') {
       baseAmount = materialCost;
     } else if (allocBase === 'subcontractor_cost') {
@@ -223,8 +234,9 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     }
 
     let allocatedAmount = 0;
+    const existingAlloc = o.allocatedAmount !== undefined ? o.allocatedAmount : o.allocated_amount;
     if (method === 'fixed_amount') {
-      allocatedAmount = round2(o.allocatedAmount !== undefined && Number(o.allocatedAmount) > 0 ? Number(o.allocatedAmount) : rate);
+      allocatedAmount = round2(existingAlloc !== undefined && Number(existingAlloc) > 0 ? Number(existingAlloc) : rate);
     } else if (method === 'rate_per_unit') {
       allocatedAmount = round2(decMul(rate, unitQty));
     } else if (method === 'percentage_of_cost_base' || method === 'proportional_defined_base') {
@@ -239,13 +251,13 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       id: o.id || `ovh-custom-${Date.now()}-${idx}`,
       planId: input.planId || '',
       projectId: input.projectId || '',
-      overheadItemId: o.overheadItemId,
-      overheadItemCode: o.overheadItemCode,
-      overheadItemName: o.overheadItemName,
+      overheadItemId: o.overheadItemId || o.overhead_item_id,
+      overheadItemCode: o.overheadItemCode || o.overhead_item_code,
+      overheadItemName: o.overheadItemName || o.overhead_item_name,
       barcode: o.barcode,
-      category: String(o.category || o.overheadItemName || 'General Overhead'),
-      costType: o.costType || 'Fixed',
-      unitType: o.unitType || 'month',
+      category: String(o.category || o.overheadItemName || o.overhead_item_name || 'General Overhead'),
+      costType: o.costType || o.cost_type || 'Fixed',
+      unitType: o.unitType || o.unit_type || 'month',
       allocationMethod: method,
       allocationType: method === 'fixed_amount' ? 'fixed' : 'percentage',
       allocationBase: allocBase,
@@ -254,8 +266,8 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       ratePct: round2(rate),
       unitQuantity: unitQty,
       allocatedAmount,
-      effectiveDate: o.effectiveDate || new Date().toISOString().slice(0, 10),
-      allocatedBy: o.allocatedBy || 'System',
+      effectiveDate: o.effectiveDate || o.effective_date_iso || o.effective_date || new Date().toISOString().slice(0, 10),
+      allocatedBy: o.allocatedBy || o.allocated_by || 'System',
       notes: o.notes || ''
     };
   });
@@ -317,11 +329,15 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
     });
   }
 
-  const normalizedOverheadAllocations = [...standardOverheads, ...normalizedCustomOverheads];
+  const hasCustomOverheads = normalizedCustomOverheads.length > 0;
+  const isExplicitEmptyOverheads = Array.isArray(input.overheadAllocations) && input.overheadAllocations.length === 0;
+  const normalizedOverheadAllocations = hasCustomOverheads
+    ? normalizedCustomOverheads
+    : (isExplicitEmptyOverheads ? [] : standardOverheads);
 
-  const allocatedOverhead = round2(
-    decAdd(decAdd(decAdd(overheadAmount, contingencyAmount), laborBurdenAmount), extraOverheadAmount)
-  );
+  const allocatedOverhead = hasCustomOverheads
+    ? round2(decAdd(extraOverheadAmount, laborBurdenAmount))
+    : (isExplicitEmptyOverheads ? 0 : round2(decAdd(decAdd(overheadAmount, contingencyAmount), laborBurdenAmount)));
   const totalPlannedCost = round2(decAdd(directCost, allocatedOverhead));
 
   // Determine plannedRevenue:

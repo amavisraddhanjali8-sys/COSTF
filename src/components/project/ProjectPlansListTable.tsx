@@ -16,7 +16,9 @@ import {
   SlidersHorizontal,
   FolderGit2,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Edit,
+  History
 } from 'lucide-react';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 
@@ -53,6 +55,9 @@ interface ProjectPlansListTableProps {
   activePlanId?: string;
   currency?: string;
   onViewPlanDetails: (planId: string) => void;
+  onEditPlan?: (plan: ProjectPlanRow) => void;
+  onViewRevisions?: (plan: ProjectPlanRow) => void;
+  onOpenComparison?: () => void;
   onActivatePlan?: (planId: string) => void;
   onDuplicatePlan?: (planId: string) => void;
   onArchivePlan?: (planId: string) => void;
@@ -66,6 +71,9 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
   activePlanId,
   currency,
   onViewPlanDetails,
+  onEditPlan,
+  onViewRevisions,
+  onOpenComparison,
   onActivatePlan,
   onDuplicatePlan,
   onArchivePlan,
