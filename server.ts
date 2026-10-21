@@ -1553,6 +1553,52 @@ async function startServer() {
     }
   });
 
+  // --- Categories API (PostgreSQL inno_cost) ---
+  app.get('/api/categories', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getCategoriesPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to get categories:', e);
+      res.status(500).json({ error: 'Failed to fetch categories', details: e?.message });
+    }
+  });
+
+  app.post('/api/categories', async (req, res) => {
+    try {
+      if (!req.body?.name) {
+        return res.status(400).json({ error: 'Category name is required' });
+      }
+      const created = await postgresService.createCategory(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create category:', e);
+      res.status(500).json({ error: 'Failed to create category in PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.put('/api/categories/:id', async (req, res) => {
+    try {
+      const updated = await postgresService.updateCategory(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Category not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update category:', e);
+      res.status(500).json({ error: 'Failed to update category', details: e?.message });
+    }
+  });
+
+  app.delete('/api/categories/:id', async (req, res) => {
+    try {
+      await postgresService.deleteCategory(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete category:', e);
+      res.status(500).json({ error: 'Failed to delete category', details: e?.message });
+    }
+  });
+
   // --- Materials API (PostgreSQL inno_cost) ---
   app.get('/api/materials', async (req, res) => {
     try {

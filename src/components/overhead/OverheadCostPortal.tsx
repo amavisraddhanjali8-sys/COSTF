@@ -19,6 +19,7 @@ import {
 import { OverheadItem, OverheadCategory, OverheadAuditLog, Project } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
+import { CreateEditOverheadItemModal } from './CreateEditOverheadItemModal';
 
 interface OverheadCostPortalProps {
   currentUser?: any;
@@ -38,6 +39,8 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   const [auditLogs, setAuditLogs] = useState<OverheadAuditLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'catalogue' | 'audit'>('catalogue');
+  const [isCreateEditOpen, setIsCreateEditOpen] = useState(false);
+  const [itemToEdit, setItemToEdit] = useState<OverheadItem | null>(null);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -96,6 +99,18 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                setItemToEdit(null);
+                setIsCreateEditOpen(true);
+              }}
+              className="px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+              <span>New Overhead Item</span>
+            </button>
+
             <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
               <button
                 type="button"
@@ -138,18 +153,32 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               />
             </div>
 
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 focus:outline-none"
-            >
-              <option value="ALL">All Categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center space-x-2">
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 focus:outline-none"
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setItemToEdit(null);
+                  setIsCreateEditOpen(true);
+                }}
+                className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Record</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -163,6 +192,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                   <th className="py-2.5 px-3 font-semibold text-right">Default Rate</th>
                   <th className="py-2.5 px-3 font-semibold text-center">Status</th>
                   <th className="py-2.5 px-3 font-semibold text-center">Linked Plans</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-sans text-xs">
@@ -185,6 +215,35 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-center font-mono font-semibold">
                       {item.linkedPlansCount || 0}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="flex items-center justify-end space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setItemToEdit(item);
+                            setIsCreateEditOpen(true);
+                          }}
+                          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-600 dark:text-slate-400 transition-colors cursor-pointer"
+                          title="Edit Overhead Item"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (window.confirm(`Delete overhead item ${item.name}?`)) {
+                              await api.deleteOverheadItem(item.id);
+                              loadData();
+                              if (showToast) showToast(`Overhead item ${item.name} removed.`);
+                            }
+                          }}
+                          className="p-1 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded text-rose-500 transition-colors cursor-pointer"
+                          title="Delete Overhead Item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -217,6 +276,20 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal */}
+      <CreateEditOverheadItemModal
+        isOpen={isCreateEditOpen}
+        onClose={() => {
+          setIsCreateEditOpen(false);
+          setItemToEdit(null);
+        }}
+        itemToEdit={itemToEdit}
+        onSave={(saved) => {
+          loadData();
+          if (showToast) showToast(`Overhead item "${saved.name}" saved successfully.`);
+        }}
+      />
     </div>
   );
 };

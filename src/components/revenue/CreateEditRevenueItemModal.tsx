@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import { RevenueItem, RevenueCategory } from '../../types';
 import { api } from '../../services/api';
+import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
+import { persistentDatabase } from '../../services/persistentDatabase';
+import { CategoryNode } from '../../data/categoriesAndProfiles';
 
 interface CreateEditRevenueItemModalProps {
   isOpen: boolean;
@@ -125,6 +128,19 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
         result = await api.updateRevenueItem(itemToEdit.id, payload);
       } else {
         result = await api.createRevenueItem(payload);
+        // Synchronize with Produce table so revenue and produce portals both have the product
+        if (payload.type === 'product') {
+          api.createProduce({
+            code: result.code,
+            name: result.name,
+            category: result.category,
+            subCategory: result.subCategory || 'General',
+            unit: result.unit,
+            retailPrice: result.defaultRate,
+            costPrice: result.costPrice || 0,
+            status: 'Active'
+          }).catch((e) => console.warn('Could not sync produce record:', e));
+        }
       }
 
       onSave(result);
@@ -262,46 +278,18 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
             </div>
           </div>
 
-          {/* Category & Subcategory */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Category <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                list="revenue-categories-list"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="Select or enter category..."
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-              />
-              <datalist id="revenue-categories-list">
-                {categories.map((c) => (
-                  <option key={c.id} value={c.name} />
-                ))}
-                <option value="Architectural & Structural Aluminium" />
-                <option value="Industrial Automation & Machinery" />
-                <option value="Mechanical Fabrication & Systems" />
-                <option value="Engineering & Design Consultancy" />
-                <option value="Site Installation & Commissioning" />
-              </datalist>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Subcategory <span className="text-slate-400 font-normal">(Optional)</span>
-              </label>
-              <input
-                type="text"
-                value={subCategory}
-                onChange={(e) => setSubCategory(e.target.value)}
-                placeholder="e.g. Heavy Duty, Sliding, Pivoted"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
+          {/* Category & Subcategory via SearchableCategoryPicker */}
+          <SearchableCategoryPicker
+            categories={persistentDatabase.getCategories()}
+            selectedCategory={category}
+            selectedSubCategory={subCategory}
+            onCategoryChange={(catName) => setCategory(catName)}
+            onSubCategoryChange={(subName) => setSubCategory(subName)}
+            group={type === 'product' ? 'product' : 'service'}
+            categoryLabel="Category"
+            subCategoryLabel="Sub-Category"
+            required={true}
+          />
 
           {/* Pricing: Default Selling Rate, Unit, Currency */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-3">

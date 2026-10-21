@@ -60,6 +60,10 @@ import { parseSpreadsheetFile, MAX_FILE_SIZE_BYTES } from '../utils/excelImport'
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
 import { persistentDatabase } from '../services/persistentDatabase';
 import { DataImportExportModal } from './DataImportExportModal';
+import { SearchableCategoryPicker } from './common/SearchableCategoryPicker';
+import { SearchablePartnerPicker, PartnerOption } from './common/SearchablePartnerPicker';
+import { CategoryNode } from '../data/categoriesAndProfiles';
+import { api } from '../services/api';
 
 export interface CatalogGridItem {
   id: string;
@@ -92,11 +96,18 @@ interface MasterDataGridCatalogProps {
   suppliers: Supplier[];
   projects: Project[];
   produceItems?: ProduceItem[];
+  categories?: CategoryNode[];
   selectedProject?: Project | null;
   onUpdateMaterialPrice?: (id: string, newPrice: number, reason: string) => void;
   onUpdateServiceRate?: (id: string, newRate: number, reason: string, updatedBy: string) => void;
   onAddItemToProject?: (projectId: string, item: any) => void;
   onAddNewItem?: (item: any) => void;
+  onAddMaterial?: (item: Partial<MaterialItem>) => void;
+  onAddProduceItem?: (item: Partial<ProduceItem>) => void;
+  onAddOutsourcedService?: (item: Partial<OutsourcedService>) => void;
+  onAddSubcontractor?: (item: Partial<SubcontractorRateItem>) => void;
+  onAddOverheadItem?: (item: any) => void;
+  onAddRevenueItem?: (item: any) => void;
   onEditRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product', item: any) => void;
   onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product', id: string) => void;
   initialFilterTab?: string;
@@ -110,11 +121,18 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   suppliers,
   projects,
   produceItems = [],
+  categories = [],
   selectedProject,
   onUpdateMaterialPrice,
   onUpdateServiceRate,
   onAddItemToProject,
   onAddNewItem,
+  onAddMaterial,
+  onAddProduceItem,
+  onAddOutsourcedService,
+  onAddSubcontractor,
+  onAddOverheadItem,
+  onAddRevenueItem,
   onEditRecord,
   onDeleteRecord,
   initialFilterTab = 'ALL',
@@ -237,13 +255,48 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   const [addQuantity, setAddQuantity] = useState<number>(1);
 
   // Add New Item State
-  const [newItemType, setNewItemType] = useState<'material' | 'product' | 'service'>('material');
+  const [newItemType, setNewItemType] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'overhead'>('material');
   const [newItemName, setNewItemName] = useState('');
   const [newItemCode, setNewItemCode] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('');
+  const [newItemSubCategory, setNewItemSubCategory] = useState('');
   const [newItemRate, setNewItemRate] = useState<number>(100);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
   const [newItemSupplier, setNewItemSupplier] = useState(suppliers[0]?.name || 'Apex Metallurgy Corp');
+
+  // Combined partners list for SearchablePartnerPicker
+  const partnerOptions: PartnerOption[] = useMemo(() => {
+    const list: PartnerOption[] = [];
+    suppliers.forEach((s) => {
+      list.push({
+        id: s.id,
+        name: s.name,
+        type: 'supplier',
+        categoryOrTrade: s.category || s.supplyScope,
+        country: s.country
+      });
+    });
+    subcontractors.forEach((sub) => {
+      list.push({
+        id: sub.id,
+        name: sub.subcontractorName || sub.nicheServiceName,
+        type: 'subcontractor',
+        categoryOrTrade: sub.serviceCategory || sub.serviceType,
+        country: sub.location
+      });
+    });
+    services.forEach((srv) => {
+      if (srv.providerName && !list.some((p) => p.name.toLowerCase() === srv.providerName.toLowerCase())) {
+        list.push({
+          id: srv.id,
+          name: srv.providerName,
+          type: 'provider',
+          categoryOrTrade: srv.category
+        });
+      }
+    });
+    return list;
+  }, [suppliers, subcontractors, services]);
 
   // Trigger temporary notification
   const showToast = (msg: string) => {
@@ -1069,35 +1122,163 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   };
 
   // Add New Item Submit
-  const handleCreateNewItemSubmit = (e: React.FormEvent) => {
+  const handleCreateNewItemSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemName) return;
+    if (!newItemName.trim()) return;
 
-    const generatedCode = newItemCode || (newItemType === 'product' ? `PRD-NEW-${Math.floor(Math.random() * 9000 + 1000)}` : newItemType === 'service' ? `SVC-NEW-${Math.floor(Math.random() * 9000 + 1000)}` : `MAT-NEW-${Math.floor(Math.random() * 9000 + 1000)}`);
+    const generatedCode = newItemCode.trim() || (
+      newItemType === 'product' ? `PRD-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      newItemType === 'service' ? `SVC-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      newItemType === 'subcontractor' ? `SUB-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      newItemType === 'overhead' ? `OVH-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      `MAT-NEW-${Math.floor(Math.random() * 9000 + 1000)}`
+    );
 
-    if (onAddNewItem) {
-      onAddNewItem({
-        id: `item-cust-${Date.now()}`,
+    const priceNum = Number(newItemRate) || 100;
+
+    if (newItemType === 'product') {
+      const prodPayload: Partial<ProduceItem> = {
         code: generatedCode,
-        name: newItemName,
-        category: newItemCategory || 'General Engineering',
-        subCategory: 'Standard Spec',
-        itemClassification: newItemType === 'product' ? 'final_product' : 'raw_material',
-        supplierName: newItemSupplier,
-        unit: newItemUnit,
-        retailPrice: Number(newItemRate),
+        name: newItemName.trim(),
+        category: newItemCategory.trim() || 'Manufactured Assemblies',
+        subCategory: newItemSubCategory.trim() || 'General Product',
+        unit: newItemUnit.trim() || 'pcs',
+        costPrice: Math.round(priceNum * 0.7 * 100) / 100,
+        retailPrice: priceNum,
+        leadTimeDays: 7,
+        status: 'Active'
+      };
+
+      if (onAddProduceItem) {
+        onAddProduceItem(prodPayload);
+      } else {
+        api.createProduce(prodPayload).catch((err) => console.warn('Could not create produce item:', err));
+      }
+
+      // Concurrently connect with Revenue Catalogue (products are deliverables that generate revenue)
+      const revPayload = {
+        code: generatedCode,
+        name: newItemName.trim(),
+        type: 'product' as const,
+        category: newItemCategory.trim() || 'Manufactured Assemblies',
+        subCategory: newItemSubCategory.trim() || 'General Product',
+        unit: newItemUnit.trim() || 'pcs',
+        defaultRate: priceNum,
+        costPrice: Math.round(priceNum * 0.7 * 100) / 100,
+        status: 'Active' as const
+      };
+      if (onAddRevenueItem) {
+        onAddRevenueItem(revPayload);
+      } else {
+        api.createRevenueItem(revPayload).catch((err) => console.warn('Could not sync revenue item:', err));
+      }
+
+      showToast(`Created new product & synced to Revenue catalogue: ${generatedCode}`);
+    } else if (newItemType === 'overhead') {
+      const overheadPayload = {
+        code: generatedCode,
+        name: newItemName.trim(),
+        category: newItemCategory.trim() || 'Operating Overheads',
+        description: `${newItemName.trim()} overhead item`,
+        costType: 'facility',
+        defaultCalculationMethod: 'percentage_of_direct',
+        defaultRate: priceNum,
+        defaultCostBase: 'total_direct_cost',
+        unitType: newItemUnit.trim() || 'pct',
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        status: 'Active'
+      };
+
+      if (onAddOverheadItem) {
+        onAddOverheadItem(overheadPayload);
+      } else {
+        api.createOverheadItem(overheadPayload).catch((err) => console.warn('Could not create overhead item:', err));
+      }
+
+      showToast(`Created new Overhead record: ${generatedCode}`);
+    } else if (newItemType === 'subcontractor') {
+      const subPayload: Partial<SubcontractorRateItem> = {
+        code: generatedCode,
+        subcontractorName: newItemSupplier || newItemName.trim(),
+        nicheServiceName: newItemName.trim(),
+        serviceType: newItemName.trim(),
+        serviceCategory: newItemCategory.trim() || 'Specialist Labor',
+        serviceSubCategory: newItemSubCategory.trim() || 'General Trade',
+        rateModel: 'hourly_labour',
+        baseRate: Math.round(priceNum * 0.8 * 100) / 100,
+        retailRate: priceNum,
+        unit: newItemUnit.trim() || 'hr',
+        currency: 'USD',
+        skillLevel: 'Certified Specialist',
+        location: 'Operations Facility',
+        rateRange: `$${Math.round(priceNum * 0.8)} – $${Math.round(priceNum)} / ${newItemUnit.trim() || 'hr'}`
+      };
+
+      if (onAddSubcontractor) {
+        onAddSubcontractor(subPayload);
+      } else {
+        api.createSubcontractor(subPayload).catch((err) => console.warn('Could not create subcontractor:', err));
+      }
+
+      showToast(`Created new Subcontractor trade rate: ${generatedCode}`);
+    } else if (newItemType === 'service') {
+      const svcPayload: Partial<OutsourcedService> = {
+        name: newItemName.trim(),
+        providerName: newItemSupplier || 'Specialized Finishing Partner',
+        category: newItemCategory.trim() || 'Outsourced Surface Finishing',
+        subCategory: newItemSubCategory.trim() || 'General Service',
+        baseUnitType: newItemUnit.trim() || 'per_hour',
+        rate: Math.round(priceNum * 0.8 * 100) / 100,
+        retailPrice: priceNum,
+        slaLevel: 'Standard Guaranteed 99.9%'
+      };
+
+      if (onAddOutsourcedService) {
+        onAddOutsourcedService(svcPayload);
+      } else {
+        api.createOutsourced(svcPayload).catch((err) => console.warn('Could not create outsourced service:', err));
+      }
+
+      showToast(`Created new Outsourced Tariff: ${newItemName.trim()}`);
+    } else {
+      // Raw Material
+      const matPayload: Partial<MaterialItem> = {
+        id: `mat-${Date.now()}`,
+        code: generatedCode,
+        name: newItemName.trim(),
+        category: newItemCategory.trim() || 'General Engineering',
+        subCategory: newItemSubCategory.trim() || 'Standard Spec',
+        itemClassification: 'raw_material',
+        supplierName: newItemSupplier || suppliers[0]?.name || 'Apex Metallurgy Corp',
+        unit: newItemUnit.trim() || 'pcs',
+        retailPrice: priceNum,
+        unitPrice: priceNum,
+        currentPrice: priceNum,
+        unitCost: Math.round(priceNum * 0.75 * 100) / 100,
         defaultDiscountPct: 5,
         inStock: 100,
         reorderPoint: 20,
         leadTimeDays: 7,
-        lastUpdated: new Date().toISOString().slice(0, 10)
-      });
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        status: 'Available'
+      };
+
+      if (onAddMaterial) {
+        onAddMaterial(matPayload);
+      } else if (onAddNewItem) {
+        onAddNewItem(matPayload);
+      } else {
+        api.createMaterial(matPayload).catch((err) => console.warn('Could not create material:', err));
+      }
+
+      showToast(`Created new Material: ${generatedCode}`);
     }
 
-    showToast(`Created new ${newItemType}: ${generatedCode}`);
     setIsAddModalOpen(false);
     setNewItemName('');
     setNewItemCode('');
+    setNewItemCategory('');
+    setNewItemSubCategory('');
   };
 
   return (
