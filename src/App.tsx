@@ -1185,12 +1185,51 @@ export default function App() {
             suppliers={suppliers}
             projects={projects}
             produceItems={produceItems}
+            categories={categories}
             initialFilterTab="ALL"
             onUpdateMaterialPrice={(id, newPrice, reason) => {
               handleUpdateMaterialPrice(id, newPrice, reason, 'Catalog Lead');
             }}
             onAddNewItem={(newItem) => {
               handleAddMaterial(newItem);
+            }}
+            onAddMaterial={handleAddMaterial}
+            onAddProduceItem={async (item) => {
+              await handleAddProduceItem(item);
+              // Also sync with revenue items
+              try {
+                await api.createRevenueItem({
+                  code: item.code,
+                  name: item.name,
+                  type: 'product',
+                  category: item.category || 'Manufactured Assemblies',
+                  subCategory: item.subCategory || 'General Product',
+                  unit: item.unit || 'pcs',
+                  defaultRate: item.retailPrice || 100,
+                  costPrice: item.costPrice || 70,
+                  status: 'Active'
+                });
+              } catch (e) {
+                console.warn('Revenue item auto-sync error:', e);
+              }
+            }}
+            onAddOutsourcedService={handleAddOutsourcedService}
+            onAddSubcontractor={handleAddSubcontractor}
+            onAddOverheadItem={async (item) => {
+              try {
+                await api.createOverheadItem(item);
+                showToast(`Created overhead record: ${item.name}`);
+              } catch (e) {
+                console.warn('Overhead create error:', e);
+              }
+            }}
+            onAddRevenueItem={async (item) => {
+              try {
+                await api.createRevenueItem(item);
+                showToast(`Created revenue item: ${item.name}`);
+              } catch (e) {
+                console.warn('Revenue item create error:', e);
+              }
             }}
             onEditRecord={(rawType, item) => {
               if (rawType === 'material') {

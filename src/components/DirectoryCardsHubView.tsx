@@ -84,6 +84,7 @@ export type DirectoryTab =
   | 'materials-hierarchy'
   | 'service-categories'
   | 'revenue-streams'
+  | 'overheads-hierarchy'
   | 'products-hierarchy'
   | 'services-hierarchy'
   | 'clients'
@@ -127,6 +128,8 @@ interface DirectoryCardsHubViewProps {
   onAddSubcontractor?: (s: Partial<SubcontractorRateItem>) => void;
   onUpdateSubcontractor?: (id: string, s: Partial<SubcontractorRateItem>) => void;
   onDeleteSubcontractor?: (id: string) => void;
+  onAddOverheadItem?: (item: any) => void;
+  onAddRevenueItem?: (item: any) => void;
   onAddClient?: (c: Partial<ClientProfile>) => void;
   onUpdateClient?: (id: string, c: Partial<ClientProfile>) => void;
   onDeleteClient?: (id: string) => void;
@@ -195,6 +198,30 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [outsourcedViewMode, setOutsourcedViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [productViewMode, setProductViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [isCommandsMenuOpen, setIsCommandsMenuOpen] = useState(false);
+
+  // Overhead Cost view & drilldown states
+  const [selectedOverheadCatId, setSelectedOverheadCatId] = useState<string | null>(null);
+  const [selectedOverheadSubCatId, setSelectedOverheadSubCatId] = useState<string | null>(null);
+  const [overheadViewMode, setOverheadViewMode] = useState<'hierarchy' | 'items_table'>('hierarchy');
+  const [overheadItems, setOverheadItems] = useState<any[]>([]);
+  const [revenueItems, setRevenueItems] = useState<any[]>([]);
+
+  // Load overhead & revenue items from database APIs to keep Directory strictly connected
+  useEffect(() => {
+    api.getOverheadItems({ limit: 100 })
+      .then((res) => {
+        const list = Array.isArray(res) ? res : (res as any)?.data || [];
+        setOverheadItems(list);
+      })
+      .catch((err) => console.warn('Could not load overhead items in directory:', err));
+
+    api.getRevenueItems({ limit: 100 })
+      .then((res) => {
+        const list = Array.isArray(res) ? res : (res as any)?.data || [];
+        setRevenueItems(list);
+      })
+      .catch((err) => console.warn('Could not load revenue items in directory:', err));
+  }, []);
 
   // Dedicated states for Outsourced Services sub-portal
   const [outsourcedTableCategoryFilter, setOutsourcedTableCategoryFilter] = useState<string>('all');
@@ -519,18 +546,66 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       handleUpdateTileTheme(assignedId, itemData.themeId || 'pacific-sky', itemData.customGradient);
     }
 
-    if (entityType === 'material' && onAddMaterial) {
-      onAddMaterial(itemData);
-    } else if (entityType === 'produce' && onAddProduceItem) {
-      onAddProduceItem(itemData);
-    } else if ((entityType === 'outsourced' || entityType === 'service-provider' || entityType === 'service') && onAddOutsourcedService) {
-      onAddOutsourcedService(itemData);
+    if (entityType === 'material') {
+      if (onAddMaterial) onAddMaterial(itemData);
+      else api.createMaterial(itemData).catch(console.error);
+      showToast(`Material "${itemData.name}" created and synced with database.`);
+    } else if (entityType === 'produce' || entityType === 'product') {
+      if (onAddProduceItem) onAddProduceItem(itemData);
+      else api.createProduce(itemData).catch(console.error);
+      persistentDatabase.addProduceItem(itemData);
+
+      // Concurrently synchronize with Revenue Catalogue (product deliverables represent revenue)
+      const revPayload = {
+        code: itemData.code,
+        name: itemData.name,
+        type: 'product' as const,
+        category: itemData.category || 'Manufactured Assemblies',
+        subCategory: itemData.subCategory || 'General Product',
+        unit: itemData.unit || 'pcs',
+        defaultRate: itemData.retailPrice || 100,
+        costPrice: itemData.costPrice || 70,
+        status: 'Active' as const
+      };
+      api.createRevenueItem(revPayload).catch(console.error);
+      api.getRevenueItems({ limit: 100 }).then((res) => {
+        setRevenueItems(Array.isArray(res) ? res : (res as any)?.data || []);
+      }).catch(console.error);
+      showToast(`Product "${itemData.name}" created and synced to Revenue catalogue`);
+    } else if (entityType === 'overhead') {
+      const overheadPayload = {
+        code: itemData.code || `OVH-${Math.floor(Math.random() * 9000 + 1000)}`,
+        name: itemData.name,
+        category: itemData.category || 'Operating Overheads',
+        description: itemData.description || `${itemData.name} overhead allocation (${itemData.subCategory || itemData.category})`,
+        costType: itemData.costType || 'facility',
+        defaultCalculationMethod: itemData.defaultCalculationMethod || 'percentage_of_direct',
+        defaultRate: Number(itemData.price || itemData.defaultRate || 5),
+        defaultCostBase: itemData.defaultCostBase || 'total_direct_cost',
+        unitType: itemData.unit || 'pct',
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        status: 'Active'
+      };
+      api.createOverheadItem(overheadPayload).then(() => {
+        api.getOverheadItems({ limit: 100 }).then((res) => {
+          setOverheadItems(Array.isArray(res) ? res : (res as any)?.data || []);
+        });
+      }).catch(console.error);
+      showToast(`Overhead item "${itemData.name}" created and stored in database.`);
+    } else if (entityType === 'outsourced' || entityType === 'service-provider' || entityType === 'service') {
+      if (onAddOutsourcedService) onAddOutsourcedService(itemData);
+      else api.createOutsourced(itemData).catch(console.error);
+      showToast(`Outsourced service "${itemData.name}" created and stored in database.`);
+    } else if (entityType === 'supplier') {
+      if (onAddSupplier) onAddSupplier(itemData);
+      else api.createSupplier(itemData).catch(console.error);
+      showToast(`Supplier "${itemData.name}" registered and stored in database.`);
+    } else if (entityType === 'subcontractor') {
+      if (onAddSubcontractor) onAddSubcontractor(itemData);
+      else api.createSubcontractor(itemData).catch(console.error);
+      showToast(`Subcontractor "${itemData.subcontractorName || itemData.name}" created and stored in database.`);
     } else if (entityType === 'project' && onAddProject) {
       onAddProject(itemData);
-    } else if (entityType === 'supplier' && onAddSupplier) {
-      onAddSupplier(itemData);
-    } else if (entityType === 'subcontractor' && onAddSubcontractor) {
-      onAddSubcontractor(itemData);
     } else if (entityType === 'client') {
       const newClient: ClientProfile = {
         id: `client-${Date.now()}`,
@@ -1066,6 +1141,12 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       icon: <TrendingUp className="w-3.5 h-3.5" />,
       count: categories.filter((c) => (c.group === 'product' || c.group === 'service') && c.type === 'category').length
     },
+    {
+      id: 'overheads-hierarchy',
+      label: 'Overheads',
+      icon: <Layers className="w-3.5 h-3.5 text-amber-500" />,
+      count: categories.filter((c) => c.group === 'overhead' && c.type === 'category').length
+    },
     { id: 'clients', label: 'Clients', icon: <Users className="w-3.5 h-3.5" />, count: clientProfiles.length },
     { id: 'suppliers', label: 'Suppliers', icon: <Building2 className="w-3.5 h-3.5" />, count: suppliers.length },
     { id: 'service-providers', label: 'Providers', icon: <ShieldCheck className="w-3.5 h-3.5" />, count: outsourcedProvidersList.length },
@@ -1094,6 +1175,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     else if (createType === 'service-category') {
       targetGroup = 'revenue-streams';
       setRevenueSubTab('services');
+    }
+    else if (createType === 'overhead-category') {
+      targetGroup = 'overheads-hierarchy';
     }
     else if (createType === 'client') targetGroup = 'clients';
     else if (createType === 'supplier') targetGroup = 'suppliers';
@@ -1663,6 +1747,63 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               <span>+ Subcontractor</span>
             </button>
           )}
+
+          {activeTab === 'overheads-hierarchy' && (
+            <button
+              type="button"
+              onClick={() => {
+                setAddItemPortal('overheads-hierarchy');
+                setIsAddItemModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-all shadow-2xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              <span>+ Overhead Item</span>
+            </button>
+          )}
+
+          {/* Connected Quick Category & Sub-Category Creation directly linked to Database */}
+          <button
+            type="button"
+            id="portal-quick-add-category-btn"
+            onClick={() => {
+              let grp: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead' = 'material';
+              if (activeTab === 'materials-hierarchy') grp = 'material';
+              else if (activeTab === 'revenue-streams' || activeTab === 'products-hierarchy') grp = revenueSubTab === 'products' ? 'product' : 'service';
+              else if (activeTab === 'overheads-hierarchy') grp = 'overhead';
+              else if (activeTab === 'service-categories') grp = serviceSubTab === 'subcontractor' ? 'subcontractor' : 'outsourced';
+              else if (activeTab === 'subcontractors') grp = 'subcontractor';
+              else if (activeTab === 'service-providers') grp = 'outsourced';
+              setCreateCategoryGroup(grp);
+              setIsCreateCategoryModalOpen(true);
+            }}
+            className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-all shadow-2xs cursor-pointer"
+            title="Create a new Category in database"
+          >
+            <FolderPlus className="w-3.5 h-3.5 text-amber-600" />
+            <span>+ Category</span>
+          </button>
+
+          <button
+            type="button"
+            id="portal-quick-add-subcategory-btn"
+            onClick={() => {
+              let grp: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead' = 'material';
+              if (activeTab === 'materials-hierarchy') grp = 'material';
+              else if (activeTab === 'revenue-streams' || activeTab === 'products-hierarchy') grp = revenueSubTab === 'products' ? 'product' : 'service';
+              else if (activeTab === 'overheads-hierarchy') grp = 'overhead';
+              else if (activeTab === 'service-categories') grp = serviceSubTab === 'subcontractor' ? 'subcontractor' : 'outsourced';
+              else if (activeTab === 'subcontractors') grp = 'subcontractor';
+              else if (activeTab === 'service-providers') grp = 'outsourced';
+              setCreateSubCategoryGroup(grp);
+              setIsCreateSubCategoryModalOpen(true);
+            }}
+            className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-all shadow-2xs cursor-pointer"
+            title="Create a new Sub-Category linked to parent category in database"
+          >
+            <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span>+ Sub-Category</span>
+          </button>
 
           {/* Universal Bulk Import Button (Excel & CSV) */}
           <button
@@ -4272,12 +4413,38 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                   {/* Level 1: Categories */}
                   {!selectedProductCatId && (
                     <div>
-                      <div className="text-xs text-slate-500 mb-2">
-                        Click any product category to drill into assemblies & manufactured models which we supply:
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-slate-500">
+                          Click any product category to drill into assemblies & manufactured models which we supply:
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCreateCategoryGroup('product');
+                              setIsCreateCategoryModalOpen(true);
+                            }}
+                            className="text-xs text-[#003049] hover:text-[#002235] font-semibold flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>New Product Category</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddItemPortal('products-hierarchy');
+                              setIsAddItemModalOpen(true);
+                            }}
+                            className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center space-x-1 ml-2 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Add Product Record</span>
+                          </button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {categories
-                          .filter((c) => c.group === 'product' && c.type === 'category')
+                          .filter((c) => (c.group === 'product' || c.group === 'revenue') && c.type === 'category')
                           .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map((cat) => {
                             const style = getTileStyle(cat.id, cat.themeId);
@@ -4375,15 +4542,20 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {categories
-                          .filter((c) => c.group === 'product' && c.type === 'sub_category' && c.parentId === selectedProductCatId)
+                          .filter((c) => (c.group === 'product' || c.group === 'revenue') && c.type === 'sub_category' && c.parentId === selectedProductCatId)
                           .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map((subCat) => {
                             const style = getTileStyle(subCat.id, subCat.themeId);
                             const variantsCount = produceItems.filter(
                               (p) =>
-                                p.type === 'product' &&
-                                (p.subCategory.toLowerCase() === subCat.name.toLowerCase() ||
-                                  p.category.toLowerCase() === subCat.name.toLowerCase())
+                                (!p.type || p.type === 'product') &&
+                                (p.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
+                                  p.category?.toLowerCase() === subCat.name.toLowerCase())
+                            ).length + revenueItems.filter(
+                              (r) =>
+                                (!r.type || r.type === 'product') &&
+                                (r.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
+                                  r.category?.toLowerCase() === subCat.name.toLowerCase())
                             ).length || 3;
 
                             return (
@@ -4500,119 +4672,162 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 />
               )}
 
-              {/* View 3: Master Product Variants Table */}
-              {productViewMode === 'items_table' && (
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center space-x-2">
-                        <span>Manufactured Product Variants & Turnkey Deliverables</span>
-                        <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
-                          {produceItems.filter((p) => p.type === 'product').length} Product Variants
-                        </span>
-                      </h3>
-                      <p className="text-[11px] text-slate-500">
-                        Strictly produced product deliverables supplied to customers with unique item codes, tiered volume pricing, unit cost rates, and retail pricing.
-                      </p>
+              {/* View 3: Master Product & Revenue Variants Table */}
+              {productViewMode === 'items_table' && (() => {
+                const map = new Map<string, any>();
+                produceItems
+                  .filter((p) => !p.type || p.type === 'product')
+                  .forEach((p) => {
+                    const key = (p.code || p.id).toLowerCase();
+                    map.set(key, {
+                      id: p.id,
+                      code: p.code,
+                      name: p.name,
+                      category: p.category,
+                      subCategory: p.subCategory,
+                      unit: p.unit,
+                      costPrice: p.costPrice,
+                      retailPrice: p.retailPrice,
+                      leadTimeDays: p.leadTimeDays,
+                      status: p.status || 'Active',
+                      source: 'Product'
+                    });
+                  });
+                revenueItems
+                  .filter((r) => !r.type || r.type === 'product')
+                  .forEach((r) => {
+                    const key = (r.code || r.id).toLowerCase();
+                    if (!map.has(key)) {
+                      map.set(key, {
+                        id: r.id,
+                        code: r.code,
+                        name: r.name,
+                        category: r.category,
+                        subCategory: r.subCategory || 'General Product',
+                        unit: r.unit || 'pcs',
+                        costPrice: r.costPrice || 0,
+                        retailPrice: r.defaultRate,
+                        leadTimeDays: 14,
+                        status: r.status || 'Active',
+                        source: 'Revenue'
+                      });
+                    }
+                  });
+                const allCombinedProducts = Array.from(map.values());
+
+                return (
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0">
+                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center space-x-2">
+                          <span>Manufactured Product Variants & Revenue Deliverables</span>
+                          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
+                            {allCombinedProducts.length} Records
+                          </span>
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Complete produced product deliverables & revenue portal records supplied to customers with unique item codes, tiered volume pricing, unit cost rates, and retail pricing.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveFXTTCard({
+                              cardType: 'product_category',
+                              cardId: 'all-products',
+                              cardTitle: 'Supplied Product Variants',
+                              cardSubtitle: 'Turnkey Manufactured Deliverables & Sub-Categories',
+                              cardTag: 'PRODUCT SUB-CATEGORY'
+                            });
+                          }}
+                          className="px-2.5 py-1 bg-[#0077b6] hover:bg-[#005f94] text-white rounded-lg text-xs font-medium flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                        >
+                          <Table className="w-3.5 h-3.5 text-white" />
+                          <span>Open Full Screen FXTT Grid</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveFXTTCard({
-                            cardType: 'product_category',
-                            cardId: 'all-products',
-                            cardTitle: 'Supplied Product Variants',
-                            cardSubtitle: 'Turnkey Manufactured Deliverables & Sub-Categories',
-                            cardTag: 'PRODUCT SUB-CATEGORY'
-                          });
-                        }}
-                        className="px-2.5 py-1 bg-[#0077b6] hover:bg-[#005f94] text-white rounded-lg text-xs font-medium flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                      >
-                        <Table className="w-3.5 h-3.5 text-white" />
-                        <span>Open Full Screen FXTT Grid</span>
-                      </button>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs text-slate-700">
+                        <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3 font-semibold">Unique Item Code</th>
+                            <th className="py-2.5 px-3 font-semibold">Product Variant Name</th>
+                            <th className="py-2.5 px-3 font-semibold">Category</th>
+                            <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
+                            <th className="py-2.5 px-3 font-semibold">Unit</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Unit Cost Rate</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Quoted Retail</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Lead Time</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {allCombinedProducts
+                            .filter((item) => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.code.toLowerCase().includes(searchQuery.toLowerCase()) || item.category.toLowerCase().includes(searchQuery.toLowerCase()))
+                            .map((item) => {
+                              const marginPct = item.retailPrice && item.costPrice
+                                ? Math.round(((item.retailPrice - item.costPrice) / item.retailPrice) * 100)
+                                : 25;
+
+                              return (
+                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="py-2.5 px-3 font-mono font-medium text-blue-700">
+                                    {item.code}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-semibold text-slate-900">
+                                    {item.name}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-600">{item.category}</td>
+                                  <td className="py-2.5 px-3 text-slate-600 font-medium">{item.subCategory}</td>
+                                  <td className="py-2.5 px-3 text-slate-500 font-mono">{item.unit}</td>
+                                  <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                                    ${(Number(item.costPrice) || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                                    ${(Number(item.retailPrice) || 0).toLocaleString()}
+                                    <span className="ml-1 text-[10px] text-emerald-600 font-normal">
+                                      (+{marginPct}%)
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center text-slate-600">
+                                    {item.leadTimeDays || 45} days
+                                  </td>
+                                  <td className="py-2.5 px-3 text-center">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800">
+                                      {item.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveFXTTCard({
+                                          cardType: 'product_category',
+                                          cardId: item.id,
+                                          cardTitle: item.subCategory || item.category,
+                                          cardSubtitle: `${item.code} - ${item.name}`,
+                                          cardTag: 'PRODUCT SUB-CATEGORY'
+                                        });
+                                      }}
+                                      className="px-2 py-1 bg-slate-100 hover:bg-[#0077b6] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors cursor-pointer"
+                                    >
+                                      FXTT Grid
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs text-slate-700">
-                      <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
-                        <tr>
-                          <th className="py-2.5 px-3 font-semibold">Unique Item Code</th>
-                          <th className="py-2.5 px-3 font-semibold">Product Variant Name</th>
-                          <th className="py-2.5 px-3 font-semibold">Category</th>
-                          <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
-                          <th className="py-2.5 px-3 font-semibold">Unit</th>
-                          <th className="py-2.5 px-3 font-semibold text-right">Unit Cost Rate</th>
-                          <th className="py-2.5 px-3 font-semibold text-right">Quoted Retail</th>
-                          <th className="py-2.5 px-3 font-semibold text-center">Lead Time</th>
-                          <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                          <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {produceItems
-                          .filter((p) => p.type === 'product')
-                          .map((item) => {
-                            const marginPct = item.retailPrice && item.costPrice
-                              ? Math.round(((item.retailPrice - item.costPrice) / item.retailPrice) * 100)
-                              : 25;
-
-                            return (
-                              <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-2.5 px-3 font-mono font-medium text-blue-700">
-                                  {item.code}
-                                </td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-900">
-                                  {item.name}
-                                </td>
-                                <td className="py-2.5 px-3 text-slate-600">{item.category}</td>
-                                <td className="py-2.5 px-3 text-slate-600 font-medium">{item.subCategory}</td>
-                                <td className="py-2.5 px-3 text-slate-500 font-mono">{item.unit}</td>
-                                <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                                  ${(Number(item.costPrice) || 0).toLocaleString()}
-                                </td>
-                                <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
-                                  ${(Number(item.retailPrice) || 0).toLocaleString()}
-                                  <span className="ml-1 text-[10px] text-emerald-600 font-normal">
-                                    (+{marginPct}%)
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 text-center text-slate-600">
-                                  {item.leadTimeDays || 45} days
-                                </td>
-                                <td className="py-2.5 px-3 text-center">
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800">
-                                    {item.status}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveFXTTCard({
-                                        cardType: 'product_category',
-                                        cardId: item.id,
-                                        cardTitle: item.subCategory || item.category,
-                                        cardSubtitle: `${item.code} - ${item.name}`,
-                                        cardTag: 'PRODUCT SUB-CATEGORY'
-                                      });
-                                    }}
-                                    className="px-2 py-1 bg-slate-100 hover:bg-[#0077b6] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors"
-                                  >
-                                    FXTT Grid
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
 
@@ -4775,6 +4990,390 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             </div>
           )}
         </>
+      )}
+
+      {/* TAB: OVERHEADS HIERARCHY & REVENUE/DIRECT COST MAPPING */}
+      {activeTab === 'overheads-hierarchy' && (
+        <div className="space-y-4">
+          {/* Top Breadcrumb & Actions Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200">
+            <div className="flex items-center space-x-1.5 text-xs text-slate-600">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedOverheadCatId(null);
+                  setSelectedOverheadSubCatId(null);
+                }}
+                className={`hover:text-[#003049] transition-colors cursor-pointer ${!selectedOverheadCatId ? 'font-bold text-[#003049]' : ''}`}
+              >
+                All Overhead Categories (Level 1)
+              </button>
+
+              {selectedOverheadCatId && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOverheadSubCatId(null)}
+                    className={`hover:text-[#003049] transition-colors cursor-pointer ${!selectedOverheadSubCatId ? 'font-bold text-[#003049]' : ''}`}
+                  >
+                    {categories.find((c) => c.id === selectedOverheadCatId)?.name || 'Sub-Categories'}
+                  </button>
+                </>
+              )}
+
+              {selectedOverheadSubCatId && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-bold text-[#003049]">
+                    {categories.find((c) => c.id === selectedOverheadSubCatId)?.name || 'Overhead Items'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* View Mode & Add Record Actions */}
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setOverheadViewMode('hierarchy')}
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                    overheadViewMode === 'hierarchy'
+                      ? 'bg-white text-[#003049] font-medium shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards View</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOverheadViewMode('items_table')}
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                    overheadViewMode === 'items_table'
+                      ? 'bg-white text-[#003049] font-medium shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <ListFilter className="w-3.5 h-3.5" />
+                  <span>Overhead Items Table ({overheadItems.length})</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateCategoryGroup('overhead');
+                  setIsCreateCategoryModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Overhead Category</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAddItemPortal('overheads-hierarchy');
+                  setIsAddItemModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                <span>Add Overhead Item</span>
+              </button>
+            </div>
+          </div>
+
+          {/* View 1: Cards Hierarchy */}
+          {overheadViewMode === 'hierarchy' && (
+            <>
+              {/* Level 1: Categories */}
+              {!selectedOverheadCatId && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-2">
+                    Click any overhead category to drill down into sub-categories & items:
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {categories
+                      .filter((c) => c.group === 'overhead' && c.type === 'category')
+                      .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map((cat) => {
+                        const style = getTileStyle(cat.id, cat.themeId || 'amber-forge');
+                        const itemsCount = overheadItems.filter((o) => o.category?.toLowerCase() === cat.name.toLowerCase()).length;
+
+                        return (
+                          <ModernTileCard
+                            key={cat.id}
+                            id={cat.id}
+                            tag="OVERHEAD CATEGORY"
+                            title={cat.name}
+                            brief={cat.brief}
+                            actionLabel="EXPLORE SUB-CATEGORIES"
+                            actionVariant="link"
+                            themeId={style.themeId}
+                            customGradient={style.customGradient}
+                            onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
+                            onEdit={() =>
+                              handleOpenEdit('category', cat.id, {
+                                title: cat.name,
+                                name: cat.name,
+                                brief: cat.brief
+                              })
+                            }
+                            onDelete={() => handleOpenDelete('Overhead Category', cat.id, cat.name, 'overheads-hierarchy')}
+                            onDuplicate={() => handleDuplicate('category', cat.id)}
+                            onAction={() => setSelectedOverheadCatId(cat.id)}
+                            extraMeta={
+                              <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
+                                <span className="bg-black/25 px-2 py-0.5 rounded text-[10px] font-mono">
+                                  {itemsCount} Overhead Items
+                                </span>
+                              </div>
+                            }
+                          />
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Level 2: Sub-Categories */}
+              {selectedOverheadCatId && !selectedOverheadSubCatId && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-2">
+                      <div className="text-xs text-slate-500">Sub-categories for selected overhead parent:</div>
+                      <button
+                        onClick={() => {
+                          setCreateSubCategoryGroup('overhead');
+                          setCreateSubCategoryParentId(selectedOverheadCatId);
+                          setIsCreateSubCategoryModalOpen(true);
+                        }}
+                        className="text-xs text-amber-700 hover:text-amber-800 flex items-center space-x-1 font-semibold cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Create Sub-Category</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAddItemPortal('overheads-hierarchy');
+                          setIsAddItemModalOpen(true);
+                        }}
+                        className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Add Item Here</span>
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setSelectedOverheadCatId(null)}
+                      className="text-xs text-[#003049] flex items-center space-x-1 hover:underline cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                      <span>Back to All Categories</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {categories
+                      .filter((c) => c.group === 'overhead' && c.type === 'sub_category' && c.parentId === selectedOverheadCatId)
+                      .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map((subCat) => {
+                        const style = getTileStyle(subCat.id, subCat.themeId || 'sunset-amber');
+                        const matchingItems = overheadItems.filter(
+                          (o) =>
+                            o.category?.toLowerCase() === subCat.name.toLowerCase() ||
+                            o.description?.toLowerCase().includes(subCat.name.toLowerCase())
+                        );
+
+                        return (
+                          <ModernTileCard
+                            key={subCat.id}
+                            id={subCat.id}
+                            tag="OVERHEAD SUB-CATEGORY"
+                            title={subCat.name}
+                            brief={subCat.brief}
+                            actionLabel="VIEW ITEMS"
+                            actionVariant="link"
+                            themeId={style.themeId}
+                            customGradient={style.customGradient}
+                            onChangeTheme={(tId, grad) => handleUpdateTileTheme(subCat.id, tId, grad)}
+                            onEdit={() =>
+                              handleOpenEdit('sub_category', subCat.id, {
+                                title: subCat.name,
+                                name: subCat.name,
+                                brief: subCat.brief
+                              })
+                            }
+                            onDelete={() => handleOpenDelete('Overhead Sub-Category', subCat.id, subCat.name, 'overheads-hierarchy')}
+                            onDuplicate={() => handleDuplicate('sub_category', subCat.id)}
+                            onAction={() => setSelectedOverheadSubCatId(subCat.id)}
+                            extraMeta={
+                              <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
+                                <span className="bg-black/25 px-2 py-0.5 rounded text-[10px] font-mono">
+                                  {matchingItems.length} Allocated Items
+                                </span>
+                              </div>
+                            }
+                          />
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Level 3: Overhead Items for selected Sub-Category */}
+              {selectedOverheadSubCatId && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-500 font-semibold">
+                      Items in Sub-Category: {categories.find((c) => c.id === selectedOverheadSubCatId)?.name}
+                    </div>
+                    <button
+                      onClick={() => setSelectedOverheadSubCatId(null)}
+                      className="text-xs text-[#003049] flex items-center space-x-1 hover:underline cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                      <span>Back to Sub-Categories</span>
+                    </button>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs text-slate-700">
+                      <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3 font-semibold">Code</th>
+                          <th className="py-2.5 px-3 font-semibold">Overhead Item Name</th>
+                          <th className="py-2.5 px-3 font-semibold">Category</th>
+                          <th className="py-2.5 px-3 font-semibold">Cost Type</th>
+                          <th className="py-2.5 px-3 font-semibold">Method</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Default Rate</th>
+                          <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {overheadItems
+                          .filter((o) => {
+                            const subName = categories.find((c) => c.id === selectedOverheadSubCatId)?.name.toLowerCase();
+                            const catName = categories.find((c) => c.id === selectedOverheadCatId)?.name.toLowerCase();
+                            return (
+                              o.category?.toLowerCase() === subName ||
+                              o.category?.toLowerCase() === catName ||
+                              o.description?.toLowerCase().includes(subName || '')
+                            );
+                          })
+                          .map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 px-3 font-mono font-bold text-amber-700">{item.code}</td>
+                              <td className="py-2.5 px-3 font-semibold text-slate-900">{item.name}</td>
+                              <td className="py-2.5 px-3 text-slate-600">{item.category}</td>
+                              <td className="py-2.5 px-3 capitalize text-slate-600">{item.costType?.replace(/_/g, ' ')}</td>
+                              <td className="py-2.5 px-3 capitalize text-slate-500">{item.defaultCalculationMethod?.replace(/_/g, ' ')}</td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800">
+                                {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : `$${item.defaultRate}`}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                                  {item.status || 'Active'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        {overheadItems.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-slate-400">
+                              No overhead items found. Click "+ Add Overhead Item" to create one.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* View 2: Complete Overhead Items Table */}
+          {overheadViewMode === 'items_table' && (
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center space-x-2">
+                    <span>Overhead Catalogue Records & Database Allocations</span>
+                    <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold">
+                      {overheadItems.length} Records
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Operating facility, indirect materials, tooling depreciation, utility, and administrative overheads synced with budget planning engine.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddItemPortal('overheads-hierarchy');
+                    setIsAddItemModalOpen(true);
+                  }}
+                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Overhead Record</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-700">
+                  <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                    <tr>
+                      <th className="py-2.5 px-3 font-semibold">Code</th>
+                      <th className="py-2.5 px-3 font-semibold">Overhead Name</th>
+                      <th className="py-2.5 px-3 font-semibold">Category</th>
+                      <th className="py-2.5 px-3 font-semibold">Cost Type</th>
+                      <th className="py-2.5 px-3 font-semibold">Calculation Method</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Applicable Base</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Rate</th>
+                      <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {overheadItems
+                      .filter((o) => !searchQuery || o.name?.toLowerCase().includes(searchQuery.toLowerCase()) || o.code?.toLowerCase().includes(searchQuery.toLowerCase()) || o.category?.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-700">{item.code}</td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-900">{item.name}</td>
+                          <td className="py-2.5 px-3 text-slate-600">{item.category}</td>
+                          <td className="py-2.5 px-3 capitalize text-slate-600">{item.costType?.replace(/_/g, ' ')}</td>
+                          <td className="py-2.5 px-3 capitalize text-slate-500">{item.defaultCalculationMethod?.replace(/_/g, ' ')}</td>
+                          <td className="py-2.5 px-3 text-right capitalize text-slate-500 font-mono text-[11px]">{item.defaultCostBase?.replace(/_/g, ' ') || 'Direct'}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800">
+                            {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : `$${item.defaultRate}`}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                              {item.status || 'Active'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    {overheadItems.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="py-6 text-center text-slate-400">
+                          No overhead items recorded yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* TAB: PROJECT CONTRACTS */}

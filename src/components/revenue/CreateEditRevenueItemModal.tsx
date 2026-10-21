@@ -285,9 +285,19 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
             selectedSubCategory={subCategory}
             onCategoryChange={(catName) => setCategory(catName)}
             onSubCategoryChange={(subName) => setSubCategory(subName)}
+            onAddNewCategory={(newCat) => {
+              persistentDatabase.addCategory(newCat);
+              api.createCategory(newCat).catch(console.error);
+              setCategory(newCat.name);
+            }}
+            onAddNewSubCategory={(newSub) => {
+              persistentDatabase.addCategory(newSub);
+              api.createCategory(newSub).catch(console.error);
+              setSubCategory(newSub.name);
+            }}
             group={type === 'product' ? 'product' : 'service'}
-            categoryLabel="Category"
-            subCategoryLabel="Sub-Category"
+            categoryLabel="Category (Connected to Database)"
+            subCategoryLabel="Sub-Category (Connected to Database)"
             required={true}
           />
 

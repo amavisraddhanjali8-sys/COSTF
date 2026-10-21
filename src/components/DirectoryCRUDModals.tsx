@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Plus,
@@ -32,6 +32,10 @@ import {
 import { ColorGradientPicker } from './ColorGradientPicker';
 import { peekNextNumber, generateNextNumber } from '../services/autoNumberingService';
 import { formatCurrency, formatLKR, SUPPORTED_CURRENCIES, getStoredCurrency } from '../utils/currency';
+import { SearchableCategoryPicker } from './common/SearchableCategoryPicker';
+import { SearchablePartnerPicker, PartnerOption } from './common/SearchablePartnerPicker';
+import { persistentDatabase } from '../services/persistentDatabase';
+import { api } from '../services/api';
 
 // ==========================================
 // 1. CREATE CATEGORY MODAL (LEVEL 1)
@@ -39,7 +43,7 @@ import { formatCurrency, formatLKR, SUPPORTED_CURRENCIES, getStoredCurrency } fr
 interface CreateCategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultGroup: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced';
+  defaultGroup: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead';
   onSave: (node: Partial<CategoryNode>) => void;
 }
 
@@ -49,7 +53,7 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
   defaultGroup,
   onSave
 }) => {
-  const [group, setGroup] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'outsourced'>(defaultGroup);
+  const [group, setGroup] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead'>(defaultGroup);
   const [name, setName] = useState('');
   const [brief, setBrief] = useState('');
   const [themeId, setThemeId] = useState('pacific-sky');
@@ -75,7 +79,7 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
       themeId,
       customGradient,
       itemCount: 0,
-      metaBadge: group === 'subcontractor' ? 'HIRED SUBCONTRACTOR' : group === 'outsourced' ? 'OUTSOURCED' : 'CATALOG ROOT',
+      metaBadge: group === 'subcontractor' ? 'HIRED SUBCONTRACTOR' : group === 'outsourced' ? 'OUTSOURCED' : group === 'overhead' ? 'OVERHEAD ROOT' : 'CATALOG ROOT',
       actionText: group === 'subcontractor' ? 'EXPLORE TRADES & RATES' : 'EXPLORE SUB-CATEGORIES'
     });
     onClose();
@@ -153,6 +157,17 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
               >
                 Services
               </button>
+              <button
+                type="button"
+                onClick={() => setGroup('overhead')}
+                className={`py-1.5 px-2 text-xs rounded-xl border transition-all ${
+                  group === 'overhead'
+                    ? 'border-[#003049] bg-[#003049] text-white font-normal shadow-xs'
+                    : 'border-slate-300 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Overheads
+              </button>
             </div>
           </div>
 
@@ -209,7 +224,7 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
 interface CreateSubCategoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultGroup: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced';
+  defaultGroup: 'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead';
   parentCategories: CategoryNode[];
   defaultParentId?: string;
   onSave: (node: Partial<CategoryNode>) => void;
@@ -223,7 +238,7 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
   defaultParentId,
   onSave
 }) => {
-  const [group, setGroup] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'outsourced'>(defaultGroup);
+  const [group, setGroup] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'outsourced' | 'overhead'>(defaultGroup);
   const [parentId, setParentId] = useState<string>(defaultParentId || '');
   const [name, setName] = useState('');
   const [brief, setBrief] = useState('');
@@ -237,14 +252,27 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
     if (defaultParentId) {
       setParentId(defaultParentId);
     } else {
-      const firstParent = parentCategories.find((c) => c.group === defaultGroup && c.type === 'category');
+      const firstParent = parentCategories.find((c) => {
+        if (c.type !== 'category') return false;
+        if (defaultGroup === 'product') return c.group === 'product' || c.group === 'revenue';
+        if (defaultGroup === 'service') return c.group === 'service' || c.group === 'outsourced' || c.group === 'subcontractor';
+        return c.group === defaultGroup;
+      });
       if (firstParent) setParentId(firstParent.id);
     }
   }, [defaultGroup, defaultParentId, isOpen, parentCategories]);
 
   if (!isOpen) return null;
 
-  const validParents = parentCategories.filter((c) => c.group === group && c.type === 'category');
+  const validParents = parentCategories.filter((c) => {
+    if (c.type !== 'category') return false;
+    if (group === 'product') return c.group === 'product' || c.group === 'revenue';
+    if (group === 'overhead') return c.group === 'overhead';
+    if (group === 'subcontractor') return c.group === 'subcontractor';
+    if (group === 'outsourced') return c.group === 'outsourced';
+    if (group === 'service') return c.group === 'service' || c.group === 'outsourced' || c.group === 'subcontractor';
+    return c.group === group;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,7 +290,7 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
       themeId,
       customGradient,
       itemCount: 0,
-      metaBadge: group === 'subcontractor' ? 'HIRED TRADE' : group === 'outsourced' ? 'OUTSOURCED SCOPE' : 'SUB-CATEGORY',
+      metaBadge: group === 'subcontractor' ? 'HIRED TRADE' : group === 'outsourced' ? 'OUTSOURCED SCOPE' : group === 'overhead' ? 'OVERHEAD SUB-CATEGORY' : 'SUB-CATEGORY',
       actionText: group === 'subcontractor' ? 'VIEW SERVICE ITEMS & RATES' : 'VIEW DEEP SPECS'
     });
     onClose();
@@ -284,14 +312,22 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>
             <label className="block text-xs text-slate-600 mb-1 font-normal">Group</label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['material', 'product', 'service'] as const).map((g) => (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {(['material', 'product', 'service', 'subcontractor', 'outsourced', 'overhead'] as const).map((g) => (
                 <button
                   key={g}
                   type="button"
                   onClick={() => {
                     setGroup(g);
-                    const matching = parentCategories.filter((c) => c.group === g && c.type === 'category');
+                    const matching = parentCategories.filter((c) => {
+                      if (c.type !== 'category') return false;
+                      if (g === 'product') return c.group === 'product' || c.group === 'revenue';
+                      if (g === 'overhead') return c.group === 'overhead';
+                      if (g === 'subcontractor') return c.group === 'subcontractor';
+                      if (g === 'outsourced') return c.group === 'outsourced';
+                      if (g === 'service') return c.group === 'service' || c.group === 'outsourced' || c.group === 'subcontractor';
+                      return c.group === g;
+                    });
                     if (matching.length > 0) setParentId(matching[0].id);
                   }}
                   className={`py-1.5 px-2 text-xs rounded-xl border capitalize transition-all ${
@@ -300,7 +336,7 @@ export const CreateSubCategoryModal: React.FC<CreateSubCategoryModalProps> = ({
                       : 'border-slate-300 text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  {g}s
+                  {g === 'overhead' ? 'Overheads' : g === 'outsourced' ? 'Outsourced' : `${g}s`}
                 </button>
               ))}
             </div>
@@ -479,6 +515,17 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   const [slaLevel, setSlaLevel] = useState('Premium 99.9%');
   const [currency, setCurrency] = useState<string>(() => getStoredCurrency());
   const currSymbol = SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || '$';
+
+  // Memoized partner options for SearchablePartnerPicker
+  const partnerOptions: PartnerOption[] = useMemo(() => {
+    return suppliers.map((s) => ({
+      id: s.id,
+      name: s.name,
+      category: s.category,
+      country: s.country || s.city,
+      rating: s.rating
+    }));
+  }, [suppliers]);
 
   // Auto-Numbering Synchronization
   useEffect(() => {
@@ -697,6 +744,22 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         customGradient
       });
       generateNextNumber('projects', true);
+    } else if (selectedType === 'overhead') {
+      onSave('overhead', {
+        code: code.trim(),
+        name: name.trim(),
+        category: category || 'Indirect Materials & Factory Consumables',
+        subCategory: subCategory || '',
+        costType: 'facility',
+        defaultCalculationMethod: 'percentage_of_direct',
+        defaultRate: Number(price) || 5,
+        defaultCostBase: 'total_direct_cost',
+        unitType: unit || 'pct',
+        status: 'Active',
+        themeId,
+        customGradient
+      });
+      generateNextNumber('overheads', true);
     } else if (selectedType === 'client') {
       onSave('client', {
         name: name.trim(),
@@ -731,6 +794,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               ? 'Add Service'
               : selectedType === 'produce'
               ? 'Add Product'
+              : selectedType === 'overhead'
+              ? 'Add Overhead'
               : 'Add Item'}
           </h3>
           <button
@@ -758,6 +823,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 <option value="material">Material</option>
                 <option value="outsourced">Service</option>
                 <option value="produce">Product</option>
+                <option value="overhead">Overhead</option>
                 <option value="project">Project</option>
                 <option value="client">Client</option>
               </select>
@@ -1043,6 +1109,39 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 </div>
               </div>
 
+              {/* Subcontractor Category & Sub-Category via SearchableCategoryPicker */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <SearchableCategoryPicker
+                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  selectedCategory={category}
+                  selectedSubCategory={subCategory}
+                  onCategoryChange={(catName, node) => {
+                    setCategory(catName);
+                    if (node) setCategoryId(node.id);
+                  }}
+                  onSubCategoryChange={(subName, node) => {
+                    setSubCategory(subName);
+                    if (node) setSubCategoryId(node.id);
+                  }}
+                  onAddNewCategory={(newCat) => {
+                    persistentDatabase.addCategory(newCat);
+                    api.createCategory(newCat).catch(console.error);
+                    setCategory(newCat.name);
+                    setCategoryId(newCat.id);
+                  }}
+                  onAddNewSubCategory={(newSub) => {
+                    persistentDatabase.addCategory(newSub);
+                    api.createCategory(newSub).catch(console.error);
+                    setSubCategory(newSub.name);
+                    setSubCategoryId(newSub.id);
+                  }}
+                  group="subcontractor"
+                  categoryLabel="Subcontractor Category (Connected to Database)"
+                  subCategoryLabel="Trade Sub-Category (Connected to Database)"
+                  required={true}
+                />
+              </div>
+
               {/* Rate Model & Rates in LKR */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
@@ -1199,55 +1298,37 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 </div>
               </div>
 
-              {/* Category & Sub-Category */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Category *
-                  </label>
-                  <select
-                    value={categoryId}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                    required
-                  >
-                    <option value="">-- Select Category --</option>
-                    {categories
-                      .filter((c) => (c.group === 'material' || !c.parentId) && (c.type === 'category' || !c.parentId))
-                      .map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Sub-Category (Filtered)
-                  </label>
-                  <select
-                    value={subCategoryId}
-                    onChange={(e) => handleSubCategoryChange(e.target.value)}
-                    disabled={!categoryId}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600 disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    <option value="">
-                      {categoryId ? '-- Select Subcategory (Optional) --' : '-- Select Category First --'}
-                    </option>
-                    {categories
-                      .filter((c) => c.parentId === categoryId && (c.type === 'sub_category' || c.type === 'subcategory'))
-                      .map((sub) => (
-                        <option key={sub.id} value={sub.id}>
-                          {sub.name}
-                        </option>
-                      ))}
-                  </select>
-                  {categoryId && categories.filter((c) => c.parentId === categoryId && (c.type === 'sub_category' || c.type === 'subcategory')).length === 0 && (
-                    <div className="text-[10px] text-amber-700 mt-1">
-                      No subcategories exist for this category yet. You can create one from the catalog directory.
-                    </div>
-                  )}
-                </div>
+              {/* Connected Category & Sub-Category via SearchableCategoryPicker with search bar connected to DB */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <SearchableCategoryPicker
+                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  selectedCategory={category}
+                  selectedSubCategory={subCategory}
+                  onCategoryChange={(catName, node) => {
+                    setCategory(catName);
+                    if (node) setCategoryId(node.id);
+                  }}
+                  onSubCategoryChange={(subName, node) => {
+                    setSubCategory(subName);
+                    if (node) setSubCategoryId(node.id);
+                  }}
+                  onAddNewCategory={(newCat) => {
+                    persistentDatabase.addCategory(newCat);
+                    api.createCategory(newCat).catch(console.error);
+                    setCategory(newCat.name);
+                    setCategoryId(newCat.id);
+                  }}
+                  onAddNewSubCategory={(newSub) => {
+                    persistentDatabase.addCategory(newSub);
+                    api.createCategory(newSub).catch(console.error);
+                    setSubCategory(newSub.name);
+                    setSubCategoryId(newSub.id);
+                  }}
+                  group="material"
+                  categoryLabel="Category (Connected to Database)"
+                  subCategoryLabel="Sub-Category (Connected to Database)"
+                  required={true}
+                />
               </div>
 
               {/* Description & Specifications */}
@@ -1337,37 +1418,377 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Approved Preferred Supplier
-                  </label>
-                  <select
-                    value={supplierName}
-                    onChange={(e) => setSupplierName(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-emerald-600"
-                  >
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.name} ({s.city || 'Sri Lanka'})
-                      </option>
-                    ))}
-                    {suppliers.length === 0 && (
-                      <option value="Lanka Precision Metals">Lanka Precision Metals</option>
-                    )}
-                  </select>
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                  <SearchablePartnerPicker
+                    label="Approved Preferred Supplier / Partner"
+                    selectedPartner={supplierName}
+                    onPartnerChange={(pName) => setSupplierName(pName)}
+                    partners={partnerOptions}
+                    onAddNewPartner={(pName) => {
+                      api.createSupplier({ name: pName, country: 'Sri Lanka' }).catch(console.error);
+                      setSupplierName(pName);
+                    }}
+                  />
                 </div>
               </div>
             </div>
           )}
 
           {/* ========================================================================= */}
-          {/* 4. OTHER ENTITIES (OUTSOURCED, PRODUCE, PROJECT, CLIENT) */}
+          {/* 4. PRODUCT / REVENUE DELIVERABLE FORM */}
           {/* ========================================================================= */}
-          {selectedType !== 'supplier' && selectedType !== 'subcontractor' && selectedType !== 'material' && (
+          {selectedType === 'produce' && (
+            <div className="space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Manufactured Product / Revenue Deliverable</span>
+                </span>
+                <span className="text-[10px] bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded">
+                  Connected to Database & Revenue Catalogue
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Product / Deliverable Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 5-Axis Precision Aerospace Bracket"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Product Code (Auto)</label>
+                  <input
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+              </div>
+
+              {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <SearchableCategoryPicker
+                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  selectedCategory={category}
+                  selectedSubCategory={subCategory}
+                  onCategoryChange={(catName, node) => {
+                    setCategory(catName);
+                    if (node) setCategoryId(node.id);
+                  }}
+                  onSubCategoryChange={(subName, node) => {
+                    setSubCategory(subName);
+                    if (node) setSubCategoryId(node.id);
+                  }}
+                  onAddNewCategory={(newCat) => {
+                    persistentDatabase.addCategory(newCat);
+                    api.createCategory(newCat).catch(console.error);
+                    setCategory(newCat.name);
+                    setCategoryId(newCat.id);
+                  }}
+                  onAddNewSubCategory={(newSub) => {
+                    persistentDatabase.addCategory(newSub);
+                    api.createCategory(newSub).catch(console.error);
+                    setSubCategory(newSub.name);
+                    setSubCategoryId(newSub.id);
+                  }}
+                  group="product"
+                  categoryLabel="Product Category (Connected to Database)"
+                  subCategoryLabel="Sub-Category (Connected to Database)"
+                  required={true}
+                />
+              </div>
+
+              {/* Pricing & Unit */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Quoted Selling Rate ({currSymbol}) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    value={price}
+                    onChange={(e) => setPrice(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Internal Unit Cost ({currSymbol})
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={costPrice}
+                    onChange={(e) => setCostPrice(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-slate-700 focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Unit of Measure</label>
+                  <input
+                    type="text"
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    placeholder="pcs, unit, assembly"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* 5. OVERHEAD COST ALLOCATION RECORD FORM */}
+          {/* ========================================================================= */}
+          {selectedType === 'overhead' && (
+            <div className="space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Overhead Cost Allocation Record</span>
+                </span>
+                <span className="text-[10px] bg-amber-100 text-amber-900 font-semibold px-2 py-0.5 rounded">
+                  Connected to Database & Overhead Portal
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Overhead Item Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. CNC Cutting Fluids & Chemical Agents"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Code (Auto)</label>
+                  <input
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+
+              {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <SearchableCategoryPicker
+                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  selectedCategory={category}
+                  selectedSubCategory={subCategory}
+                  onCategoryChange={(catName, node) => {
+                    setCategory(catName);
+                    if (node) setCategoryId(node.id);
+                  }}
+                  onSubCategoryChange={(subName, node) => {
+                    setSubCategory(subName);
+                    if (node) setSubCategoryId(node.id);
+                  }}
+                  onAddNewCategory={(newCat) => {
+                    persistentDatabase.addCategory(newCat);
+                    api.createCategory(newCat).catch(console.error);
+                    setCategory(newCat.name);
+                    setCategoryId(newCat.id);
+                  }}
+                  onAddNewSubCategory={(newSub) => {
+                    persistentDatabase.addCategory(newSub);
+                    api.createCategory(newSub).catch(console.error);
+                    setSubCategory(newSub.name);
+                    setSubCategoryId(newSub.id);
+                  }}
+                  group="overhead"
+                  categoryLabel="Overhead Category (Connected to Database)"
+                  subCategoryLabel="Overhead Sub-Category (Connected to Database)"
+                  required={true}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Rate Base / Percentage (%) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={price}
+                    onChange={(e) => setPrice(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-amber-800 focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Unit Type</label>
+                  <input
+                    type="text"
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    placeholder="pct, unit, month, hr"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* 6. OUTSOURCED SERVICE / TARIFF FORM */}
+          {/* ========================================================================= */}
+          {selectedType === 'outsourced' && (
+            <div className="space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Outsourced Service Provider & Tariff</span>
+                </span>
+                <span className="text-[10px] bg-teal-100 text-teal-900 font-semibold px-2 py-0.5 rounded">
+                  Connected to Database & Service Tariffs
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Service / Tariff Process Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Hard Anodize Type III Mil-Spec Finishing"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-teal-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Code (Auto)</label>
+                  <input
+                    type="text"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-teal-600"
+                  />
+                </div>
+              </div>
+
+              {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <SearchableCategoryPicker
+                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  selectedCategory={category}
+                  selectedSubCategory={subCategory}
+                  onCategoryChange={(catName, node) => {
+                    setCategory(catName);
+                    if (node) setCategoryId(node.id);
+                  }}
+                  onSubCategoryChange={(subName, node) => {
+                    setSubCategory(subName);
+                    if (node) setSubCategoryId(node.id);
+                  }}
+                  onAddNewCategory={(newCat) => {
+                    persistentDatabase.addCategory(newCat);
+                    api.createCategory(newCat).catch(console.error);
+                    setCategory(newCat.name);
+                    setCategoryId(newCat.id);
+                  }}
+                  onAddNewSubCategory={(newSub) => {
+                    persistentDatabase.addCategory(newSub);
+                    api.createCategory(newSub).catch(console.error);
+                    setSubCategory(newSub.name);
+                    setSubCategoryId(newSub.id);
+                  }}
+                  group="outsourced"
+                  categoryLabel="Service Category (Connected to Database)"
+                  subCategoryLabel="Service Sub-Category (Connected to Database)"
+                  required={true}
+                />
+              </div>
+
+              {/* Provider via SearchablePartnerPicker */}
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                <SearchablePartnerPicker
+                  label="Assigned Service Provider / Partner"
+                  selectedPartner={supplierName}
+                  onPartnerChange={(pName) => setSupplierName(pName)}
+                  partners={partnerOptions}
+                  onAddNewPartner={(pName) => {
+                    api.createSupplier({ name: pName, country: 'Sri Lanka' }).catch(console.error);
+                    setSupplierName(pName);
+                  }}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Direct Tariff Cost ({currSymbol}) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={costPrice}
+                    onChange={(e) => setCostPrice(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:border-teal-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    Quoted Retail ({currSymbol}) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={price}
+                    onChange={(e) => setPrice(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-teal-800 focus:outline-none focus:border-teal-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Base Unit</label>
+                  <input
+                    type="text"
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    placeholder="per_hour, per_km, per_unit"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* 7. OTHER ENTITIES (PROJECT, CLIENT) */}
+          {/* ========================================================================= */}
+          {(selectedType === 'project' || selectedType === 'client') && (
             <div className="space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Item / Record Name *</label>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">
+                    {selectedType === 'client' ? 'Client Enterprise Name *' : 'Project Title *'}
+                  </label>
                   <input
                     type="text"
                     required
@@ -1389,7 +1810,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Category</label>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Industry / Category</label>
                   <input
                     type="text"
                     value={category}
@@ -1398,50 +1819,37 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Sub-Category</label>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Location / Base</label>
                   <input
                     type="text"
-                    value={subCategory}
-                    onChange={(e) => setSubCategory(e.target.value)}
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Value / Quoted Price ({currSymbol})
+                    Target Quoted Value ({currSymbol})
                   </label>
                   <input
                     type="number"
                     min="0"
-                    step="100"
+                    step="1000"
                     value={price}
                     onChange={(e) => setPrice(Number(e.target.value))}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-[#003049]"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Cost Price ({currSymbol})
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="100"
-                    value={costPrice}
-                    onChange={(e) => setCostPrice(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-900 focus:outline-none focus:border-[#003049]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-700 font-medium mb-1">Unit / Location</label>
+                  <label className="block text-xs text-slate-700 font-medium mb-1">Currency</label>
                   <input
                     type="text"
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                    disabled
+                    value={currency}
+                    className="w-full bg-slate-100 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-mono text-slate-600"
                   />
                 </div>
               </div>

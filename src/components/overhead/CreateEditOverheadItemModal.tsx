@@ -198,14 +198,24 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
 
           {/* Category & Sub-Category via SearchableCategoryPicker */}
           <SearchableCategoryPicker
-            categories={categories}
+            categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
             selectedCategory={category}
             selectedSubCategory={subCategory}
             onCategoryChange={(catName) => setCategory(catName)}
             onSubCategoryChange={(subName) => setSubCategory(subName)}
+            onAddNewCategory={(newCat) => {
+              persistentDatabase.addCategory(newCat);
+              api.createCategory(newCat).catch(console.error);
+              setCategory(newCat.name);
+            }}
+            onAddNewSubCategory={(newSub) => {
+              persistentDatabase.addCategory(newSub);
+              api.createCategory(newSub).catch(console.error);
+              setSubCategory(newSub.name);
+            }}
             group="overhead"
-            categoryLabel="Overhead Category"
-            subCategoryLabel="Overhead Sub-Category"
+            categoryLabel="Overhead Category (Connected to Database)"
+            subCategoryLabel="Overhead Sub-Category (Connected to Database)"
             required={true}
           />
 
