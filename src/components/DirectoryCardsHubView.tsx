@@ -92,7 +92,7 @@ export type DirectoryTab =
   | 'service-providers'
   | 'subcontractors';
 
-export type RevenueStreamSubTab = 'products' | 'services';
+export type RevenueStreamSubTab = 'all_records' | 'products' | 'services' | 'hierarchy';
 export type ServiceCategorySubTab = 'subcontractor' | 'outsourced';
 
 interface DirectoryCardsHubViewProps {
@@ -181,7 +181,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   currentUser
 }) => {
   const [activeTab, setActiveTab] = useState<DirectoryTab>(initialTab || 'projects');
-  const [revenueSubTab, setRevenueSubTab] = useState<RevenueStreamSubTab>('products');
+  const [revenueSubTab, setRevenueSubTab] = useState<RevenueStreamSubTab>('all_records');
   const [serviceSubTab, setServiceSubTab] = useState<ServiceCategorySubTab>('subcontractor');
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -224,6 +224,57 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       })
       .catch((err) => console.warn('Could not load revenue items in directory:', err));
   }, []);
+
+  // Dedicated states for Revenue Portal all-records view
+  const [revenueTableTypeFilter, setRevenueTableTypeFilter] = useState<'all' | 'product' | 'service'>('all');
+  const [revenueTableCategoryFilter, setRevenueTableCategoryFilter] = useState<string>('all');
+
+  // Combined Authoritative List of All Revenue Portal Records (Products & Services)
+  const combinedAllRevenueRecords = useMemo(() => {
+    const map = new Map<string, any>();
+
+    // 1. All revenue items from database
+    revenueItems.forEach((r) => {
+      const key = (r.code || r.id || '').toLowerCase();
+      map.set(key, {
+        id: r.id,
+        code: r.code || `REV-${r.id.slice(0, 5)}`,
+        name: r.name,
+        type: (r.type || 'product') as 'product' | 'service',
+        category: r.category || 'Commercial Deliverables',
+        subCategory: r.subCategory || 'General Scope',
+        unit: r.unit || 'pcs',
+        costPrice: Number(r.costPrice) || 0,
+        retailPrice: Number(r.defaultRate) || 0,
+        taxTreatment: r.taxTreatment || 'Standard (0%)',
+        status: r.status || 'Active',
+        source: 'Revenue Catalogue'
+      });
+    });
+
+    // 2. Also ensure produceItems are represented (products supplied to customers)
+    produceItems.forEach((p) => {
+      const key = (p.code || p.id || '').toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          id: p.id,
+          code: p.code || `PRD-${p.id.slice(0, 5)}`,
+          name: p.name,
+          type: 'product' as const,
+          category: p.category || 'Manufactured Deliverables',
+          subCategory: p.subCategory || 'General Product',
+          unit: p.unit || 'pcs',
+          costPrice: Number(p.costPrice) || 0,
+          retailPrice: Number(p.retailPrice) || 0,
+          taxTreatment: 'Standard (0%)',
+          status: p.status || 'Active',
+          source: 'Manufactured Product'
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [revenueItems, produceItems]);
 
   // Dedicated states for Outsourced Services sub-portal
   const [outsourcedTableCategoryFilter, setOutsourcedTableCategoryFilter] = useState<string>('all');
@@ -510,6 +561,22 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
+
+    if (newNode.group === 'overhead') {
+      api.createOverheadCategory({
+        name: newNode.name,
+        description: newNode.brief,
+        defaultAllocationMethod: 'percentage_of_direct',
+        isActive: true
+      }).catch(console.error);
+    } else if (newNode.group === 'product' || newNode.group === 'revenue') {
+      api.createRevenueCategory({
+        name: newNode.name,
+        description: newNode.brief,
+        isActive: true
+      }).catch(console.error);
+    }
+
     const updated = [newNode, ...categories.filter((c) => c.id !== newNode.id)];
     setCategories(updated);
     onUpdateCategories?.(updated);
@@ -536,6 +603,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
+
+    if (newNode.group === 'product' || newNode.group === 'revenue') {
+      api.createRevenueSubcategory({
+        categoryId: newNode.parentId,
+        name: newNode.name,
+        description: newNode.brief,
+        isActive: true
+      }).catch(console.error);
+    }
+
     const updated = [newNode, ...categories.filter((c) => c.id !== newNode.id)];
     setCategories(updated);
     onUpdateCategories?.(updated);
@@ -1436,7 +1513,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         </div>
       </div>
 
-      {/* 2.5 REVENUE STREAMS SUB TABS: 'Products' & 'Services' */}
+      {/* 2.5 REVENUE STREAMS SUB TABS: 'All Records', 'Products', 'Services', 'Hierarchy' */}
       {(activeTab === 'revenue-streams' || activeTab === 'products-hierarchy' || activeTab === 'services-hierarchy') && (
         <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1445,8 +1522,35 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               <span className="font-bold text-slate-900 text-xs">Revenue Streams:</span>
             </div>
 
-            {/* Segmented Sub-Tabs: 'Products' & 'Services' */}
-            <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 gap-1">
+            {/* Segmented Sub-Tabs */}
+            <div className="inline-flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 gap-1 flex-wrap">
+              {/* 0. All Revenue Records Sub-Tab */}
+              <button
+                type="button"
+                id="subtab-revenue-all-records"
+                onClick={() => {
+                  setRevenueSubTab('all_records');
+                  setSelectedProductCatId(null);
+                  setSelectedProductSubCatId(null);
+                  setSelectedServiceCatId(null);
+                }}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  revenueSubTab === 'all_records'
+                    ? 'bg-[#003049] text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Table className={`w-3.5 h-3.5 ${revenueSubTab === 'all_records' ? 'text-[#fdf0d5]' : 'text-slate-500'}`} />
+                <span>All Revenue Records</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    revenueSubTab === 'all_records' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {combinedAllRevenueRecords.length}
+                </span>
+              </button>
+
               {/* 1. Products Sub-Tab */}
               <button
                 type="button"
@@ -1456,7 +1560,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                   setSelectedProductCatId(null);
                   setSelectedProductSubCatId(null);
                 }}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   revenueSubTab === 'products'
                     ? 'bg-[#003049] text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -1469,7 +1573,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                     revenueSubTab === 'products' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {categories.filter((c) => c.group === 'product' && c.type === 'category').length}
+                  {combinedAllRevenueRecords.filter((r) => r.type === 'product').length}
                 </span>
               </button>
 
@@ -1481,7 +1585,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                   setRevenueSubTab('services');
                   setSelectedServiceCatId(null);
                 }}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   revenueSubTab === 'services'
                     ? 'bg-[#003049] text-white shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -1494,10 +1598,89 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                     revenueSubTab === 'services' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
                   }`}
                 >
-                  {categories.filter((c) => c.group === 'service' && c.type === 'category').length}
+                  {combinedAllRevenueRecords.filter((r) => r.type === 'service').length}
+                </span>
+              </button>
+
+              {/* 3. Hierarchy Sub-Tab */}
+              <button
+                type="button"
+                id="subtab-revenue-hierarchy"
+                onClick={() => {
+                  setRevenueSubTab('hierarchy');
+                  setSelectedProductCatId(null);
+                  setSelectedProductSubCatId(null);
+                  setSelectedServiceCatId(null);
+                }}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  revenueSubTab === 'hierarchy'
+                    ? 'bg-[#003049] text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FolderTree className={`w-3.5 h-3.5 ${revenueSubTab === 'hierarchy' ? 'text-[#fdf0d5]' : 'text-slate-500'}`} />
+                <span>Categories &amp; Subcategories</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    revenueSubTab === 'hierarchy' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {categories.filter((c) => (c.group === 'product' || c.group === 'revenue' || c.group === 'service') && c.type === 'category').length}
                 </span>
               </button>
             </div>
+          </div>
+
+          {/* Quick Creation Actions linked directly to Database */}
+          <div className="flex items-center space-x-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setCreateCategoryGroup('product');
+                setIsCreateCategoryModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition-colors shadow-2xs cursor-pointer"
+              title="Create a new Category for Products or Revenue in database"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-amber-600" />
+              <span>+ Category</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreateSubCategoryGroup('product');
+                setIsCreateSubCategoryModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition-colors shadow-2xs cursor-pointer"
+              title="Create a new Sub-Category linked to parent category in database"
+            >
+              <Layers className="w-3.5 h-3.5 text-blue-600" />
+              <span>+ Sub-Category</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAddItemPortal('products-hierarchy');
+                setIsAddItemModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              title="Create product deliverable synchronized with Revenue Catalogue"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+              <span>+ Add Product</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAddItemPortal('revenue');
+                setIsAddItemModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              title="Add deliverable or service to Revenue Catalogue"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              <span>+ Add Revenue Item</span>
+            </button>
           </div>
         </div>
       )}
@@ -1577,12 +1760,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               serviceSubTab === 'subcontractor' ? 'Subcontractors' : 'Outsourced'
             )}
             {(activeTab === 'revenue-streams' || activeTab === 'products-hierarchy' || activeTab === 'services-hierarchy') && (
-              revenueSubTab === 'products' ? 'Products' : 'Services'
+              revenueSubTab === 'all_records' ? 'Revenue Portal Records (Products & Services)' :
+              revenueSubTab === 'products' ? 'Products (Deliverables)' :
+              revenueSubTab === 'services' ? 'Services (Commercial Scopes)' :
+              'Revenue Categories & Hierarchy'
             )}
             {activeTab === 'clients' && 'Clients'}
             {activeTab === 'suppliers' && 'Suppliers'}
             {activeTab === 'service-providers' && 'Providers'}
             {activeTab === 'subcontractors' && 'Subcontractors'}
+            {activeTab === 'overheads-hierarchy' && 'Overhead Costs'}
           </h2>
 
           {/* Portal Scope Indicator Pill */}
@@ -1594,10 +1781,15 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             )}
             {activeTab === 'materials-hierarchy' && `${categories.filter(c => c.group === 'material' && c.type === 'category').length} Categories`}
             {activeTab === 'revenue-streams' && (
-              revenueSubTab === 'products'
-                ? `${categories.filter(c => c.group === 'product' && c.type === 'category').length} Products`
-                : `${categories.filter(c => c.group === 'service' && c.type === 'category').length} Services`
+              revenueSubTab === 'all_records'
+                ? `${combinedAllRevenueRecords.length} Deliverables`
+                : revenueSubTab === 'products'
+                ? `${combinedAllRevenueRecords.filter(r => r.type === 'product').length} Products`
+                : revenueSubTab === 'services'
+                ? `${combinedAllRevenueRecords.filter(r => r.type === 'service').length} Services`
+                : `${categories.filter(c => (c.group === 'product' || c.group === 'revenue' || c.group === 'service') && c.type === 'category').length} Categories`
             )}
+            {activeTab === 'overheads-hierarchy' && `${categories.filter(c => c.group === 'overhead' && c.type === 'category').length} Categories`}
             {activeTab === 'projects' && `${projects.length} Total`}
             {activeTab === 'clients' && `${clientProfiles.length} Total`}
             {activeTab === 'suppliers' && `${suppliers.length} Total`}
@@ -1696,7 +1888,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 <Plus className="w-3.5 h-3.5 text-white" />
                 <span>+ Product</span>
               </button>
-            ) : (
+            ) : revenueSubTab === 'services' ? (
               <button
                 type="button"
                 onClick={() => {
@@ -1707,6 +1899,18 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               >
                 <Plus className="w-3.5 h-3.5 text-white" />
                 <span>+ Tariff</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setAddItemPortal('revenue');
+                  setIsAddItemModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-all shadow-2xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-white" />
+                <span>+ Deliverable</span>
               </button>
             )
           )}
@@ -4358,6 +4562,296 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* TAB: REVENUE STREAMS (PRODUCTS SUPPLIED & SERVICES RENDERED TO CUSTOMERS) */}
       {(activeTab === 'revenue-streams' || activeTab === 'products-hierarchy' || activeTab === 'services-hierarchy') && (
         <>
+          {/* SUB-PORTAL: ALL REVENUE RECORDS (PRODUCTS & SERVICES) */}
+          {revenueSubTab === 'all_records' && (
+            <div className="space-y-4">
+              {/* Telemetry Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Deliverables</div>
+                  <div className="text-xl font-bold text-[#003049] dark:text-sky-400 mt-1">{combinedAllRevenueRecords.length}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Commercial catalog items</div>
+                </div>
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Manufactured Products</div>
+                  <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                    {combinedAllRevenueRecords.filter(r => r.type === 'product').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Physical deliverables</div>
+                </div>
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Customer Services</div>
+                  <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                    {combinedAllRevenueRecords.filter(r => r.type === 'service').length}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Billable scopes & tariffs</div>
+                </div>
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Avg Margin Spread</div>
+                  <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">
+                    {(() => {
+                      const validMargins = combinedAllRevenueRecords
+                        .filter(r => r.retailPrice > 0 && r.costPrice > 0)
+                        .map(r => ((r.retailPrice - r.costPrice) / r.retailPrice) * 100);
+                      if (validMargins.length === 0) return '35.0%';
+                      const avg = validMargins.reduce((a, b) => a + b, 0) / validMargins.length;
+                      return `${avg.toFixed(1)}%`;
+                    })()}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Profit margin benchmark</div>
+                </div>
+              </div>
+
+              {/* Controls bar: Type filter, Category filter, and Action buttons */}
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center space-x-2 flex-wrap">
+                  <span className="text-xs font-semibold text-slate-500">Filter Type:</span>
+                  <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueTableTypeFilter('all')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        revenueTableTypeFilter === 'all'
+                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      All ({combinedAllRevenueRecords.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRevenueTableTypeFilter('product')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        revenueTableTypeFilter === 'product'
+                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Products ({combinedAllRevenueRecords.filter(r => r.type === 'product').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRevenueTableTypeFilter('service')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        revenueTableTypeFilter === 'service'
+                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Services ({combinedAllRevenueRecords.filter(r => r.type === 'service').length})
+                    </button>
+                  </div>
+
+                  <span className="text-slate-300 dark:text-slate-700">|</span>
+
+                  <select
+                    value={revenueTableCategoryFilter}
+                    onChange={(e) => setRevenueTableCategoryFilter(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
+                  >
+                    <option value="all">All Categories</option>
+                    {Array.from(new Set(combinedAllRevenueRecords.map((r) => r.category).filter(Boolean))).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddItemPortal('products-hierarchy');
+                      setIsAddItemModalOpen(true);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                    <span>+ Add Product</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddItemPortal('revenue');
+                      setIsAddItemModalOpen(true);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-white" />
+                    <span>+ Add Revenue Item</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFXTTCard({
+                        cardType: 'product_category',
+                        cardId: 'rev-all-grid',
+                        cardTitle: 'Revenue Deliverables Matrix',
+                        cardSubtitle: 'Full Master Revenue Streams & Deliverables Grid',
+                        cardTag: 'REVENUE PORTAL'
+                      });
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-amber-600" />
+                    <span>FXTT Grid</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Data Table */}
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                    <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="py-2.5 px-3 font-semibold">Code</th>
+                        <th className="py-2.5 px-3 font-semibold">Deliverable / Product</th>
+                        <th className="py-2.5 px-3 font-semibold">Type</th>
+                        <th className="py-2.5 px-3 font-semibold">Category</th>
+                        <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
+                        <th className="py-2.5 px-3 font-semibold text-center">Unit</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Cost Rate</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Retail / Billable</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Margin %</th>
+                        <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {combinedAllRevenueRecords
+                        .filter((item) => {
+                          if (revenueTableTypeFilter !== 'all' && item.type !== revenueTableTypeFilter) return false;
+                          if (revenueTableCategoryFilter !== 'all' && item.category !== revenueTableCategoryFilter) return false;
+                          if (!searchQuery) return true;
+                          const q = searchQuery.toLowerCase();
+                          return (
+                            item.name?.toLowerCase().includes(q) ||
+                            item.code?.toLowerCase().includes(q) ||
+                            item.category?.toLowerCase().includes(q) ||
+                            item.subCategory?.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((item) => {
+                          const marginPct = item.retailPrice > 0
+                            ? (((item.retailPrice - item.costPrice) / item.retailPrice) * 100).toFixed(1)
+                            : '0.0';
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                              <td className="py-2.5 px-3 font-mono font-bold text-[#003049] dark:text-sky-400">
+                                {item.code}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                                <div className="text-[10px] text-slate-400">{item.source}</div>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                                    item.type === 'product'
+                                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                      : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                  }`}
+                                >
+                                  {item.type}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{item.category}</td>
+                              <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400">{item.subCategory || '—'}</td>
+                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">{item.unit}</td>
+                              <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                                ${Number(item.costPrice).toFixed(2)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-[#003049] dark:text-sky-400">
+                                ${Number(item.retailPrice).toFixed(2)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                                    Number(marginPct) >= 30
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                      : Number(marginPct) >= 15
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                  }`}
+                                >
+                                  {marginPct}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                  {item.status || 'Active'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="flex items-center justify-end space-x-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveFXTTCard({
+                                        cardType: 'product_category',
+                                        cardId: item.id,
+                                        cardTitle: item.name,
+                                        cardSubtitle: `${item.code} • ${item.category} • Cost $${item.costPrice} / Sell $${item.retailPrice}`,
+                                        cardTag: item.type === 'product' ? 'PRODUCT DELIVERABLE' : 'COMMERCIAL SERVICE'
+                                      });
+                                    }}
+                                    className="p-1 px-2 bg-slate-100 hover:bg-[#0078d4] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors cursor-pointer"
+                                    title="Open in FXTT Grid"
+                                  >
+                                    FXTT
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleOpenEdit(
+                                        item.type === 'product' ? 'produce' : 'revenue',
+                                        item.id,
+                                        {
+                                          name: item.name,
+                                          title: item.name,
+                                          code: item.code,
+                                          category: item.category,
+                                          subCategory: item.subCategory,
+                                          unit: item.unit,
+                                          retailPrice: item.retailPrice,
+                                          costPrice: item.costPrice
+                                        }
+                                      );
+                                    }}
+                                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 cursor-pointer"
+                                    title="Edit Deliverable"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDelete('Revenue Deliverable', item.id, item.name, 'revenue-streams')}
+                                    className="p-1 hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-600 rounded cursor-pointer"
+                                    title="Delete Record"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      {combinedAllRevenueRecords.length === 0 && (
+                        <tr>
+                          <td colSpan={11} className="py-8 text-center text-slate-400">
+                            No revenue records found in the database. Use "+ Add Product" or "+ Add Revenue Item" to create one.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* SUB-PORTAL: PRODUCTS (Product categories which we supply) */}
           {revenueSubTab === 'products' && (
             <div className="space-y-4">
@@ -5022,6 +5516,141 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               )}
             </div>
           )}
+
+          {/* SUB-PORTAL: HIERARCHY (CATEGORIES & SUB-CATEGORIES OF REVENUE & PRODUCTS) */}
+          {revenueSubTab === 'hierarchy' && (
+            <div className="space-y-4">
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Revenue & Product Hierarchy</h3>
+                  <p className="text-xs text-slate-500">
+                    Product categories, sub-categories, and commercial scopes connected to database
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateCategoryGroup('product');
+                      setIsCreateCategoryModalOpen(true);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-[#003049] text-white text-xs font-semibold rounded-lg hover:bg-[#002235] transition-colors cursor-pointer"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                    <span>+ Category</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateSubCategoryGroup('product');
+                      setIsCreateSubCategoryModalOpen(true);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-blue-600" />
+                    <span>+ Sub-Category</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {categories
+                  .filter((c) => (c.group === 'product' || c.group === 'revenue' || c.group === 'service') && c.type === 'category')
+                  .map((cat) => {
+                    const subCats = categories.filter((s) => s.parentId === cat.id || s.parentName === cat.name);
+                    const matchingRecords = combinedAllRevenueRecords.filter(
+                      (r) => r.category.toLowerCase() === cat.name.toLowerCase()
+                    );
+                    return (
+                      <div
+                        key={cat.id}
+                        className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                            {cat.group.toUpperCase()}
+                          </span>
+                          <span className="text-xs font-mono font-semibold text-slate-500">
+                            {matchingRecords.length} records
+                          </span>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">{cat.name}</h4>
+                          <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{cat.brief || 'Revenue catalog category'}</p>
+                        </div>
+
+                        {/* Subcategories pill list */}
+                        <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                            <span>Sub-Categories ({subCats.length}):</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCreateSubCategoryGroup(cat.group === 'service' ? 'service' : 'product');
+                                setCreateSubCategoryParentId(cat.id);
+                                setIsCreateSubCategoryModalOpen(true);
+                              }}
+                              className="text-[10px] text-blue-600 hover:underline font-semibold"
+                            >
+                              + Add Sub
+                            </button>
+                          </div>
+                          {subCats.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {subCats.map((sub) => (
+                                <span
+                                  key={sub.id}
+                                  className="text-[11px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700"
+                                >
+                                  {sub.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400 italic">No sub-categories defined yet.</p>
+                          )}
+                        </div>
+
+                        <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedProductCatId(cat.id);
+                              setRevenueSubTab('products');
+                            }}
+                            className="text-xs font-semibold text-[#003049] dark:text-sky-400 hover:underline"
+                          >
+                            Browse Items →
+                          </button>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOpenEdit('category', cat.id, {
+                                  name: cat.name,
+                                  title: cat.name,
+                                  brief: cat.brief
+                                })
+                              }
+                              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-500"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDelete('Category', cat.id, cat.name, 'revenue-streams')}
+                              className="p-1 hover:bg-rose-50 text-rose-500 rounded"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -5569,6 +6198,31 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* TAB: SUPPLIER PROFILES */}
       {activeTab === 'suppliers' && (
         <div className="space-y-4">
+          {/* Supplier Directory Executive Toolbar */}
+          <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center space-x-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                Verified Material & Equipment Suppliers
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-[#0078d4] dark:text-sky-400 border border-blue-200 dark:border-blue-800">
+                {suppliers.length} Registered
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAddItemPortal('suppliers');
+                  setIsAddItemModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                <span>+ Register New Supplier</span>
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {suppliers
             .filter((s) => !searchQuery || s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.supplyScope.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -5773,6 +6427,42 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* TAB: SUBCONTRACTOR PROFILES */}
       {activeTab === 'subcontractors' && (
         <div className="space-y-4">
+          {/* Subcontractor Directory Executive Toolbar */}
+          <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center space-x-2">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                Trade Subcontractors & Specialized Labor
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-[#0078d4] dark:text-sky-400 border border-blue-200 dark:border-blue-800">
+                {subcontractorsList.length} Certified Partners
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateCategoryGroup('subcontractor');
+                  setIsCreateCategoryModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-amber-600" />
+                <span>+ Trade Category</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddItemPortal('subcontractors');
+                  setIsAddItemModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                <span>+ Register Subcontractor</span>
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {subcontractorsList
             .filter((sub) => {

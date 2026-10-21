@@ -1260,6 +1260,14 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createRevenueItem(revPayload).catch((err) => console.warn('Could not sync revenue item:', err));
       }
+      persistentDatabase.addRevenueItem(revPayload as any);
+
+      if (newItemCategory.trim()) {
+        api.createRevenueCategory({ name: newItemCategory.trim(), isActive: true }).catch(console.error);
+      }
+      if (newItemSubCategory.trim()) {
+        api.createRevenueSubcategory({ name: newItemSubCategory.trim(), isActive: true }).catch(console.error);
+      }
 
       showToast(`Created new product & synced to Revenue catalogue: ${generatedCode}`);
     } else if (newItemType === 'overhead') {
@@ -3930,6 +3938,13 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                     </button>
                   ))}
                 </div>
+
+                {newItemType === 'product' && (
+                  <div className="mt-2 p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center space-x-2 text-[11px] text-emerald-800 dark:text-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span><strong>Connected to Revenue Portal:</strong> Products created here represent deliverables and are synchronized with the Revenue Catalogue &amp; BOQ system.</span>
+                  </div>
+                )}
               </div>
 
               {/* Item Name */}

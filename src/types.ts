@@ -691,11 +691,13 @@ export type OverheadCostBase =
 
 export interface OverheadCategory {
   id: string;
-  code: string;
+  code?: string;
   name: string;
   description?: string;
   isDefault?: boolean;
   sortOrder?: number;
+  defaultAllocationMethod?: string;
+  isActive?: boolean;
   createdAt?: string;
 }
 

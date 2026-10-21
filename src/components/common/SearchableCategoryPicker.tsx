@@ -151,6 +151,21 @@ export const SearchableCategoryPicker: React.FC<SearchableCategoryPickerProps> =
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch((err) => console.warn('Could not sync new category to backend:', err));
 
+    if (targetGroup === 'overhead') {
+      api.createOverheadCategory({
+        name: trimmed,
+        description: newNode.brief,
+        defaultAllocationMethod: 'percentage_of_direct',
+        isActive: true
+      }).catch((err) => console.warn('Could not sync overhead category to backend:', err));
+    } else if (targetGroup === 'product' || targetGroup === 'revenue') {
+      api.createRevenueCategory({
+        name: trimmed,
+        description: newNode.brief,
+        isActive: true
+      }).catch((err) => console.warn('Could not sync revenue category to backend:', err));
+    }
+
     if (onAddNewCategory) {
       onAddNewCategory(newNode);
     }
@@ -183,6 +198,15 @@ export const SearchableCategoryPicker: React.FC<SearchableCategoryPickerProps> =
     // Persist to central storage
     persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch((err) => console.warn('Could not sync new sub-category to backend:', err));
+
+    if (targetGroup === 'product' || targetGroup === 'revenue') {
+      api.createRevenueSubcategory({
+        categoryId: activeCategoryNode?.id,
+        name: trimmed,
+        description: newNode.brief,
+        isActive: true
+      }).catch((err) => console.warn('Could not sync revenue subcategory to backend:', err));
+    }
 
     if (onAddNewSubCategory) {
       onAddNewSubCategory(newNode);
