@@ -107,18 +107,25 @@ export interface VendorPriceChangeRecord {
  * Supplier / Vendor quote supplying a specific material with distinct pricing and history
  */
 export interface MaterialVendorQuote {
+  id?: string;
   vendorId: string;
   vendorName: string;
+  vendorPartNumber?: string;
   country?: string;
   currentPrice: number;
   currency?: string;
   leadTimeDays: number;
   moq?: number; // Minimum Order Quantity
+  minimumOrderQty?: number;
   isPreferred?: boolean;
-  status: 'Active' | 'Preferred' | 'Secondary' | 'Best Price' | 'Under Review';
-  priceHistory: VendorPriceChangeRecord[];
-  lastUpdated: string;
+  isPrimary?: boolean;
+  lastQuotedDate?: string;
+  status?: 'Active' | 'Preferred' | 'Secondary' | 'Best Price' | 'Under Review';
+  priceHistory?: VendorPriceChangeRecord[];
+  priceChangeHistory?: any[];
+  lastUpdated?: string;
   volumePricing?: VolumePriceTier[];
+  volumeTiers?: any[];
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
@@ -186,12 +193,13 @@ export interface MaterialItem {
   unitCost?: number;
   status?: string;
   barcode?: string;
-  defaultDiscountPct: number;
-  volumePricing: VolumePriceTier[];
+  defaultDiscountPct?: number;
+  volumePricing?: VolumePriceTier[];
   inStock: number;
   reorderPoint: number;
+  minOrderQty?: number;
   leadTimeDays: number;
-  priceHistory: PriceHistoryRecord[];
+  priceHistory?: PriceHistoryRecord[];
   vendorQuotes?: MaterialVendorQuote[];
   specSheetUrl?: string;
   imageUrl?: string;
@@ -260,6 +268,8 @@ export interface SubcontractorRateItem {
   name?: string;
   subcontractorId: EntityId;
   subcontractorName: string;
+  contractorName?: string;
+  minHoursPerDispatch?: number;
   serviceType: string;
   serviceCategory?: string;
   serviceSubCategory?: string;
@@ -715,8 +725,8 @@ export interface OverheadItem {
   unitType?: string;
   effectiveDate: string;
   status: 'Active' | 'Inactive' | 'Archived' | 'Under Review';
-  createdBy: string;
-  updatedBy: string;
+  createdBy?: string;
+  updatedBy?: string;
   createdAt?: string;
   updatedAt?: string;
   activeAllocationsCount?: number;
@@ -1076,6 +1086,9 @@ export interface RevenueItem {
   taxTreatment?: string;
   taxRatePct?: number;
   status: 'Active' | 'Inactive' | 'Archived';
+  effectiveDate?: string;
+  createdBy?: string;
+  updatedBy?: string;
   createdAt?: string;
   updatedAt?: string;
   linkedPlansCount?: number;

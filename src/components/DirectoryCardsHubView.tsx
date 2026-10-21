@@ -128,8 +128,14 @@ interface DirectoryCardsHubViewProps {
   onAddSubcontractor?: (s: Partial<SubcontractorRateItem>) => void;
   onUpdateSubcontractor?: (id: string, s: Partial<SubcontractorRateItem>) => void;
   onDeleteSubcontractor?: (id: string) => void;
+  overheads?: any[];
   onAddOverheadItem?: (item: any) => void;
+  onUpdateOverheadItem?: (id: string, item: any) => void;
+  onDeleteOverheadItem?: (id: string) => void;
+  revenueItems?: any[];
   onAddRevenueItem?: (item: any) => void;
+  onUpdateRevenueItem?: (id: string, item: any) => void;
+  onDeleteRevenueItem?: (id: string) => void;
   onAddClient?: (c: Partial<ClientProfile>) => void;
   onUpdateClient?: (id: string, c: Partial<ClientProfile>) => void;
   onDeleteClient?: (id: string) => void;
@@ -176,8 +182,14 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   onAddClient,
   onUpdateClient,
   onDeleteClient,
+  overheads: overheadsProp,
   onAddOverheadItem,
+  onUpdateOverheadItem,
+  onDeleteOverheadItem,
+  revenueItems: revenueItemsProp,
   onAddRevenueItem,
+  onUpdateRevenueItem,
+  onDeleteRevenueItem,
   currentUser
 }) => {
   const [activeTab, setActiveTab] = useState<DirectoryTab>(initialTab || 'projects');
@@ -205,22 +217,35 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [selectedOverheadCatId, setSelectedOverheadCatId] = useState<string | null>(null);
   const [selectedOverheadSubCatId, setSelectedOverheadSubCatId] = useState<string | null>(null);
   const [overheadViewMode, setOverheadViewMode] = useState<'hierarchy' | 'items_table'>('hierarchy');
-  const [overheadItems, setOverheadItems] = useState<any[]>([]);
-  const [revenueItems, setRevenueItems] = useState<any[]>([]);
+  const [overheadItems, setOverheadItems] = useState<any[]>(overheadsProp || []);
+  const [revenueItems, setRevenueItems] = useState<any[]>(revenueItemsProp || []);
+
+  // Synchronize when props update
+  useEffect(() => {
+    if (overheadsProp && overheadsProp.length > 0) {
+      setOverheadItems(overheadsProp);
+    }
+  }, [overheadsProp]);
+
+  useEffect(() => {
+    if (revenueItemsProp && revenueItemsProp.length > 0) {
+      setRevenueItems(revenueItemsProp);
+    }
+  }, [revenueItemsProp]);
 
   // Load overhead & revenue items from database APIs to keep Directory strictly connected
   useEffect(() => {
     api.getOverheadItems({ limit: 100 })
       .then((res) => {
         const list = Array.isArray(res) ? res : (res as any)?.data || [];
-        setOverheadItems(list);
+        if (list.length > 0) setOverheadItems(list);
       })
       .catch((err) => console.warn('Could not load overhead items in directory:', err));
 
     api.getRevenueItems({ limit: 100 })
       .then((res) => {
         const list = Array.isArray(res) ? res : (res as any)?.data || [];
-        setRevenueItems(list);
+        if (list.length > 0) setRevenueItems(list);
       })
       .catch((err) => console.warn('Could not load revenue items in directory:', err));
   }, []);
@@ -5775,6 +5800,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             brief={cat.brief}
                             actionLabel="EXPLORE SUB-CATEGORIES"
                             actionVariant="link"
+                            listViewLabel="FXTT Items View"
+                            onViewListView={() => {
+                              setActiveFXTTCard({
+                                cardId: cat.id,
+                                cardTitle: cat.name,
+                                cardSubtitle: cat.brief || 'Overhead Category',
+                                cardType: 'overhead',
+                                cardTag: 'OVERHEAD CATEGORY'
+                              });
+                            }}
                             themeId={style.themeId}
                             customGradient={style.customGradient}
                             onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
@@ -5860,6 +5895,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             brief={subCat.brief}
                             actionLabel="VIEW ITEMS"
                             actionVariant="link"
+                            listViewLabel="FXTT Items View"
+                            onViewListView={() => {
+                              setActiveFXTTCard({
+                                cardId: subCat.id,
+                                cardTitle: subCat.name,
+                                cardSubtitle: subCat.brief || 'Overhead Sub-Category',
+                                cardType: 'overhead',
+                                cardTag: 'OVERHEAD SUB-CATEGORY'
+                              });
+                            }}
                             themeId={style.themeId}
                             customGradient={style.customGradient}
                             onChangeTheme={(tId, grad) => handleUpdateTileTheme(subCat.id, tId, grad)}
@@ -6862,6 +6907,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           subcontractors={subcontractors}
           projects={projects}
           produceItems={produceItems}
+          overheads={overheadItems}
+          revenueItems={revenueItems}
           onClose={() => setActiveFXTTCard(null)}
           onUpdatePrice={(id, price, reason) => {
             if (activeFXTTCard?.cardType === 'product_category' && onUpdateProduceItem) {
@@ -6887,6 +6934,30 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           onAddOutsourcedService={onAddOutsourcedService}
           onUpdateOutsourcedService={onUpdateOutsourcedService}
           onDeleteOutsourcedService={onDeleteOutsourcedService}
+          onAddOverheadItem={(item) => {
+            setOverheadItems((prev) => [item, ...prev]);
+            onAddOverheadItem?.(item);
+          }}
+          onUpdateOverheadItem={(id, item) => {
+            setOverheadItems((prev) => prev.map((o) => (o.id === id ? { ...o, ...item } : o)));
+            onUpdateOverheadItem?.(id, item);
+          }}
+          onDeleteOverheadItem={(id) => {
+            setOverheadItems((prev) => prev.filter((o) => o.id !== id));
+            onDeleteOverheadItem?.(id);
+          }}
+          onAddRevenueItem={(item) => {
+            setRevenueItems((prev) => [item, ...prev]);
+            onAddRevenueItem?.(item);
+          }}
+          onUpdateRevenueItem={(id, item) => {
+            setRevenueItems((prev) => prev.map((r) => (r.id === id ? { ...r, ...item } : r)));
+            onUpdateRevenueItem?.(id, item);
+          }}
+          onDeleteRevenueItem={(id) => {
+            setRevenueItems((prev) => prev.filter((r) => r.id !== id));
+            onDeleteRevenueItem?.(id);
+          }}
           onSelectProject={(p) => {
             onSelectProject(p);
             setActiveFXTTCard(null);

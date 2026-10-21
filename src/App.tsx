@@ -1308,8 +1308,14 @@ export default function App() {
             onDeleteClient={handleDeleteClient}
             categories={categories}
             onUpdateCategories={handleUpdateCategories}
+            overheads={overheads}
             onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            revenueItems={revenueItems}
             onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
           />
         )}
 
@@ -1494,6 +1500,14 @@ export default function App() {
             onAddProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
             onSelectProject={(p) => {
               setSelectedProjectId(p.id);
               setActiveTab('project-home');
@@ -1548,6 +1562,14 @@ export default function App() {
             onAddProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
             onSelectProject={(p) => {
               setSelectedProjectId(p.id);
               setActiveTab('project-home');
@@ -1602,6 +1624,14 @@ export default function App() {
             onAddProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
             onSelectProject={(p) => {
               setSelectedProjectId(p.id);
               setActiveTab('project-home');
@@ -1656,6 +1686,14 @@ export default function App() {
             onAddProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
             onSelectProject={(p) => {
               setSelectedProjectId(p.id);
               setActiveTab('project-home');
@@ -1710,6 +1748,14 @@ export default function App() {
             onAddProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}
             onDeleteProject={handleDeleteProject}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+            onUpdateRevenueItem={handleUpdateRevenueItem}
+            onDeleteRevenueItem={handleDeleteRevenueItem}
             onSelectProject={(p) => {
               setSelectedProjectId(p.id);
               setActiveTab('project-home');

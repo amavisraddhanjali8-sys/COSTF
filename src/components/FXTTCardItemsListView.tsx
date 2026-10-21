@@ -49,7 +49,9 @@ import {
   ProduceItem,
   MaterialVendorQuote,
   VendorPriceChangeRecord,
-  VolumePriceTier
+  VolumePriceTier,
+  OverheadItem,
+  RevenueItem
 } from '../types';
 import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal';
 import { VendorLatestRangesModal } from './VendorLatestRangesModal';
@@ -64,12 +66,13 @@ import { exportAllPriceHistoriesToCSV } from '../utils/csvExport';
 import { DataImportExportModal } from './DataImportExportModal';
 import { persistentDatabase } from '../services/persistentDatabase';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
+import { api } from '../services/api';
 
 export interface FXTTGridRow {
   id: string;
   code: string;
   name: string;
-  itemType: 'material' | 'final_product' | 'full_contract' | 'service' | 'subcontractor' | 'produce' | 'project';
+  itemType: 'material' | 'final_product' | 'full_contract' | 'service' | 'subcontractor' | 'produce' | 'project' | 'overhead' | 'revenue';
   status: 'In Stock' | 'Active' | 'Read only' | 'Enabled' | 'Lead Exist' | 'Under Review' | 'Completed' | 'Pending';
   category: string;
   subCategory: string;
@@ -99,7 +102,9 @@ interface FXTTCardItemsListViewProps {
     | 'project'
     | 'subcontractor'
     | 'client'
-    | 'produce';
+    | 'produce'
+    | 'overhead'
+    | 'revenue';
   cardId?: string;
   cardTitle: string;
   cardSubtitle?: string;
@@ -110,6 +115,8 @@ interface FXTTCardItemsListViewProps {
   subcontractors: SubcontractorRateItem[];
   projects: Project[];
   produceItems?: ProduceItem[];
+  overheads?: OverheadItem[];
+  revenueItems?: RevenueItem[];
   categories?: CategoryNode[];
   onClose?: () => void;
   onUpdatePrice?: (id: string, newPrice: number, reason: string) => void;
@@ -126,10 +133,16 @@ interface FXTTCardItemsListViewProps {
   onAddSubcontractor?: (s: Partial<SubcontractorRateItem>) => void;
   onUpdateSubcontractor?: (id: string, updated: Partial<SubcontractorRateItem>) => void;
   onDeleteSubcontractor?: (id: string) => void;
-  onAddToProject?: (item: any, projectId: string) => void;
   onAddProduceItem?: (item: Partial<ProduceItem>) => void;
   onUpdateProduceItem?: (id: string, item: Partial<ProduceItem>) => void;
   onDeleteProduceItem?: (id: string) => void;
+  onAddOverheadItem?: (item: Partial<OverheadItem>) => void;
+  onUpdateOverheadItem?: (id: string, item: Partial<OverheadItem>) => void;
+  onDeleteOverheadItem?: (id: string) => void;
+  onAddRevenueItem?: (item: Partial<RevenueItem>) => void;
+  onUpdateRevenueItem?: (id: string, item: Partial<RevenueItem>) => void;
+  onDeleteRevenueItem?: (id: string) => void;
+  onAddToProject?: (item: any, projectId: string) => void;
   onSelectProject?: (project: Project) => void;
   onNavigateToCostAnalysis?: (project: Project) => void;
   onAddProject?: (project: Partial<Project>) => void;
@@ -150,6 +163,8 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
   subcontractors,
   projects,
   produceItems = [],
+  overheads = [],
+  revenueItems = [],
   categories,
   onClose,
   onUpdatePrice,
@@ -170,6 +185,12 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
   onAddProduceItem,
   onUpdateProduceItem,
   onDeleteProduceItem,
+  onAddOverheadItem,
+  onUpdateOverheadItem,
+  onDeleteOverheadItem,
+  onAddRevenueItem,
+  onUpdateRevenueItem,
+  onDeleteRevenueItem,
   onSelectProject,
   onNavigateToCostAnalysis,
   onAddProject,
@@ -302,21 +323,35 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     if (row.itemType === 'material' || cardType === 'material_category') {
       onDeleteMaterial?.(row.id);
       persistentDatabase.deleteMaterial(row.id);
+      api.deleteMaterial(row.id).catch(console.error);
     } else if (row.itemType === 'produce' || row.itemType === 'final_product' || cardType === 'product_category' || cardType === 'produce') {
       onDeleteProduceItem?.(row.id);
       persistentDatabase.deleteProduceItem(row.id);
+      api.deleteProduceItem(row.id).catch(console.error);
     } else if (row.itemType === 'subcontractor' || cardType === 'subcontractor') {
       onDeleteSubcontractor?.(row.id);
       persistentDatabase.deleteSubcontractor(row.id);
+      api.deleteSubcontractor(row.id).catch(console.error);
     } else if (row.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced') {
       onDeleteOutsourcedService?.(row.id);
       persistentDatabase.deleteOutsourcedService(row.id);
+      api.deleteOutsourcedService(row.id).catch(console.error);
+    } else if (row.itemType === 'overhead' || cardType === 'overhead') {
+      onDeleteOverheadItem?.(row.id);
+      persistentDatabase.deleteOverhead(row.id);
+      api.deleteOverheadItem(row.id).catch(console.error);
+    } else if (row.itemType === 'revenue' || cardType === 'revenue') {
+      onDeleteRevenueItem?.(row.id);
+      persistentDatabase.deleteRevenueItem(row.id);
+      api.deleteRevenueItem(row.id).catch(console.error);
     } else if (row.itemType === 'full_contract' || cardType === 'supplier') {
       onDeleteSupplier?.(row.id);
       persistentDatabase.deleteSupplier(row.id);
+      api.deleteSupplier(row.id).catch(console.error);
     } else if (row.itemType === 'project' || cardType === 'client' || cardType === 'project') {
       onDeleteProject?.(row.id);
       persistentDatabase.deleteProject(row.id);
+      api.deleteProject(row.id).catch(console.error);
     }
     setDeletedRowIds((prev) => new Set([...prev, row.id]));
     setAddedRows((prev) => prev.filter((r) => r.id !== row.id));
@@ -331,21 +366,35 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         if (row.itemType === 'material' || cardType === 'material_category') {
           onDeleteMaterial?.(row.id);
           persistentDatabase.deleteMaterial(row.id);
+          api.deleteMaterial(row.id).catch(console.error);
         } else if (row.itemType === 'produce' || row.itemType === 'final_product' || cardType === 'product_category' || cardType === 'produce') {
           onDeleteProduceItem?.(row.id);
           persistentDatabase.deleteProduceItem(row.id);
+          api.deleteProduceItem(row.id).catch(console.error);
         } else if (row.itemType === 'subcontractor' || cardType === 'subcontractor') {
           onDeleteSubcontractor?.(row.id);
           persistentDatabase.deleteSubcontractor(row.id);
+          api.deleteSubcontractor(row.id).catch(console.error);
         } else if (row.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced') {
           onDeleteOutsourcedService?.(row.id);
           persistentDatabase.deleteOutsourcedService(row.id);
+          api.deleteOutsourcedService(row.id).catch(console.error);
+        } else if (row.itemType === 'overhead' || cardType === 'overhead') {
+          onDeleteOverheadItem?.(row.id);
+          persistentDatabase.deleteOverhead(row.id);
+          api.deleteOverheadItem(row.id).catch(console.error);
+        } else if (row.itemType === 'revenue' || cardType === 'revenue') {
+          onDeleteRevenueItem?.(row.id);
+          persistentDatabase.deleteRevenueItem(row.id);
+          api.deleteRevenueItem(row.id).catch(console.error);
         } else if (row.itemType === 'full_contract' || cardType === 'supplier') {
           onDeleteSupplier?.(row.id);
           persistentDatabase.deleteSupplier(row.id);
+          api.deleteSupplier(row.id).catch(console.error);
         } else if (row.itemType === 'project' || cardType === 'client' || cardType === 'project') {
           onDeleteProject?.(row.id);
           persistentDatabase.deleteProject(row.id);
+          api.deleteProject(row.id).catch(console.error);
         }
       }
     });
@@ -1479,7 +1528,85 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       });
     }
 
-    // 7. Fallback ONLY for material_category when completely empty
+    // 7. OVERHEADS PORTAL CARD: View all overhead cost items
+    else if (cardType === 'overhead') {
+      const activeOverheads = (overheads && overheads.length > 0) ? overheads : persistentDatabase.getOverheads();
+      const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'all-overheads' || cardTitle.toLowerCase().includes('all overhead');
+      const filtered = isAll
+        ? activeOverheads
+        : activeOverheads.filter((o) =>
+            (cardId && (o.id === cardId || o.category === cardId)) ||
+            (o.category && o.category.toLowerCase().includes(titleLower)) ||
+            titleLower.includes((o.category || '').toLowerCase()) ||
+            (o.name && o.name.toLowerCase().includes(titleLower)) ||
+            (o.description && o.description.toLowerCase().includes(titleLower))
+          );
+
+      filtered.forEach((o, idx) => {
+        list.push({
+          id: o.id,
+          code: o.code || `OVH-${1000 + idx}`,
+          name: o.name,
+          itemType: 'overhead',
+          status: o.status === 'Inactive' ? 'Under Review' : 'Active',
+          category: o.category || 'Operational Overhead',
+          subCategory: o.costType || 'General Facility',
+          moreSubCategory: o.defaultCalculationMethod,
+          supplierName: 'Internal Organization Overhead',
+          supplierCountry: 'United States',
+          email: 'finance@fxtt-enterprise.com',
+          phone: '+1 415 252 7217',
+          rate: Number(o.defaultRate) || 0,
+          retailPrice: Number(o.defaultRate) || 0,
+          unit: o.unitType || 'pct',
+          stockOrScope: `Method: ${o.defaultCalculationMethod || 'percentage_of_direct'} • Base: ${o.defaultCostBase || 'total_direct_cost'}`,
+          createdTime: o.effectiveDate || '',
+          assignedTo: 'Financial Controller',
+          rawItem: o
+        });
+      });
+    }
+
+    // 8. REVENUE STREAMS PORTAL CARD: View all revenue catalogue deliverables
+    else if (cardType === 'revenue') {
+      const activeRevenue = (revenueItems && revenueItems.length > 0) ? revenueItems : persistentDatabase.getRevenueItems();
+      const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'rev-all' || cardTitle.toLowerCase().includes('all revenue');
+      const filtered = isAll
+        ? activeRevenue
+        : activeRevenue.filter((r) =>
+            (cardId && (r.id === cardId || r.category === cardId)) ||
+            (r.category && r.category.toLowerCase().includes(titleLower)) ||
+            titleLower.includes((r.category || '').toLowerCase()) ||
+            (r.subCategory && r.subCategory.toLowerCase().includes(titleLower)) ||
+            (r.name && r.name.toLowerCase().includes(titleLower))
+          );
+
+      filtered.forEach((r, idx) => {
+        list.push({
+          id: r.id,
+          code: r.code || `REV-${1000 + idx}`,
+          name: r.name,
+          itemType: r.type === 'product' ? 'final_product' : 'service',
+          status: r.status === 'Inactive' ? 'Under Review' : 'Active',
+          category: r.category || 'Commercial Deliverables',
+          subCategory: r.subCategory || 'General Deliverable',
+          moreSubCategory: r.type,
+          supplierName: 'Commercial Operations',
+          supplierCountry: 'United States',
+          email: 'sales@fxtt-enterprise.com',
+          phone: '+1 415 252 7217',
+          rate: Number(r.costPrice) || 0,
+          retailPrice: Number(r.defaultRate) || 0,
+          unit: r.unit || 'unit',
+          stockOrScope: `Deliverable Type: ${r.type || 'product'} • Commercial Status: ${r.status || 'Active'}`,
+          createdTime: r.effectiveDate || '',
+          assignedTo: 'Commercial Director',
+          rawItem: r
+        });
+      });
+    }
+
+    // 9. Fallback ONLY for material_category when completely empty
     if (
       list.length === 0 &&
       (cardType === 'material_category' || !cardType)
@@ -1710,20 +1837,182 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     if (!editingRow) return;
 
     if (editingRow.id.startsWith('new-')) {
-      const isProduct = cardType === 'product_category' || cardType === 'produce';
       const finalCostRate = Number(newRate);
-      const finalRetail = editingRow.retailPrice
+      const finalRetail = editingRow.retailPrice !== undefined && editingRow.retailPrice !== null
         ? Number(editingRow.retailPrice)
         : Number((finalCostRate * 1.35).toFixed(2));
 
-      if (isProduct && onAddProduceItem) {
-        onAddProduceItem({
-          id: editingRow.id,
-          code: editingRow.code,
-          name: editingRow.name,
+      const isProduct = cardType === 'product_category' || cardType === 'produce' || editingRow.itemType === 'final_product' || editingRow.itemType === 'produce';
+      const isSub = cardType === 'subcontractor' || editingRow.itemType === 'subcontractor';
+      const isOut = cardType === 'outsourced' || cardType === 'service_category' || cardType === 'service_provider' || editingRow.itemType === 'service';
+      const isOvh = cardType === 'overhead' || editingRow.itemType === 'overhead';
+      const isRev = cardType === 'revenue' || editingRow.itemType === 'revenue';
+      const isClientProj = cardType === 'client' || cardType === 'project' || editingRow.itemType === 'project';
+      const isMaterial = !isProduct && !isSub && !isOut && !isOvh && !isRev && !isClientProj;
+
+      // 1. MATERIAL ITEM
+      if (isMaterial) {
+        const primarySup = suppliers.find(s => s.name.toLowerCase() === (editingRow.supplierName || '').toLowerCase()) ||
+                           (cardType === 'supplier' ? suppliers.find(s => s.id === cardId || s.name.toLowerCase() === cardTitle.toLowerCase()) : null) ||
+                           suppliers[0];
+
+        const newMaterial: MaterialItem = {
+          id: editingRow.id.startsWith('new-') ? `mat-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
+          category: editingRow.category || cardTitle || 'Metals & Structural Alloys',
+          subCategory: editingRow.subCategory || 'General Specification',
+          moreSubCategory: editingRow.moreSubCategory,
+          unit: editingRow.unit || 'pcs',
+          currentPrice: finalCostRate,
+          retailPrice: finalRetail,
+          supplierId: primarySup?.id || 'sup-1',
+          supplierName: primarySup?.name || editingRow.supplierName || 'Direct Verified Supplier',
+          itemClassification: 'raw_material',
+          inStock: 100,
+          reorderPoint: 20,
+          minOrderQty: 1,
+          leadTimeDays: 7,
+          defaultDiscountPct: 0,
+          volumePricing: [],
+          priceHistory: [],
+          lastUpdated: new Date().toISOString().split('T')[0],
+          vendorQuotes: [
+            {
+              id: `vq-${Date.now()}`,
+              vendorId: primarySup?.id || 'sup-1',
+              vendorName: primarySup?.name || editingRow.supplierName || 'Direct Verified Supplier',
+              vendorPartNumber: editingRow.code.trim(),
+              currentPrice: finalCostRate,
+              currency: 'USD',
+              minimumOrderQty: 1,
+              leadTimeDays: 7,
+              isPrimary: true,
+              lastQuotedDate: new Date().toISOString().split('T')[0],
+              priceChangeHistory: [
+                {
+                  id: `pch-${Date.now()}`,
+                  changeDate: new Date().toISOString().split('T')[0],
+                  previousPrice: finalCostRate,
+                  newPrice: finalCostRate,
+                  changePercentage: 0,
+                  reason: editReason || 'Manual specification onboarding via FXTT CRM Data Grid',
+                  updatedBy: 'Lead Materials Specialist'
+                }
+              ],
+              volumeTiers: [
+                { minQuantity: 1, maxQuantity: 49, unitPrice: finalCostRate, discountPercentage: 0, label: 'Standard Rate' },
+                { minQuantity: 50, unitPrice: Number((finalCostRate * 0.95).toFixed(2)), discountPercentage: 5, label: 'Volume Tier (50+)' }
+              ]
+            }
+          ]
+        };
+
+        if (onAddMaterial) {
+          onAddMaterial(newMaterial);
+        }
+        persistentDatabase.addMaterial(newMaterial);
+        api.createMaterial(newMaterial).catch((err) => console.warn('API create material error:', err));
+        showNotification(`Added new material ${newMaterial.code} (${newMaterial.name}) to database.`);
+      }
+
+      // 2. SUBCONTRACTOR RATE ITEM
+      else if (isSub) {
+        const subEntity = (cardType === 'subcontractor' ? suppliers.find(s => s.id === cardId || s.name.toLowerCase() === cardTitle.toLowerCase()) : null) ||
+                          suppliers.find(s => s.name.toLowerCase() === (editingRow.supplierName || '').toLowerCase());
+
+        const newSub: SubcontractorRateItem = {
+          id: editingRow.id.startsWith('new-') ? `sub-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          subcontractorId: subEntity?.id || (cardType === 'subcontractor' ? (cardId || 'sub-1') : 'sub-1'),
+          subcontractorName: subEntity?.name || (cardType === 'subcontractor' ? cardTitle : (editingRow.supplierName || 'Specialist Field Crew')),
+          serviceType: editingRow.subCategory || editingRow.category || 'Specialist Trade Operation',
+          serviceCategory: editingRow.category || cardTitle || 'Specialist Fabrication & Machining',
+          serviceSubCategory: editingRow.subCategory || 'Trade Operation',
+          moreServiceSubCategory: editingRow.moreSubCategory || 'Field Execution',
+          nicheServiceName: editingRow.name.trim(),
+          name: editingRow.name.trim(),
+          rate: finalCostRate,
+          baseRate: finalCostRate,
+          retailRate: finalRetail,
+          unit: editingRow.unit || 'hr',
+          rateModel: 'hourly_labour',
+          minHoursPerDispatch: 4,
+          skillLevel: 'Master Certified',
+          lastUpdated: new Date().toISOString().split('T')[0],
+          priceHistory: [
+            {
+              id: `sph-${Date.now()}`,
+              date: new Date().toISOString().split('T')[0],
+              previousRate: finalCostRate,
+              newRate: finalCostRate,
+              changePct: 0,
+              reason: editReason || 'Manual labour onboarding via FXTT CRM Data Grid',
+              updatedBy: 'Lead Labour Estimator'
+            }
+          ]
+        };
+
+        if (onAddSubcontractor) {
+          onAddSubcontractor(newSub);
+        }
+        persistentDatabase.addSubcontractor(newSub);
+        api.createSubcontractor(newSub).catch((err) => console.warn('API create subcontractor error:', err));
+        showNotification(`Added new subcontractor labour item ${newSub.code} (${newSub.name}) to database.`);
+      }
+
+      // 3. OUTSOURCED SERVICE / TARIFF ITEM
+      else if (isOut) {
+        const provEntity = (cardType === 'service_provider' ? suppliers.find(s => s.id === cardId || s.name.toLowerCase() === cardTitle.toLowerCase()) : null) ||
+                           suppliers.find(s => s.name.toLowerCase() === (editingRow.supplierName || '').toLowerCase());
+
+        const newOut: OutsourcedService = {
+          id: editingRow.id.startsWith('new-') ? `out-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
+          providerId: provEntity?.id || (cardType === 'service_provider' ? (cardId || 'prov-1') : 'prov-1'),
+          providerName: provEntity?.name || (cardType === 'service_provider' ? cardTitle : (editingRow.supplierName || 'Certified Service Provider')),
+          category: editingRow.category || cardTitle || 'Surface Treatment & Finishing',
+          subCategory: editingRow.subCategory || 'Contract Tariff',
+          moreSubCategory: editingRow.moreSubCategory,
+          rate: finalCostRate,
+          retailPrice: finalRetail,
+          baseUnitType: editingRow.unit || 'sqm',
+          slaLevel: 'Tier-1 SLA (99.5%)',
+          tierRates: [
+            { minVolume: 1, maxVolume: 99, rate: finalCostRate, description: 'Standard Bracket' },
+            { minVolume: 100, rate: Number((finalCostRate * 0.92).toFixed(2)), description: 'High-Volume Tariff' }
+          ],
+          lastUpdated: new Date().toISOString().split('T')[0],
+          priceHistory: [
+            {
+              id: `oph-${Date.now()}`,
+              date: new Date().toISOString().split('T')[0],
+              oldRate: finalCostRate,
+              newRate: finalCostRate,
+              reason: editReason || 'Outsourced tariff onboarding via FXTT CRM Grid',
+              updatedBy: 'Procurement Specialist'
+            }
+          ]
+        };
+
+        if (onAddOutsourcedService) {
+          onAddOutsourcedService(newOut);
+        }
+        persistentDatabase.addOutsourcedService(newOut);
+        api.createOutsourcedService(newOut).catch((err) => console.warn('API create outsourced error:', err));
+        showNotification(`Added new outsourced tariff ${newOut.code} (${newOut.name}) to database.`);
+      }
+
+      // 4. PRODUCT / PRODUCE ITEM
+      else if (isProduct) {
+        const newProd: ProduceItem = {
+          id: editingRow.id.startsWith('new-') ? `prod-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
           type: 'product',
-          category: editingRow.category,
-          subCategory: editingRow.subCategory,
+          category: editingRow.category || cardTitle || 'Precision Systems',
+          subCategory: editingRow.subCategory || 'General Product Variant',
           moreSubCategory: editingRow.moreSubCategory || 'Custom Configured Specification',
           itemClassification: 'produced_product',
           description: `${editingRow.name} - Engineered turnkey variant specification.`,
@@ -1740,7 +2029,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           lastUpdated: new Date().toISOString().split('T')[0],
           priceHistory: [
             {
-              id: `pph-${editingRow.id}-init`,
+              id: `pph-${Date.now()}-init`,
               date: new Date().toISOString().split('T')[0],
               previousPrice: finalRetail,
               newPrice: finalRetail,
@@ -1749,26 +2038,110 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               updatedBy: 'Lead Product Engineer'
             }
           ]
-        });
+        };
+
+        if (onAddProduceItem) {
+          onAddProduceItem(newProd);
+        }
+        persistentDatabase.addProduceItem(newProd);
+        api.createProduce(newProd).catch((err) => console.warn('API create produce error:', err));
+
+        // Auto-sync product to Revenue Catalogue
+        const revPayload: RevenueItem = {
+          id: `rev-${Date.now()}`,
+          code: newProd.code,
+          name: newProd.name,
+          type: 'product',
+          category: newProd.category,
+          subCategory: newProd.subCategory,
+          unit: newProd.unit,
+          defaultRate: finalRetail,
+          costPrice: finalCostRate,
+          description: `${newProd.name} - Commercial scope`,
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          status: 'Active'
+        };
+        if (onAddRevenueItem) onAddRevenueItem(revPayload);
+        persistentDatabase.addRevenueItem(revPayload);
+        api.createRevenueItem(revPayload).catch(console.error);
+
+        showNotification(`Added new product variant ${newProd.code} (${newProd.name}) to database.`);
       }
 
-      if (cardType === 'client' && onAddProject) {
-        onAddProject({
-          id: editingRow.id,
-          code: editingRow.code,
-          name: editingRow.name,
-          clientName: cardTitle,
+      // 5. OVERHEAD COST ITEM
+      else if (isOvh) {
+        const newOvh: OverheadItem = {
+          id: editingRow.id.startsWith('new-') ? `ovh-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
+          category: editingRow.category || cardTitle || 'Operating Overheads',
+          costType: 'facility',
+          defaultCalculationMethod: 'percentage_of_direct',
+          defaultRate: finalCostRate,
+          defaultCostBase: 'total_direct_cost',
+          unitType: editingRow.unit || 'pct',
+          description: `${editingRow.name} - ${editReason || 'Overhead cost allocation'}`,
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          status: 'Active'
+        };
+
+        if (onAddOverheadItem) {
+          onAddOverheadItem(newOvh);
+        }
+        persistentDatabase.addOverhead(newOvh);
+        api.createOverheadItem(newOvh).catch((err) => console.warn('API create overhead error:', err));
+        showNotification(`Added new overhead cost item ${newOvh.code} (${newOvh.name}) to database.`);
+      }
+
+      // 6. REVENUE CATALOGUE ITEM
+      else if (isRev) {
+        const newRev: RevenueItem = {
+          id: editingRow.id.startsWith('new-') ? `rev-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
+          type: 'product',
+          category: editingRow.category || cardTitle || 'Commercial Deliverables',
+          subCategory: editingRow.subCategory || 'General Deliverable',
+          unit: editingRow.unit || 'unit',
+          defaultRate: finalRetail,
+          costPrice: finalCostRate,
+          description: `${editingRow.name} - Commercial deliverable scope`,
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          status: 'Active'
+        };
+
+        if (onAddRevenueItem) {
+          onAddRevenueItem(newRev);
+        }
+        persistentDatabase.addRevenueItem(newRev);
+        api.createRevenueItem(newRev).catch((err) => console.warn('API create revenue error:', err));
+        showNotification(`Added new revenue deliverable ${newRev.code} (${newRev.name}) to database.`);
+      }
+
+      // 7. CLIENT PROJECT
+      else if (isClientProj) {
+        const newProj: Project = {
+          id: editingRow.id.startsWith('new-') ? `prj-${Date.now()}` : editingRow.id,
+          code: editingRow.code.trim(),
+          name: editingRow.name.trim(),
+          clientName: cardTitle || 'Enterprise Client',
           status: 'In Execution',
           quotedPrice: finalCostRate,
           targetMarginPct: 35,
+          overheadPct: 10,
+          contingencyPct: 5,
           startDate: new Date().toISOString().split('T')[0],
           deliveryDeadline: '2026-12-31',
-          productCategory: editingRow.category,
-          productSubCategory: editingRow.subCategory,
+          createdDate: new Date().toISOString().split('T')[0],
+          productCategory: editingRow.category || 'Turnkey Systems',
+          productSubCategory: editingRow.subCategory || 'Custom Contract',
+          moreSubCategory: editingRow.moreSubCategory || 'Specification Baseline',
           targetProduct: editingRow.name,
+          notes: editReason || 'Initiated from FXTT table',
+          selectedItems: [],
           phases: [
             {
-              id: `ph-${editingRow.id}-1`,
+              id: `ph-${Date.now()}-1`,
               name: 'Phase 1: Project Mobilization & Engineering Specification',
               description: 'Initial architectural specification and milestone baseline.',
               budget: Number((finalCostRate * 0.4).toFixed(2)),
@@ -1778,7 +2151,14 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               status: 'In Progress'
             }
           ]
-        });
+        };
+
+        if (onAddProject) {
+          onAddProject(newProj);
+        }
+        persistentDatabase.addProject(newProj);
+        api.createProject(newProj).catch((err) => console.warn('API create project error:', err));
+        showNotification(`Added new capital project ${newProj.code} (${newProj.name}) to database.`);
       }
 
       const completedRow: FXTTGridRow = {
@@ -1790,14 +2170,13 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             ? `1 Milestone • Margin: 35% • Deadline: 2026-12-31`
             : isProduct
             ? `Lead: 45d • Qtd: $${finalRetail.toLocaleString()}`
-            : editingRow.stockOrScope
+            : editingRow.stockOrScope || `${editingRow.unit || 'pcs'} Available`
       };
 
       setAddedRows((prev) => [completedRow, ...prev]);
-      showNotification(`Added new ${cardType === 'client' ? 'project' : 'variant'} ${editingRow.code} (${editingRow.name})`);
     } else {
       const updatedCostRate = Number(newRate);
-      const updatedRetail = editingRow.retailPrice
+      const updatedRetail = editingRow.retailPrice !== undefined && editingRow.retailPrice !== null
         ? Number(editingRow.retailPrice)
         : Number((updatedCostRate * 1.35).toFixed(2));
 
@@ -1815,6 +2194,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           code: editingRow.code,
           productSubCategory: editingRow.subCategory
         });
+        api.updateProject(editingRow.id, { quotedPrice: updatedCostRate, name: editingRow.name, code: editingRow.code }).catch(console.error);
       }
 
       // 2. Products / Produce
@@ -1835,6 +2215,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           costPrice: updatedCostRate,
           retailPrice: updatedRetail
         });
+        api.updateProduceItem(editingRow.id, { name: editingRow.name, code: editingRow.code, costPrice: updatedCostRate, retailPrice: updatedRetail }).catch(console.error);
       }
 
       // 3. Materials
@@ -1851,7 +2232,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             code: editingRow.code,
             subCategory: editingRow.subCategory,
             unit: editingRow.unit,
-            unitPrice: updatedCostRate,
+            currentPrice: updatedCostRate,
             retailPrice: updatedRetail
           });
         }
@@ -1860,17 +2241,21 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           code: editingRow.code,
           subCategory: editingRow.subCategory,
           unit: editingRow.unit,
+          currentPrice: updatedCostRate,
           retailPrice: updatedRetail
         });
+        api.updateMaterial(editingRow.id, { name: editingRow.name, code: editingRow.code, subCategory: editingRow.subCategory, unit: editingRow.unit, currentPrice: updatedCostRate, retailPrice: updatedRetail }).catch(console.error);
       }
 
       // 4. Subcontractors
       if (editingRow.itemType === 'subcontractor' || cardType === 'subcontractor') {
         if (onUpdateSubcontractor) {
           onUpdateSubcontractor(editingRow.id, {
-            standardHourlyRate: updatedCostRate,
-            specialty: editingRow.name,
+            rate: updatedCostRate,
+            baseRate: updatedCostRate,
+            retailRate: updatedRetail,
             nicheServiceName: editingRow.name,
+            name: editingRow.name,
             serviceSubCategory: editingRow.subCategory,
             unit: editingRow.unit
           });
@@ -1878,21 +2263,24 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         persistentDatabase.updateSubcontractor(editingRow.id, {
           baseRate: updatedCostRate,
           rate: updatedCostRate,
+          retailRate: updatedRetail,
           name: editingRow.name,
           nicheServiceName: editingRow.name,
           serviceSubCategory: editingRow.subCategory,
           unit: editingRow.unit
         });
+        api.updateSubcontractor(editingRow.id, { rate: updatedCostRate, baseRate: updatedCostRate, name: editingRow.name, unit: editingRow.unit }).catch(console.error);
       }
 
       // 5. Outsourced Services
-      if (editingRow.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced') {
+      if (editingRow.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced' || cardType === 'service_category') {
         if (onUpdateOutsourcedService) {
           onUpdateOutsourcedService(editingRow.id, {
-            unitRate: updatedCostRate,
-            processName: editingRow.name,
+            rate: updatedCostRate,
+            retailPrice: updatedRetail,
+            name: editingRow.name,
             subCategory: editingRow.subCategory,
-            unit: editingRow.unit
+            baseUnitType: editingRow.unit
           });
         }
         persistentDatabase.updateOutsourcedService(editingRow.id, {
@@ -1901,9 +2289,52 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           name: editingRow.name,
           subCategory: editingRow.subCategory
         });
+        api.updateOutsourcedService(editingRow.id, { rate: updatedCostRate, retailPrice: updatedRetail, name: editingRow.name }).catch(console.error);
       }
 
-      // 6. Suppliers
+      // 6. Overheads
+      if (editingRow.itemType === 'overhead' || cardType === 'overhead') {
+        if (onUpdateOverheadItem) {
+          onUpdateOverheadItem(editingRow.id, {
+            name: editingRow.name,
+            code: editingRow.code,
+            defaultRate: updatedCostRate,
+            unitType: editingRow.unit
+          });
+        }
+        persistentDatabase.updateOverhead(editingRow.id, {
+          name: editingRow.name,
+          code: editingRow.code,
+          defaultRate: updatedCostRate,
+          unitType: editingRow.unit
+        });
+        api.updateOverheadItem(editingRow.id, { name: editingRow.name, code: editingRow.code, defaultRate: updatedCostRate }).catch(console.error);
+      }
+
+      // 7. Revenue Items
+      if (editingRow.itemType === 'revenue' || cardType === 'revenue') {
+        if (onUpdateRevenueItem) {
+          onUpdateRevenueItem(editingRow.id, {
+            name: editingRow.name,
+            code: editingRow.code,
+            subCategory: editingRow.subCategory,
+            unit: editingRow.unit,
+            costPrice: updatedCostRate,
+            defaultRate: updatedRetail
+          });
+        }
+        persistentDatabase.updateRevenueItem(editingRow.id, {
+          name: editingRow.name,
+          code: editingRow.code,
+          subCategory: editingRow.subCategory,
+          unit: editingRow.unit,
+          costPrice: updatedCostRate,
+          defaultRate: updatedRetail
+        });
+        api.updateRevenueItem(editingRow.id, { name: editingRow.name, code: editingRow.code, defaultRate: updatedRetail, costPrice: updatedCostRate }).catch(console.error);
+      }
+
+      // 8. Suppliers
       if (editingRow.itemType === 'full_contract' || cardType === 'supplier') {
         if (onUpdateSupplier) {
           onUpdateSupplier(editingRow.id, {
@@ -1913,6 +2344,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         persistentDatabase.updateSupplier(editingRow.id, {
           name: editingRow.name
         });
+        api.updateSupplier(editingRow.id, { name: editingRow.name }).catch(console.error);
       }
 
       // Update in editedRowsMap for instant rendering
@@ -2332,6 +2764,8 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                 return;
               }
 
+              const isOverhead = cardType === 'overhead';
+              const isRevenue = cardType === 'revenue';
               const isSub = cardType === 'subcontractor';
               const isProduct = cardType === 'product_category' || cardType === 'produce';
               const isOut = cardType === 'outsourced' || cardType === 'service_category' || cardType === 'service_provider';
@@ -2340,7 +2774,30 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               const uniqueRandom = Math.floor(100 + Math.random() * 900);
               const uniqueSuffix = String.fromCharCode(65 + (rows.length % 26));
 
-              const newCode = isProduct
+              // Resolve category and subcategory intelligently from categories hierarchy
+              const matchingCat = categories?.find(
+                (c) => c.id === cardId || c.name.toLowerCase() === cardTitle.toLowerCase()
+              );
+              let resolvedCategory = cardTitle;
+              let resolvedSubCategory = 'General Specification';
+
+              if (matchingCat) {
+                if (matchingCat.type === 'sub_category' && matchingCat.parentId) {
+                  const parent = categories?.find((c) => c.id === matchingCat.parentId);
+                  resolvedCategory = parent ? parent.name : cardTitle;
+                  resolvedSubCategory = matchingCat.name;
+                } else {
+                  resolvedCategory = matchingCat.name;
+                  const firstChild = categories?.find((c) => c.parentId === matchingCat.id);
+                  if (firstChild) resolvedSubCategory = firstChild.name;
+                }
+              }
+
+              const newCode = isOverhead
+                ? `OVH-${subCodePrefix}-${uniqueRandom}`
+                : isRevenue
+                ? `REV-${subCodePrefix}-${uniqueRandom}`
+                : isProduct
                 ? `PRD-${subCodePrefix}-${uniqueRandom}${uniqueSuffix}`
                 : isSub
                 ? `SUB-${uniqueRandom}${uniqueSuffix}`
@@ -2348,32 +2805,48 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                 ? `SRV-${subCodePrefix}-${uniqueRandom}`
                 : `ACC100${15900 + rows.length}`;
 
-              const parentCat = categories?.find((c) => c.id === cardId);
+              const defaultCost = isOverhead ? 1500 : isRevenue ? 1800 : isProduct ? 120000 : isSub ? 135 : isOut ? 165 : 150;
+              const defaultRetail = isOverhead ? 1500 : isRevenue ? 2500 : isProduct ? 165000 : undefined;
+              const defaultUnit = isOverhead ? 'month' : isRevenue ? 'pcs' : isProduct ? 'unit' : isSub ? 'hr' : isOut ? 'tariff' : 'pcs';
 
               setEditingRow({
                 id: `new-${Date.now()}`,
                 code: newCode,
-                name: isProduct
+                name: isOverhead
+                  ? `New ${cardTitle} Operational Expense`
+                  : isRevenue
+                  ? `New ${cardTitle} Contract Deliverable`
+                  : isProduct
                   ? `New ${cardTitle} Engineered Variant`
                   : isSub
                   ? `New ${cardTitle} Specialist Operation`
                   : isOut
                   ? `New ${cardTitle} Contracted Tariff`
                   : `New ${cardTitle} Specification Item`,
-                itemType: isProduct ? 'final_product' : isSub ? 'subcontractor' : isOut ? 'service' : 'material',
+                itemType: isOverhead
+                  ? 'overhead'
+                  : isRevenue
+                  ? 'revenue'
+                  : isProduct
+                  ? 'final_product'
+                  : isSub
+                  ? 'subcontractor'
+                  : isOut
+                  ? 'service'
+                  : 'material',
                 status: 'Active',
-                category: isProduct
-                  ? (parentCat?.group === 'product' && parentCat.parentId
-                      ? categories?.find((c) => c.id === parentCat.parentId)?.name || 'Precision Systems'
-                      : cardTitle)
-                  : cardTitle,
-                subCategory: isProduct ? cardTitle : isSub ? 'Hired Trade Operation' : 'General Specification',
+                category: resolvedCategory,
+                subCategory: resolvedSubCategory,
                 moreSubCategory: isProduct ? 'Custom Configured Specification' : undefined,
-                supplierName: isProduct
+                supplierName: isOverhead
+                  ? 'Internal Facility / Admin'
+                  : isRevenue
+                  ? 'Client Commercial Deliverable'
+                  : isProduct
                   ? 'In-House Advanced Manufacturing'
                   : isSub
                   ? 'Certified Subcontractor Partner'
-                  : 'Direct Verified Supplier',
+                  : suppliers?.[0]?.name || 'Direct Verified Supplier',
                 supplierCountry: 'United States',
                 email: isProduct
                   ? 'products@fxtt-enterprise.com'
@@ -2381,24 +2854,44 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                   ? 'crews@subcontractors.com'
                   : 'orders@fxtt-enterprise.com',
                 phone: '+1 415 252 7217',
-                rate: isProduct ? 120000 : isSub ? 135 : 150,
-                retailPrice: isProduct ? 165000 : undefined,
-                unit: isProduct ? 'unit' : isSub ? 'hr' : 'pcs',
-                stockOrScope: isProduct
+                rate: defaultCost,
+                retailPrice: defaultRetail,
+                unit: defaultUnit,
+                stockOrScope: isOverhead
+                  ? 'Fixed Cost Base'
+                  : isRevenue
+                  ? 'Billable Revenue Item'
+                  : isProduct
                   ? 'Lead: 45d • Turnkey Assembly'
                   : isSub
                   ? 'Certified Master Crew'
                   : 'Immediate Available',
                 createdTime: new Date().toISOString().replace('T', ' ').slice(0, 19),
-                assignedTo: isProduct
+                assignedTo: isOverhead
+                  ? 'Finance Officer'
+                  : isRevenue
+                  ? 'Commercial Lead'
+                  : isProduct
                   ? 'Lead Product Engineer'
                   : isSub
                   ? 'Lead Estimator'
                   : 'Catalog Specialist',
                 rawItem: {}
               });
-              setNewRate(isProduct ? 120000 : isSub ? 135 : 150);
-              setEditReason('Manual product variant entry via FXTT CRM Data Grid');
+              setNewRate(defaultCost);
+              setEditReason(
+                isOverhead
+                  ? 'New overhead item added via FXTT table'
+                  : isRevenue
+                  ? 'New revenue deliverable added via FXTT table'
+                  : isProduct
+                  ? 'Manual product variant entry via FXTT CRM Data Grid'
+                  : isSub
+                  ? 'New subcontractor labor rate specification'
+                  : isOut
+                  ? 'New outsourced service tariff specification'
+                  : 'New material specification added to catalog'
+              );
             }}
             className="h-8 inline-flex items-center gap-1.5 px-3 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white text-xs font-semibold rounded-lg shadow-2xs hover:shadow-xs transition-all duration-150 border border-slate-900 cursor-pointer select-none"
           >
@@ -2410,8 +2903,12 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                 ? 'Add Product Variant'
                 : cardType === 'subcontractor'
                 ? 'Add Subcontractor'
-                : cardType === 'outsourced'
+                : cardType === 'outsourced' || cardType === 'service_provider' || cardType === 'service_category'
                 ? 'Add Service Tariff'
+                : cardType === 'overhead'
+                ? 'Add Overhead Item'
+                : cardType === 'revenue'
+                ? 'Add Revenue Item'
                 : 'Add Item'}
             </span>
           </button>
@@ -3486,39 +3983,17 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               </span>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-2.5 text-xs">
-              <div>
-                <label className="block text-slate-700 mb-0.5 font-medium">Unique Item Code</label>
-                <input
-                  type="text"
-                  required
-                  value={editingRow.code}
-                  onChange={(e) => setEditingRow({ ...editingRow, code: e.target.value })}
-                  placeholder="e.g. PRD-STP-101A"
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 font-mono text-slate-900 focus:outline-none focus:border-[#0077b6]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 mb-0.5 font-medium">Item / Variant / Model Name</label>
-                <input
-                  type="text"
-                  required
-                  value={editingRow.name}
-                  onChange={(e) => setEditingRow({ ...editingRow, name: e.target.value })}
-                  placeholder="e.g. Precision Hydro-Formed Bulkhead"
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
-                />
-              </div>
-
+            <form onSubmit={handleSaveEdit} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-slate-700 mb-0.5 font-medium">Sub-Category</label>
+                  <label className="block text-slate-700 mb-0.5 font-medium">Unique Item Code</label>
                   <input
                     type="text"
-                    value={editingRow.subCategory}
-                    onChange={(e) => setEditingRow({ ...editingRow, subCategory: e.target.value })}
-                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
+                    required
+                    value={editingRow.code}
+                    onChange={(e) => setEditingRow({ ...editingRow, code: e.target.value })}
+                    placeholder="e.g. ACC10015901, OVH-101"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-mono text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs font-semibold"
                   />
                 </div>
                 <div>
@@ -3527,12 +4002,102 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                     type="text"
                     value={editingRow.unit}
                     onChange={(e) => setEditingRow({ ...editingRow, unit: e.target.value })}
-                    placeholder="unit, pcs, assy, hr"
-                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
+                    placeholder="pcs, kg, m, month, hr, unit"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
                   />
                 </div>
               </div>
 
+              <div>
+                <label className="block text-slate-700 mb-0.5 font-medium">Item / Variant / Specification Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editingRow.name}
+                  onChange={(e) => setEditingRow({ ...editingRow, name: e.target.value })}
+                  placeholder="e.g. 6061-T6 Structural Aluminium Extrusion Profile"
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
+                />
+              </div>
+
+              {/* Linked Category & Sub-Category Fields */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-700 mb-0.5 font-medium flex items-center justify-between">
+                    <span>Category</span>
+                    <span className="text-[10px] text-blue-600 font-normal">Auto-Linked</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="fxtt-cat-datalist"
+                    required
+                    value={editingRow.category}
+                    onChange={(e) => setEditingRow({ ...editingRow, category: e.target.value })}
+                    placeholder="Select or enter Category..."
+                    className="w-full bg-blue-50/30 border border-blue-200 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs font-medium"
+                  />
+                  <datalist id="fxtt-cat-datalist">
+                    {(categories || [])
+                      .filter((c) => c.type === 'category')
+                      .map((c) => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 mb-0.5 font-medium flex items-center justify-between">
+                    <span>Sub-Category</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Filtered</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="fxtt-subcat-datalist"
+                    value={editingRow.subCategory}
+                    onChange={(e) => setEditingRow({ ...editingRow, subCategory: e.target.value })}
+                    placeholder="Select or enter Sub-Category..."
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
+                  />
+                  <datalist id="fxtt-subcat-datalist">
+                    {(categories || [])
+                      .filter((c) => {
+                        if (c.type !== 'sub_category') return false;
+                        if (!editingRow.category) return true;
+                        const parent = categories?.find((p) => p.name.toLowerCase() === editingRow.category.toLowerCase());
+                        return parent ? c.parentId === parent.id : true;
+                      })
+                      .map((c) => (
+                        <option key={c.id} value={c.name} />
+                      ))}
+                  </datalist>
+                </div>
+              </div>
+
+              {/* Linked Supplier / Partner / Provider */}
+              <div>
+                <label className="block text-slate-700 mb-0.5 font-medium flex items-center justify-between">
+                  <span>Supplier / Subcontractor / Partner</span>
+                  <span className="text-[10px] text-slate-500 font-normal">Vendor Registry</span>
+                </label>
+                <input
+                  type="text"
+                  list="fxtt-supplier-datalist"
+                  value={editingRow.supplierName}
+                  onChange={(e) => setEditingRow({ ...editingRow, supplierName: e.target.value })}
+                  placeholder="e.g. Apex Industrial Metals, Certified Master Crew..."
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
+                />
+                <datalist id="fxtt-supplier-datalist">
+                  {(suppliers || []).map((s) => (
+                    <option key={s.id} value={s.name} />
+                  ))}
+                  {(subcontractors || []).map((s) => (
+                    <option key={s.id} value={s.contractorName} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Rates */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-slate-700 mb-0.5 font-medium">Unit Cost Rate ($)</label>
@@ -3542,7 +4107,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                     required
                     value={newRate}
                     onChange={(e) => setNewRate(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 font-semibold focus:outline-none focus:border-[#0077b6] text-xs"
                   />
                 </div>
                 <div>
@@ -3550,11 +4115,11 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                   <input
                     type="number"
                     step="0.01"
-                    value={editingRow.retailPrice || Number((newRate * 1.35).toFixed(2))}
+                    value={editingRow.retailPrice !== undefined ? editingRow.retailPrice : Number((newRate * 1.35).toFixed(2))}
                     onChange={(e) =>
                       setEditingRow({ ...editingRow, retailPrice: Number(e.target.value) })
                     }
-                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
                   />
                 </div>
               </div>
@@ -3566,8 +4131,8 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                   required
                   value={editReason}
                   onChange={(e) => setEditReason(e.target.value)}
-                  placeholder="e.g. Turnkey engineered variant configuration"
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#0077b6]"
+                  placeholder="e.g. New catalog addition auto-linked from FXTT grid"
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 focus:outline-none focus:border-[#0077b6] text-xs"
                 />
               </div>
 
@@ -3575,13 +4140,13 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingRow(null)}
-                  className="px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded border border-slate-300 font-normal"
+                  className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 rounded-lg border border-slate-300 font-medium cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-3 py-1 bg-[#0077b6] hover:bg-[#005f94] text-white font-medium rounded transition-colors"
+                  className="px-4 py-1.5 bg-[#0077b6] hover:bg-[#005f94] text-white font-semibold rounded-lg transition-colors cursor-pointer shadow-sm"
                 >
                   {editingRow.id.startsWith('new-') ? 'Add to Catalog' : 'Save Changes'}
                 </button>
