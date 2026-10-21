@@ -34,6 +34,7 @@ interface RevenueCataloguePortalProps {
   plans?: ProjectPlan[];
   onOpenProjectPlan?: (planId: string) => void;
   showNotification?: (message: string) => void;
+  onAddRevenueItem?: (item: RevenueItem) => void;
 }
 
 export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
@@ -41,7 +42,8 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   projects = [],
   plans = [],
   onOpenProjectPlan,
-  showNotification
+  showNotification,
+  onAddRevenueItem
 }) => {
   const [items, setItems] = useState<RevenueItem[]>([]);
   const [categories, setCategories] = useState<RevenueCategory[]>([]);
@@ -471,7 +473,8 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           setIsCreateEditOpen(false);
           setItemToEdit(null);
         }}
-        onSave={() => {
+        onSave={(savedItem) => {
+          if (onAddRevenueItem && savedItem) onAddRevenueItem(savedItem);
           loadData();
           if (showNotification) showNotification('Revenue catalogue item saved successfully.');
         }}

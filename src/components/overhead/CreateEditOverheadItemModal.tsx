@@ -14,6 +14,7 @@ import { OverheadItem, OverheadCostType, OverheadCalculationMethod, OverheadCost
 import { CategoryNode } from '../../data/categoriesAndProfiles';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { api } from '../../services/api';
+import { persistentDatabase } from '../../services/persistentDatabase';
 import { getStoredCurrency } from '../../utils/currency';
 
 interface CreateEditOverheadItemModalProps {

@@ -26,13 +26,15 @@ interface OverheadCostPortalProps {
   projects?: Project[];
   onOpenPlan?: (planId: string) => void;
   showToast?: (msg: string | { message: string; type?: string }) => void;
+  onAddOverheadItem?: (item: OverheadItem) => void;
 }
 
 export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   currentUser,
   projects = [],
   onOpenPlan,
-  showToast
+  showToast,
+  onAddOverheadItem
 }) => {
   const [items, setItems] = useState<OverheadItem[]>([]);
   const [categories, setCategories] = useState<OverheadCategory[]>([]);
@@ -286,6 +288,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
         }}
         itemToEdit={itemToEdit}
         onSave={(saved) => {
+          if (onAddOverheadItem) onAddOverheadItem(saved);
           loadData();
           if (showToast) showToast(`Overhead item "${saved.name}" saved successfully.`);
         }}

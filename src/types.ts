@@ -180,6 +180,8 @@ export interface MaterialItem {
   description?: string;
   retailPrice: number;
   currentPrice?: number;
+  unitPrice?: number;
+  currency?: string;
   lastPrice?: number;
   unitCost?: number;
   status?: string;
@@ -282,6 +284,7 @@ export interface SubcontractorRateItem {
   email?: string;
   rateRange?: string;
   status?: string;
+  currency?: string;
   unit: string;
   bulkPricingRanges?: Array<{
     minVolume: number;
@@ -666,13 +669,15 @@ export interface ProjectPlanResource {
   notes?: string;
 }
 
-export type OverheadCostType = 'Fixed' | 'Variable' | 'Semi-Variable' | 'Stepped';
+export type OverheadCostType = 'Fixed' | 'Variable' | 'Semi-Variable' | 'Stepped' | string;
 
 export type OverheadCalculationMethod =
   | 'fixed_amount'
   | 'percentage_of_cost_base'
+  | 'percentage_of_direct'
   | 'rate_per_unit'
-  | 'proportional_defined_base';
+  | 'proportional_defined_base'
+  | string;
 
 export type OverheadCostBase =
   | 'total_direct_cost'

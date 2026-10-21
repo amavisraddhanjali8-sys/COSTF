@@ -176,6 +176,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   onAddClient,
   onUpdateClient,
   onDeleteClient,
+  onAddOverheadItem,
+  onAddRevenueItem,
   currentUser
 }) => {
   const [activeTab, setActiveTab] = useState<DirectoryTab>(initialTab || 'projects');
@@ -567,11 +569,38 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         costPrice: itemData.costPrice || 70,
         status: 'Active' as const
       };
-      api.createRevenueItem(revPayload).catch(console.error);
+      if (onAddRevenueItem) {
+        onAddRevenueItem(revPayload);
+      } else {
+        api.createRevenueItem(revPayload).catch(console.error);
+      }
+      persistentDatabase.addRevenueItem(revPayload as any);
       api.getRevenueItems({ limit: 100 }).then((res) => {
         setRevenueItems(Array.isArray(res) ? res : (res as any)?.data || []);
       }).catch(console.error);
       showToast(`Product "${itemData.name}" created and synced to Revenue catalogue`);
+    } else if (entityType === 'revenue') {
+      const revPayload = {
+        code: itemData.code || `REV-${Math.floor(Math.random() * 9000 + 1000)}`,
+        name: itemData.name,
+        type: (itemData.type || 'product') as 'product' | 'service',
+        category: itemData.category || 'Commercial Deliverables',
+        subCategory: itemData.subCategory || 'General Scope',
+        unit: itemData.unit || 'unit',
+        defaultRate: Number(itemData.price || itemData.defaultRate || 100),
+        costPrice: Number(itemData.costPrice || 70),
+        status: 'Active' as const
+      };
+      if (onAddRevenueItem) {
+        onAddRevenueItem(revPayload);
+      } else {
+        api.createRevenueItem(revPayload).catch(console.error);
+      }
+      persistentDatabase.addRevenueItem(revPayload as any);
+      api.getRevenueItems({ limit: 100 }).then((res) => {
+        setRevenueItems(Array.isArray(res) ? res : (res as any)?.data || []);
+      }).catch(console.error);
+      showToast(`Revenue deliverable "${itemData.name}" created and stored in database.`);
     } else if (entityType === 'overhead') {
       const overheadPayload = {
         code: itemData.code || `OVH-${Math.floor(Math.random() * 9000 + 1000)}`,
@@ -586,10 +615,14 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         effectiveDate: new Date().toISOString().slice(0, 10),
         status: 'Active'
       };
-      api.createOverheadItem(overheadPayload).then(() => {
-        api.getOverheadItems({ limit: 100 }).then((res) => {
-          setOverheadItems(Array.isArray(res) ? res : (res as any)?.data || []);
-        });
+      if (onAddOverheadItem) {
+        onAddOverheadItem(overheadPayload);
+      } else {
+        api.createOverheadItem(overheadPayload).catch(console.error);
+      }
+      persistentDatabase.addOverhead(overheadPayload as any);
+      api.getOverheadItems({ limit: 100 }).then((res) => {
+        setOverheadItems(Array.isArray(res) ? res : (res as any)?.data || []);
       }).catch(console.error);
       showToast(`Overhead item "${itemData.name}" created and stored in database.`);
     } else if (entityType === 'outsourced' || entityType === 'service-provider' || entityType === 'service') {

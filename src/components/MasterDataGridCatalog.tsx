@@ -49,7 +49,17 @@ import {
   AlertCircle,
   Percent
 } from 'lucide-react';
-import { MaterialItem, OutsourcedService, SubcontractorRateItem, Supplier, Project, ProduceItem, PriceHistoryRecord } from '../types';
+import {
+  MaterialItem,
+  OutsourcedService,
+  SubcontractorRateItem,
+  Supplier,
+  Project,
+  ProduceItem,
+  PriceHistoryRecord,
+  OverheadItem,
+  RevenueItem
+} from '../types';
 import { ItemImageViewerModal } from './ItemImageViewerModal';
 import { ItemGridCard, ItemGridCardData } from './ItemGridCard';
 import { FXTTPriceAuditLogFullScreenModal } from './FXTTPriceAuditLogFullScreenModal';
@@ -69,7 +79,7 @@ export interface CatalogGridItem {
   id: string;
   code: string;
   name: string;
-  classification: 'product' | 'material' | 'service' | 'labour';
+  classification: 'product' | 'material' | 'service' | 'labour' | 'overhead' | 'revenue';
   category: string;
   subCategory: string;
   rate: number;
@@ -78,12 +88,12 @@ export interface CatalogGridItem {
   inStockNumber?: number;
   supplierName: string;
   supplierCountry: string;
-  status: 'In Stock' | 'Active' | 'Read only' | 'Enabled' | 'Lead Exist' | 'Under Review' | 'Low Stock';
+  status: 'In Stock' | 'Active' | 'Read only' | 'Enabled' | 'Lead Exist' | 'Under Review' | 'Low Stock' | string;
   email: string;
   phone: string;
   createdTime: string;
   assignedTo: string;
-  rawType: 'material' | 'service' | 'subcontractor' | 'product';
+  rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue';
   rawItem: any;
   priceHistory?: PriceHistoryRecord[];
   imageUrl?: string;
@@ -96,6 +106,8 @@ interface MasterDataGridCatalogProps {
   suppliers: Supplier[];
   projects: Project[];
   produceItems?: ProduceItem[];
+  overheads?: OverheadItem[];
+  revenueItems?: RevenueItem[];
   categories?: CategoryNode[];
   selectedProject?: Project | null;
   onUpdateMaterialPrice?: (id: string, newPrice: number, reason: string) => void;
@@ -108,8 +120,8 @@ interface MasterDataGridCatalogProps {
   onAddSubcontractor?: (item: Partial<SubcontractorRateItem>) => void;
   onAddOverheadItem?: (item: any) => void;
   onAddRevenueItem?: (item: any) => void;
-  onEditRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product', item: any) => void;
-  onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product', id: string) => void;
+  onEditRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue', item: any) => void;
+  onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue', id: string) => void;
   initialFilterTab?: string;
   embeddedMode?: boolean; // When used inside MaterialsView or ServicesView
 }
@@ -121,6 +133,8 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   suppliers,
   projects,
   produceItems = [],
+  overheads = [],
+  revenueItems = [],
   categories = [],
   selectedProject,
   onUpdateMaterialPrice,
@@ -255,14 +269,22 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   const [addQuantity, setAddQuantity] = useState<number>(1);
 
   // Add New Item State
-  const [newItemType, setNewItemType] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'overhead'>('material');
+  const [newItemType, setNewItemType] = useState<'material' | 'product' | 'service' | 'subcontractor' | 'overhead' | 'revenue'>('material');
   const [newItemName, setNewItemName] = useState('');
   const [newItemCode, setNewItemCode] = useState('');
   const [newItemCategory, setNewItemCategory] = useState('');
   const [newItemSubCategory, setNewItemSubCategory] = useState('');
   const [newItemRate, setNewItemRate] = useState<number>(100);
+  const [newItemCostPrice, setNewItemCostPrice] = useState<number>(70);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
   const [newItemSupplier, setNewItemSupplier] = useState(suppliers[0]?.name || 'Apex Metallurgy Corp');
+  const [newItemOverheadCostType, setNewItemOverheadCostType] = useState<string>('facility');
+  const [newItemOverheadMethod, setNewItemOverheadMethod] = useState<string>('percentage_of_direct');
+  const [newItemOverheadBase, setNewItemOverheadBase] = useState<string>('total_direct_cost');
+  const [newItemRevenueType, setNewItemRevenueType] = useState<'product' | 'service'>('product');
+  const [newItemSlaLevel, setNewItemSlaLevel] = useState<string>('Premium 99.9% Guaranteed');
+  const [newItemSkillLevel, setNewItemSkillLevel] = useState<string>('Certified Specialist');
+  const [newItemInStock, setNewItemInStock] = useState<number>(50);
 
   // Combined partners list for SearchablePartnerPicker
   const partnerOptions: PartnerOption[] = useMemo(() => {
@@ -559,14 +581,70 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       });
     });
 
+    // 4. Overheads items
+    if (overheads && overheads.length > 0) {
+      overheads.forEach((ovh, idx) => {
+        list.push({
+          id: ovh.id,
+          code: ovh.code || `OVH-${100 + idx}`,
+          name: ovh.name,
+          classification: 'overhead',
+          category: ovh.category || 'Operating Overheads',
+          subCategory: ovh.description || 'Facility & Operating Indirect',
+          rate: ovh.defaultRate,
+          unit: ovh.unitType || 'pct',
+          stockOrSla: ovh.defaultCostBase ? ovh.defaultCostBase.replace(/_/g, ' ') : 'Total Direct Cost',
+          supplierName: ovh.costType ? `${ovh.costType.toUpperCase()} Overhead` : 'Internal Facility Cost',
+          supplierCountry: 'United States',
+          status: ovh.status || 'Active',
+          email: 'finance@enterprise.com',
+          phone: '+1 800 555 0122',
+          createdTime: ovh.effectiveDate || ovh.createdAt || '',
+          assignedTo: ovh.createdBy || 'Finance Director',
+          rawType: 'overhead',
+          rawItem: ovh,
+          priceHistory: []
+        });
+      });
+    }
+
+    // 5. Revenue catalogue items (services or unique deliverables)
+    if (revenueItems && revenueItems.length > 0) {
+      revenueItems.forEach((rev, idx) => {
+        // Avoid duplicate entry if this product code already came from produceItems
+        if (rev.type === 'product' && list.some((i) => i.code === rev.code)) return;
+        list.push({
+          id: rev.id,
+          code: rev.code || `REV-${100 + idx}`,
+          name: rev.name,
+          classification: 'revenue',
+          category: rev.category || 'Revenue Deliverable',
+          subCategory: rev.subCategory || 'Commercial Scope',
+          rate: rev.defaultRate,
+          unit: rev.unit || 'unit',
+          stockOrSla: rev.type === 'product' ? 'Commercial Product' : 'Rendered Service',
+          supplierName: 'Commercial Revenue Stream',
+          supplierCountry: 'United States',
+          status: rev.status || 'Active',
+          email: 'sales@enterprise.com',
+          phone: '+1 800 555 0144',
+          createdTime: rev.createdAt || '',
+          assignedTo: 'Commercial Sales Lead',
+          rawType: 'revenue',
+          rawItem: rev,
+          priceHistory: []
+        });
+      });
+    }
+
     return list;
-  }, [materials, services, subcontractors, suppliers, produceItems]);
+  }, [materials, services, subcontractors, suppliers, produceItems, overheads, revenueItems]);
 
   // Extract facet statistics for the multiple filter settings panel
   const facetStats = useMemo(() => {
     const cats = new Map<string, number>();
     const sups = new Map<string, number>();
-    const classifications: Record<string, number> = { product: 0, material: 0, service: 0, labour: 0 };
+    const classifications: Record<string, number> = { product: 0, material: 0, service: 0, labour: 0, overhead: 0, revenue: 0 };
     const statuses = new Map<string, number>();
 
     allItems.forEach((item) => {
@@ -638,6 +716,8 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       if (activeTab === 'MATERIALS' && item.classification !== 'material') return null;
       if (activeTab === 'SERVICES' && item.classification !== 'service') return null;
       if (activeTab === 'SUBCONTRACTORS' && item.classification !== 'labour') return null;
+      if (activeTab === 'OVERHEADS' && item.classification !== 'overhead') return null;
+      if (activeTab === 'REVENUE' && item.classification !== 'revenue' && item.classification !== 'product') return null;
       if (activeTab === 'TODAY') {
         const todayStr = new Date().toISOString().slice(0, 10);
         if (!item.createdTime || !item.createdTime.startsWith(todayStr)) return null;
@@ -1131,10 +1211,12 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       newItemType === 'service' ? `SVC-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       newItemType === 'subcontractor' ? `SUB-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       newItemType === 'overhead' ? `OVH-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      newItemType === 'revenue' ? `REV-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       `MAT-NEW-${Math.floor(Math.random() * 9000 + 1000)}`
     );
 
     const priceNum = Number(newItemRate) || 100;
+    const costNum = Number(newItemCostPrice) || Math.round(priceNum * 0.7 * 100) / 100;
 
     if (newItemType === 'product') {
       const prodPayload: Partial<ProduceItem> = {
@@ -1142,11 +1224,14 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         name: newItemName.trim(),
         category: newItemCategory.trim() || 'Manufactured Assemblies',
         subCategory: newItemSubCategory.trim() || 'General Product',
+        moreSubCategory: 'Standard Custom Specification',
         unit: newItemUnit.trim() || 'pcs',
-        costPrice: Math.round(priceNum * 0.7 * 100) / 100,
+        costPrice: costNum,
         retailPrice: priceNum,
         leadTimeDays: 7,
-        status: 'Active'
+        status: 'Active',
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        priceHistory: []
       };
 
       if (onAddProduceItem) {
@@ -1154,6 +1239,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createProduce(prodPayload).catch((err) => console.warn('Could not create produce item:', err));
       }
+      persistentDatabase.addProduceItem(prodPayload as any);
 
       // Concurrently connect with Revenue Catalogue (products are deliverables that generate revenue)
       const revPayload = {
@@ -1164,7 +1250,9 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         subCategory: newItemSubCategory.trim() || 'General Product',
         unit: newItemUnit.trim() || 'pcs',
         defaultRate: priceNum,
-        costPrice: Math.round(priceNum * 0.7 * 100) / 100,
+        costPrice: costNum,
+        currency: 'USD',
+        taxTreatment: 'Standard (0%)',
         status: 'Active' as const
       };
       if (onAddRevenueItem) {
@@ -1179,14 +1267,16 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         code: generatedCode,
         name: newItemName.trim(),
         category: newItemCategory.trim() || 'Operating Overheads',
-        description: `${newItemName.trim()} overhead item`,
-        costType: 'facility',
-        defaultCalculationMethod: 'percentage_of_direct',
+        description: `${newItemName.trim()} overhead allocation (${newItemSubCategory.trim() || newItemCategory.trim()})`,
+        costType: newItemOverheadCostType || 'facility',
+        defaultCalculationMethod: newItemOverheadMethod || 'percentage_of_direct',
         defaultRate: priceNum,
-        defaultCostBase: 'total_direct_cost',
-        unitType: newItemUnit.trim() || 'pct',
+        defaultCostBase: newItemOverheadBase || 'total_direct_cost',
+        unitType: newItemOverheadMethod === 'percentage_of_direct' ? 'pct' : (newItemUnit.trim() || 'unit'),
         effectiveDate: new Date().toISOString().slice(0, 10),
-        status: 'Active'
+        status: 'Active' as const,
+        createdBy: 'Master Grid Operator',
+        updatedBy: 'Master Grid Operator'
       };
 
       if (onAddOverheadItem) {
@@ -1195,7 +1285,47 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         api.createOverheadItem(overheadPayload).catch((err) => console.warn('Could not create overhead item:', err));
       }
 
-      showToast(`Created new Overhead record: ${generatedCode}`);
+      showToast(`Created new Overhead record connected with plan allocations: ${generatedCode}`);
+    } else if (newItemType === 'revenue') {
+      const revPayload = {
+        code: generatedCode,
+        name: newItemName.trim(),
+        type: (newItemRevenueType || 'product') as 'product' | 'service',
+        category: newItemCategory.trim() || 'Revenue Deliverable',
+        subCategory: newItemSubCategory.trim() || 'Commercial Scope',
+        unit: newItemUnit.trim() || 'unit',
+        defaultRate: priceNum,
+        costPrice: costNum,
+        currency: 'USD',
+        taxTreatment: 'Standard (0%)',
+        status: 'Active' as const
+      };
+
+      if (onAddRevenueItem) {
+        onAddRevenueItem(revPayload);
+      } else {
+        api.createRevenueItem(revPayload).catch((err) => console.warn('Could not create revenue item:', err));
+      }
+
+      // If product type, also ensure produce catalog is connected
+      if (revPayload.type === 'product') {
+        const prodPayload: Partial<ProduceItem> = {
+          code: generatedCode,
+          name: newItemName.trim(),
+          category: newItemCategory.trim() || 'Manufactured Assemblies',
+          subCategory: newItemSubCategory.trim() || 'General Product',
+          unit: newItemUnit.trim() || 'pcs',
+          costPrice: costNum,
+          retailPrice: priceNum,
+          leadTimeDays: 7,
+          status: 'Active'
+        };
+        if (onAddProduceItem) onAddProduceItem(prodPayload);
+        else api.createProduce(prodPayload).catch(console.error);
+        persistentDatabase.addProduceItem(prodPayload as any);
+      }
+
+      showToast(`Created new Revenue Catalogue Item connected to all portals: ${generatedCode}`);
     } else if (newItemType === 'subcontractor') {
       const subPayload: Partial<SubcontractorRateItem> = {
         code: generatedCode,
@@ -1209,7 +1339,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         retailRate: priceNum,
         unit: newItemUnit.trim() || 'hr',
         currency: 'USD',
-        skillLevel: 'Certified Specialist',
+        skillLevel: newItemSkillLevel || 'Certified Specialist',
         location: 'Operations Facility',
         rateRange: `$${Math.round(priceNum * 0.8)} – $${Math.round(priceNum)} / ${newItemUnit.trim() || 'hr'}`
       };
@@ -1219,8 +1349,9 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createSubcontractor(subPayload).catch((err) => console.warn('Could not create subcontractor:', err));
       }
+      persistentDatabase.addSubcontractor(subPayload as any);
 
-      showToast(`Created new Subcontractor trade rate: ${generatedCode}`);
+      showToast(`Created new Subcontractor trade rate & connected to directory: ${generatedCode}`);
     } else if (newItemType === 'service') {
       const svcPayload: Partial<OutsourcedService> = {
         name: newItemName.trim(),
@@ -1230,7 +1361,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         baseUnitType: newItemUnit.trim() || 'per_hour',
         rate: Math.round(priceNum * 0.8 * 100) / 100,
         retailPrice: priceNum,
-        slaLevel: 'Standard Guaranteed 99.9%'
+        slaLevel: newItemSlaLevel || 'Standard Guaranteed 99.9%'
       };
 
       if (onAddOutsourcedService) {
@@ -1238,8 +1369,9 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createOutsourced(svcPayload).catch((err) => console.warn('Could not create outsourced service:', err));
       }
+      persistentDatabase.addOutsourcedService(svcPayload as any);
 
-      showToast(`Created new Outsourced Tariff: ${newItemName.trim()}`);
+      showToast(`Created new Outsourced Tariff & connected to service providers: ${newItemName.trim()}`);
     } else {
       // Raw Material
       const matPayload: Partial<MaterialItem> = {
@@ -1254,9 +1386,9 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         retailPrice: priceNum,
         unitPrice: priceNum,
         currentPrice: priceNum,
-        unitCost: Math.round(priceNum * 0.75 * 100) / 100,
+        unitCost: costNum,
         defaultDiscountPct: 5,
-        inStock: 100,
+        inStock: newItemInStock || 100,
         reorderPoint: 20,
         leadTimeDays: 7,
         lastUpdated: new Date().toISOString().slice(0, 10),
@@ -1270,8 +1402,9 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createMaterial(matPayload).catch((err) => console.warn('Could not create material:', err));
       }
+      persistentDatabase.addMaterial(matPayload as any);
 
-      showToast(`Created new Material: ${generatedCode}`);
+      showToast(`Created new Material & connected across inventory and portals: ${generatedCode}`);
     }
 
     setIsAddModalOpen(false);
@@ -1301,6 +1434,8 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
             { id: 'MATERIALS', label: 'MATERIALS' },
             { id: 'SERVICES', label: 'SERVICES' },
             { id: 'SUBCONTRACTORS', label: 'LABOUR / SUBS' },
+            { id: 'OVERHEADS', label: 'OVERHEADS' },
+            { id: 'REVENUE', label: 'REVENUE' },
             { id: 'TODAY', label: 'TODAY' },
             { id: 'LAST 7 DAYS', label: 'LAST 7 DAYS' },
             { id: 'IN STOCK', label: 'IN STOCK' },
@@ -3764,13 +3899,14 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                 <label className="block text-slate-700 dark:text-slate-300 mb-1.5 font-semibold">
                   Item Classification <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
                   {[
                     { id: 'material', label: 'Material' },
                     { id: 'product', label: 'Product' },
                     { id: 'service', label: 'Service' },
                     { id: 'subcontractor', label: 'Subcontractor' },
-                    { id: 'overhead', label: 'Overhead' }
+                    { id: 'overhead', label: 'Overhead' },
+                    { id: 'revenue', label: 'Revenue BOQ' }
                   ].map((t) => (
                     <button
                       key={t.id}
@@ -3779,6 +3915,10 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                         setNewItemType(t.id as any);
                         setNewItemCategory('');
                         setNewItemSubCategory('');
+                        if (t.id === 'overhead') setNewItemUnit('pct');
+                        else if (t.id === 'subcontractor') setNewItemUnit('hr');
+                        else if (t.id === 'service') setNewItemUnit('per_hour');
+                        else setNewItemUnit('pcs');
                       }}
                       className={`py-1.5 px-2 text-center rounded-lg border font-semibold text-xs cursor-pointer transition-all ${
                         newItemType === t.id
@@ -3854,11 +3994,204 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                 />
               </div>
 
+              {/* DYNAMIC FORM SECTION BASED ON PORTAL TYPE */}
+              {/* Overhead Specific Fields */}
+              {newItemType === 'overhead' && (
+                <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-xl space-y-2.5">
+                  <div className="text-[11px] font-bold text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                    Overhead Cost Portal Parameters
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                        Cost Classification
+                      </label>
+                      <select
+                        value={newItemOverheadCostType}
+                        onChange={(e) => setNewItemOverheadCostType(e.target.value)}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                      >
+                        <option value="facility">Facility & Rent</option>
+                        <option value="administrative">Administrative & Office</option>
+                        <option value="logistics">Freight & Logistics</option>
+                        <option value="contingency">Project Contingency</option>
+                        <option value="insurance">Insurance & Compliance</option>
+                        <option value="utilities">Utilities & Energy</option>
+                        <option value="depreciation">Asset Depreciation</option>
+                        <option value="other">General Indirect</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                        Calculation Method
+                      </label>
+                      <select
+                        value={newItemOverheadMethod}
+                        onChange={(e) => {
+                          setNewItemOverheadMethod(e.target.value);
+                          if (e.target.value === 'percentage_of_direct') setNewItemUnit('pct');
+                          else if (e.target.value === 'fixed_amount') setNewItemUnit('lot');
+                          else setNewItemUnit('unit');
+                        }}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                      >
+                        <option value="percentage_of_direct">% of Direct Cost</option>
+                        <option value="fixed_amount">Fixed Amount ($)</option>
+                        <option value="rate_per_unit">Rate per Planned Unit</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                        Applied Cost Base
+                      </label>
+                      <select
+                        value={newItemOverheadBase}
+                        onChange={(e) => setNewItemOverheadBase(e.target.value)}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                      >
+                        <option value="total_direct_cost">Total Direct Cost</option>
+                        <option value="material_cost">Material Cost Base</option>
+                        <option value="labor_cost">Direct Labor Cost Base</option>
+                        <option value="subcontractor_cost">Subcontractor Base</option>
+                        <option value="outsourced_cost">Outsourced Services Base</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Revenue Specific Fields */}
+              {newItemType === 'revenue' && (
+                <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl space-y-2.5">
+                  <div className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wider">
+                    Revenue Catalogue & BOQ Parameters
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                        Deliverable Type
+                      </label>
+                      <select
+                        value={newItemRevenueType}
+                        onChange={(e) => setNewItemRevenueType(e.target.value as any)}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                      >
+                        <option value="product">Deliverable Product (Finished Goods)</option>
+                        <option value="service">Commercial Service / Retainer</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                        Internal Direct Cost ($)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={newItemCostPrice}
+                        onChange={(e) => setNewItemCostPrice(Number(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white font-mono text-xs"
+                        placeholder="Internal baseline cost"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Subcontractor Specific Fields */}
+              {newItemType === 'subcontractor' && (
+                <div className="p-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800/40 rounded-xl space-y-2">
+                  <div className="text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wider">
+                    Subcontractor Trade Qualification
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                      Skill Certification Level
+                    </label>
+                    <select
+                      value={newItemSkillLevel}
+                      onChange={(e) => setNewItemSkillLevel(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                    >
+                      <option value="Apprentice (Level 1)">Apprentice (Level 1)</option>
+                      <option value="Junior Journeyman">Junior Journeyman</option>
+                      <option value="Certified Specialist">Certified Specialist</option>
+                      <option value="Senior Master Craftsman">Senior Master Craftsman</option>
+                      <option value="Lead Site Supervisor">Lead Site Supervisor</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Outsourced Service Specific Fields */}
+              {newItemType === 'service' && (
+                <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/40 rounded-xl space-y-2">
+                  <div className="text-[11px] font-bold text-purple-900 dark:text-purple-200 uppercase tracking-wider">
+                    Outsourced Service Level Agreement
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold text-[11px]">
+                      SLA Delivery Commitment
+                    </label>
+                    <select
+                      value={newItemSlaLevel}
+                      onChange={(e) => setNewItemSlaLevel(e.target.value)}
+                      className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded text-slate-900 dark:text-white text-xs"
+                    >
+                      <option value="Standard Guaranteed 99.9%">Standard Guaranteed 99.9%</option>
+                      <option value="Priority 48-Hour SLA">Priority 48-Hour SLA</option>
+                      <option value="Emergency Express 24-Hour">Emergency Express 24-Hour</option>
+                      <option value="Custom Dedicated SLA">Custom Dedicated Enterprise SLA</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Material & Product Specific Fields */}
+              {(newItemType === 'material' || newItemType === 'product') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">
+                      Direct Cost Price ($) <span className="text-slate-400 font-normal">(Internal)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={newItemCostPrice}
+                      onChange={(e) => setNewItemCostPrice(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#003049]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">
+                      Initial In-Stock Inventory
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={newItemInStock}
+                      onChange={(e) => setNewItemInStock(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#003049]"
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Rate & Unit of Measure */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">
-                    {newItemType === 'overhead' ? 'Rate / Cost Base ($ or %)' : newItemType === 'subcontractor' ? 'Subcontractor Rate ($)' : 'Retail Rate ($)'} <span className="text-rose-500">*</span>
+                    {newItemType === 'overhead' 
+                      ? 'Rate / Cost Base ($ or %)' 
+                      : newItemType === 'subcontractor' 
+                      ? 'Subcontractor Rate ($)' 
+                      : newItemType === 'revenue' 
+                      ? 'Deliverable Selling Rate ($)' 
+                      : 'Retail Rate ($)'} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -3892,6 +4225,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                   newItemType === 'subcontractor' ? 'Assigned Subcontractor / Trade Firm' :
                   newItemType === 'service' ? 'Assigned Service Provider' :
                   newItemType === 'overhead' ? 'Vendor / Facility Provider' :
+                  newItemType === 'revenue' ? 'Client / Commercial Account' :
                   'Assigned Supplier / Partner'
                 }
                 selectedPartner={newItemSupplier}

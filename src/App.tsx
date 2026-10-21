@@ -41,7 +41,9 @@ import {
   AppUser,
   AccountRequest,
   CompanyDetails,
-  AuditLogRecord
+  AuditLogRecord,
+  OverheadItem,
+  RevenueItem
 } from './types';
 import {
   INITIAL_PROJECTS,
@@ -189,6 +191,8 @@ export default function App() {
   const [transactions, setTransactions] = useState<InventoryTransaction[]>(() => persistentDatabase.getTransactions([]));
   const [categories, setCategories] = useState<CategoryNode[]>(() => persistentDatabase.getCategories());
   const [clients, setClients] = useState<ClientProfile[]>(() => persistentDatabase.getClients([]));
+  const [overheads, setOverheads] = useState<OverheadItem[]>(() => persistentDatabase.getOverheads([]));
+  const [revenueItems, setRevenueItems] = useState<RevenueItem[]>(() => persistentDatabase.getRevenueItems([]));
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   // Sync state mutations to static persistent database
@@ -215,6 +219,14 @@ export default function App() {
   useEffect(() => {
     persistentDatabase.saveSubcontractors(subcontractors);
   }, [subcontractors]);
+
+  useEffect(() => {
+    persistentDatabase.saveOverheads(overheads);
+  }, [overheads]);
+
+  useEffect(() => {
+    persistentDatabase.saveRevenueItems(revenueItems);
+  }, [revenueItems]);
 
   useEffect(() => {
     persistentDatabase.saveInventory(inventory);
@@ -716,6 +728,25 @@ export default function App() {
           setAccountRequests(d.accountRequests);
           saveStoredRequests(d.accountRequests);
         }
+
+        // Concurrently fetch overheads and revenue catalogue items
+        try {
+          const [ovhData, revData] = await Promise.all([
+            api.getOverheadItems({ limit: 200 }).catch(() => []),
+            api.getRevenueItemsList({ limit: 200 }).catch(() => [])
+          ]);
+          if (Array.isArray(ovhData) && ovhData.length > 0) {
+            setOverheads(ovhData);
+            persistentDatabase.saveOverheads(ovhData);
+          }
+          if (Array.isArray(revData) && revData.length > 0) {
+            setRevenueItems(revData);
+            persistentDatabase.saveRevenueItems(revData);
+          }
+        } catch (fetchErr) {
+          console.warn('Could not refresh overheads or revenue catalogue:', fetchErr);
+        }
+
         setIsDataReady(true);
       } catch (e) {
         console.error('Could not load data:', e);
@@ -946,6 +977,109 @@ export default function App() {
     showToast('Product assembly deleted from catalog.');
   };
 
+  // Overhead Cost Item Handlers (All Portals Connected)
+  const handleAddOverheadItem = async (itemData: Partial<OverheadItem>) => {
+    try {
+      const created = await api.createOverheadItem(itemData);
+      const finalItem = created && created.id ? created : ({ ...itemData, id: `ovh-${Date.now()}` } as OverheadItem);
+      setOverheads(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id)]);
+      persistentDatabase.addOverhead(finalItem);
+      logAuditEvent('OVERHEAD_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created overhead item ${finalItem.name} (${finalItem.category}).`);
+      showToast(`Overhead cost item "${finalItem.name}" registered across all portals.`);
+    } catch (e: any) {
+      console.warn('Overhead create API error:', e);
+      const fallbackItem = { ...itemData, id: `ovh-${Date.now()}` } as OverheadItem;
+      setOverheads(prev => [fallbackItem, ...prev.filter(o => o.id !== fallbackItem.id)]);
+      persistentDatabase.addOverhead(fallbackItem);
+      showToast(`Overhead cost item "${fallbackItem.name}" saved to database.`);
+    }
+  };
+
+  const handleUpdateOverheadItem = async (id: string, updatedFields: Partial<OverheadItem>) => {
+    try {
+      const saved = await api.updateOverheadItem(id, updatedFields);
+      const finalItem = saved && saved.id ? saved : ({ ...updatedFields, id } as OverheadItem);
+      setOverheads(prev => prev.map(o => o.id === id ? { ...o, ...finalItem } : o));
+      persistentDatabase.updateOverhead(id, finalItem);
+      showToast('Overhead item updated across all portals.');
+    } catch (e) {
+      console.warn('Overhead update error:', e);
+    }
+  };
+
+  const handleDeleteOverheadItem = async (id: string) => {
+    try {
+      await api.deleteOverheadItem(id);
+    } catch (e) {
+      console.warn('Overhead delete error:', e);
+    }
+    persistentDatabase.deleteOverhead(id);
+    setOverheads(prev => prev.filter(o => o.id !== id));
+    logAuditEvent('OVERHEAD_DELETED', 'Catalog', id, 'Overhead Item', `Deleted overhead record ${id}.`);
+    showToast('Overhead record deleted.');
+  };
+
+  // Revenue Catalogue Deliverable Handlers (All Portals Connected)
+  const handleAddRevenueItem = async (itemData: Partial<RevenueItem>) => {
+    try {
+      const created = await api.createRevenueItem(itemData);
+      const finalItem = created && created.id ? created : ({ ...itemData, id: `rev-${Date.now()}` } as RevenueItem);
+      setRevenueItems(prev => [finalItem, ...prev.filter(r => r.id !== finalItem.id)]);
+      persistentDatabase.addRevenueItem(finalItem);
+
+      // If product type, also ensure product assembly is present in produceItems
+      if (finalItem.type === 'product' && !produceItems.some(p => p.code === finalItem.code)) {
+        const prodPayload: Partial<ProduceItem> = {
+          code: finalItem.code,
+          name: finalItem.name,
+          category: finalItem.category || 'Manufactured Assemblies',
+          subCategory: finalItem.subCategory || 'General Product',
+          unit: finalItem.unit || 'pcs',
+          retailPrice: finalItem.defaultRate,
+          costPrice: finalItem.costPrice || finalItem.defaultRate * 0.7,
+          leadTimeDays: 7,
+          status: 'Active'
+        };
+        api.createProduce(prodPayload).catch(console.error);
+        persistentDatabase.addProduceItem(prodPayload as any);
+        setProduceItems(prev => [{ ...prodPayload, id: `prod-${Date.now()}` } as ProduceItem, ...prev]);
+      }
+
+      logAuditEvent('REVENUE_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created revenue deliverable ${finalItem.name} (${finalItem.category}).`);
+      showToast(`Revenue catalogue deliverable "${finalItem.name}" registered across all portals.`);
+    } catch (e: any) {
+      console.warn('Revenue item create API error:', e);
+      const fallbackItem = { ...itemData, id: `rev-${Date.now()}` } as RevenueItem;
+      setRevenueItems(prev => [fallbackItem, ...prev.filter(r => r.id !== fallbackItem.id)]);
+      persistentDatabase.addRevenueItem(fallbackItem);
+      showToast(`Revenue deliverable "${fallbackItem.name}" saved to database.`);
+    }
+  };
+
+  const handleUpdateRevenueItem = async (id: string, updatedFields: Partial<RevenueItem>) => {
+    try {
+      const saved = await api.updateRevenueItem(id, updatedFields);
+      const finalItem = saved && saved.id ? saved : ({ ...updatedFields, id } as RevenueItem);
+      setRevenueItems(prev => prev.map(r => r.id === id ? { ...r, ...finalItem } : r));
+      persistentDatabase.updateRevenueItem(id, finalItem);
+      showToast('Revenue item updated.');
+    } catch (e) {
+      console.warn('Revenue update error:', e);
+    }
+  };
+
+  const handleDeleteRevenueItem = async (id: string) => {
+    try {
+      await api.deleteRevenueItem(id);
+    } catch (e) {
+      console.warn('Revenue delete error:', e);
+    }
+    persistentDatabase.deleteRevenueItem(id);
+    setRevenueItems(prev => prev.filter(r => r.id !== id));
+    logAuditEvent('REVENUE_DELETED', 'Catalog', id, 'Revenue Item', `Deleted revenue catalogue item ${id}.`);
+    showToast('Revenue deliverable deleted.');
+  };
+
   // Add Inventory Item
   const handleAddInventory = async (item: Partial<InventoryItem>) => {
     const created = await api.createInventoryItem(item);
@@ -1174,6 +1308,8 @@ export default function App() {
             onDeleteClient={handleDeleteClient}
             categories={categories}
             onUpdateCategories={handleUpdateCategories}
+            onAddOverheadItem={handleAddOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
           />
         )}
 
@@ -1186,6 +1322,8 @@ export default function App() {
             projects={projects}
             produceItems={produceItems}
             categories={categories}
+            overheads={overheads}
+            revenueItems={revenueItems}
             initialFilterTab="ALL"
             onUpdateMaterialPrice={(id, newPrice, reason) => {
               handleUpdateMaterialPrice(id, newPrice, reason, 'Catalog Lead');
@@ -1194,43 +1332,11 @@ export default function App() {
               handleAddMaterial(newItem);
             }}
             onAddMaterial={handleAddMaterial}
-            onAddProduceItem={async (item) => {
-              await handleAddProduceItem(item);
-              // Also sync with revenue items
-              try {
-                await api.createRevenueItem({
-                  code: item.code,
-                  name: item.name,
-                  type: 'product',
-                  category: item.category || 'Manufactured Assemblies',
-                  subCategory: item.subCategory || 'General Product',
-                  unit: item.unit || 'pcs',
-                  defaultRate: item.retailPrice || 100,
-                  costPrice: item.costPrice || 70,
-                  status: 'Active'
-                });
-              } catch (e) {
-                console.warn('Revenue item auto-sync error:', e);
-              }
-            }}
+            onAddProduceItem={handleAddProduceItem}
             onAddOutsourcedService={handleAddOutsourcedService}
             onAddSubcontractor={handleAddSubcontractor}
-            onAddOverheadItem={async (item) => {
-              try {
-                await api.createOverheadItem(item);
-                showToast(`Created overhead record: ${item.name}`);
-              } catch (e) {
-                console.warn('Overhead create error:', e);
-              }
-            }}
-            onAddRevenueItem={async (item) => {
-              try {
-                await api.createRevenueItem(item);
-                showToast(`Created revenue item: ${item.name}`);
-              } catch (e) {
-                console.warn('Revenue item create error:', e);
-              }
-            }}
+            onAddOverheadItem={handleAddOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
             onEditRecord={(rawType, item) => {
               if (rawType === 'material') {
                 handleUpdateMaterial(item.id, item);
@@ -1240,6 +1346,10 @@ export default function App() {
                 handleUpdateSubcontractor(item.id, item);
               } else if (rawType === 'product') {
                 handleUpdateProduceItem(item.id, item);
+              } else if (rawType === 'overhead') {
+                handleUpdateOverheadItem(item.id, item);
+              } else if (rawType === 'revenue') {
+                handleUpdateRevenueItem(item.id, item);
               }
               logAuditEvent('CATALOG_EDIT', 'Catalog', item.id, rawType, `Edited ${item.code || item.name} in master data grid`);
             }}
@@ -1252,6 +1362,10 @@ export default function App() {
                 handleDeleteSubcontractor(id);
               } else if (rawType === 'product') {
                 handleDeleteProduceItem(id);
+              } else if (rawType === 'overhead') {
+                handleDeleteOverheadItem(id);
+              } else if (rawType === 'revenue') {
+                handleDeleteRevenueItem(id);
               }
               logAuditEvent('CATALOG_DELETE', 'Catalog', id, rawType, `Deleted ${rawType} record ${id} from master data grid`);
             }}
@@ -1707,6 +1821,7 @@ export default function App() {
               setActiveTab('plan-details');
             }}
             showToast={showToast}
+            onAddOverheadItem={handleAddOverheadItem}
           />
         )}
 
@@ -1719,6 +1834,7 @@ export default function App() {
               setActiveTab('plan-details');
             }}
             showNotification={(msg) => showToast({ message: msg, type: 'info' })}
+            onAddRevenueItem={handleAddRevenueItem}
           />
         )}
 

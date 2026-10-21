@@ -452,6 +452,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     if (p === 'subcontractors' || p === 'subcontractor' || p === 'subcontractor-categories') return 'subcontractor';
     if (p === 'outsourced-categories' || p === 'outsourced' || p === 'service-providers') return 'outsourced';
     if (p === 'products-hierarchy' || p === 'product' || p === 'produce') return 'produce';
+    if (p === 'revenue' || p === 'revenue-portal' || p === 'revenue-streams') return 'revenue';
     if (p === 'projects' || p === 'project') return 'project';
     if (p === 'clients' || p === 'client') return 'client';
     return p;
@@ -760,6 +761,22 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         customGradient
       });
       generateNextNumber('overheads', true);
+    } else if (selectedType === 'revenue') {
+      onSave('revenue', {
+        code: code.trim(),
+        name: name.trim(),
+        type: 'product',
+        category: category || 'Commercial Deliverables',
+        subCategory: subCategory || 'General Scope',
+        unit: unit || 'unit',
+        defaultRate: Number(price) || 100,
+        costPrice: Number(costPrice) || 70,
+        currency,
+        status: 'Active',
+        themeId,
+        customGradient
+      });
+      generateNextNumber('revenue', true);
     } else if (selectedType === 'client') {
       onSave('client', {
         name: name.trim(),
@@ -823,6 +840,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 <option value="material">Material</option>
                 <option value="outsourced">Service</option>
                 <option value="produce">Product</option>
+                <option value="revenue">Revenue Deliverable</option>
                 <option value="overhead">Overhead</option>
                 <option value="project">Project</option>
                 <option value="client">Client</option>

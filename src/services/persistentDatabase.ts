@@ -14,7 +14,9 @@ import {
   InventoryTransaction,
   Project,
   ProduceItem,
-  CalendarEvent
+  CalendarEvent,
+  OverheadItem,
+  RevenueItem
 } from '../types';
 
 import {
@@ -45,6 +47,8 @@ const DB_KEYS = {
   CUSTOM_TILES: 'remix_db_custom_tiles_v3',
   CALENDAR_EVENTS: 'remix_db_calendar_events_v3',
   CLIENTS: 'remix_db_clients_v3',
+  OVERHEADS: 'remix_db_overheads_v3',
+  REVENUE_ITEMS: 'remix_db_revenue_items_v3',
   INITIALIZED: 'remix_db_initialized_flag_v3'
 };
 
@@ -398,6 +402,46 @@ export const persistentDatabase = {
     this.saveClients(list);
   },
 
+  // 9c. Overheads Catalogue
+  getOverheads(fallback?: OverheadItem[]): OverheadItem[] {
+    return safeGet<OverheadItem[]>(DB_KEYS.OVERHEADS, fallback || []);
+  },
+  saveOverheads(items: OverheadItem[]): void {
+    safeSet(DB_KEYS.OVERHEADS, items);
+  },
+  addOverhead(item: OverheadItem): void {
+    const list = [item, ...this.getOverheads().filter(o => o.id !== item.id)];
+    this.saveOverheads(list);
+  },
+  updateOverhead(id: string, partial: Partial<OverheadItem>): void {
+    const list = this.getOverheads().map(o => o.id === id ? { ...o, ...partial } : o);
+    this.saveOverheads(list);
+  },
+  deleteOverhead(id: string): void {
+    const list = this.getOverheads().filter(o => o.id !== id);
+    this.saveOverheads(list);
+  },
+
+  // 9d. Revenue Catalogue Items
+  getRevenueItems(fallback?: RevenueItem[]): RevenueItem[] {
+    return safeGet<RevenueItem[]>(DB_KEYS.REVENUE_ITEMS, fallback || []);
+  },
+  saveRevenueItems(items: RevenueItem[]): void {
+    safeSet(DB_KEYS.REVENUE_ITEMS, items);
+  },
+  addRevenueItem(item: RevenueItem): void {
+    const list = [item, ...this.getRevenueItems().filter(r => r.id !== item.id)];
+    this.saveRevenueItems(list);
+  },
+  updateRevenueItem(id: string, partial: Partial<RevenueItem>): void {
+    const list = this.getRevenueItems().map(r => r.id === id ? { ...r, ...partial } : r);
+    this.saveRevenueItems(list);
+  },
+  deleteRevenueItem(id: string): void {
+    const list = this.getRevenueItems().filter(r => r.id !== id);
+    this.saveRevenueItems(list);
+  },
+
   // 10. Custom Hub Tiles
   getCustomTiles<T = any>(fallback: T[] = []): T[] {
     return safeGet<T[]>(DB_KEYS.CUSTOM_TILES, fallback);
@@ -578,7 +622,9 @@ export const persistentDatabase = {
         produceItems: persistentDatabase.getProduce(),
         categories: persistentDatabase.getCategories(),
         customTiles: persistentDatabase.getCustomTiles(),
-        calendarEvents: persistentDatabase.getCalendarEvents()
+        calendarEvents: persistentDatabase.getCalendarEvents(),
+        overheads: persistentDatabase.getOverheads(),
+        revenueItems: persistentDatabase.getRevenueItems()
       }
     };
     const jsonString = JSON.stringify(backup, null, 2);
@@ -628,6 +674,8 @@ export const persistentDatabase = {
       if (Array.isArray(parsed.data.categories)) persistentDatabase.saveCategories(parsed.data.categories);
       if (Array.isArray(parsed.data.customTiles)) persistentDatabase.saveCustomTiles(parsed.data.customTiles);
       if (Array.isArray(parsed.data.calendarEvents)) persistentDatabase.saveCalendarEvents(parsed.data.calendarEvents);
+      if (Array.isArray(parsed.data.overheads)) persistentDatabase.saveOverheads(parsed.data.overheads);
+      if (Array.isArray(parsed.data.revenueItems)) persistentDatabase.saveRevenueItems(parsed.data.revenueItems);
 
       if (parsed.companyDetails) saveStoredCompanyDetails(parsed.companyDetails);
       if (Array.isArray(parsed.autoNumberRules)) saveStoredAutoNumberRules(parsed.autoNumberRules);
