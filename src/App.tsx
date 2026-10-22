@@ -1331,6 +1331,8 @@ export default function App() {
             overheads={overheads}
             revenueItems={revenueItems}
             initialFilterTab="ALL"
+            currentUser={currentUser}
+            onLogAudit={logAuditEvent}
             onUpdateMaterialPrice={(id, newPrice, reason) => {
               handleUpdateMaterialPrice(id, newPrice, reason, 'Catalog Lead');
             }}

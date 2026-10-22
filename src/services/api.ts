@@ -377,6 +377,70 @@ export const api = {
     persistentDatabase.deleteMaterial(id);
   },
 
+  // --- Material Vendor Quotes & Price Matrix APIs ---
+  async getMaterialVendorQuotes(materialId: string): Promise<any[]> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch vendor quotes');
+    return await res.json();
+  },
+
+  async createMaterialVendorQuote(materialId: string, quote: any): Promise<any> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quote)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create vendor quote');
+    return await res.json();
+  },
+
+  async updateMaterialVendorQuote(materialId: string, quoteId: string, quote: any): Promise<any> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes/${quoteId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quote)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update vendor quote');
+    return await res.json();
+  },
+
+  async commitMaterialVendorPrice(materialId: string, quoteId: string, commitPayload: any): Promise<any> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes/${quoteId}/commit-price`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(commitPayload)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to commit vendor price revision');
+    return await res.json();
+  },
+
+  async deleteMaterialVendorQuote(materialId: string, quoteId: string, archivePayload?: any): Promise<any> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes/${quoteId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(archivePayload || {})
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete vendor quote');
+    return await res.json();
+  },
+
+  async archiveAndDeleteVendor(materialId: string, quoteId: string, payload: any): Promise<any> {
+    const res = await fetch(`/api/materials/${materialId}/vendor-quotes/${quoteId}/archive-and-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to archive and delete vendor quote');
+    return await res.json();
+  },
+
+  async getVendorArchives(materialId?: string): Promise<any[]> {
+    const url = materialId ? `/api/materials/${materialId}/vendor-archives` : '/api/materials/archives';
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    return await res.json();
+  },
+
   async getMeasurementUnits(): Promise<MeasurementUnit[]> {
     const res = await fetch('/api/measurement-units');
     if (!res.ok) return [];

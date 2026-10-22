@@ -73,6 +73,8 @@ import { DataImportExportModal } from './DataImportExportModal';
 import { SearchableCategoryPicker } from './common/SearchableCategoryPicker';
 import { SearchablePartnerPicker, PartnerOption } from './common/SearchablePartnerPicker';
 import { CategoryNode } from '../data/categoriesAndProfiles';
+import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal';
+import { AppUser } from '../types';
 import { api } from '../services/api';
 
 export interface CatalogGridItem {
@@ -124,6 +126,8 @@ interface MasterDataGridCatalogProps {
   onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue', id: string) => void;
   initialFilterTab?: string;
   embeddedMode?: boolean; // When used inside MaterialsView or ServicesView
+  currentUser?: AppUser | null;
+  onLogAudit?: (action: string, module: any, recordId?: string, recordName?: string, details?: string) => void;
 }
 
 export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
@@ -150,8 +154,44 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   onEditRecord,
   onDeleteRecord,
   initialFilterTab = 'ALL',
-  embeddedMode = false
+  embeddedMode = false,
+  currentUser,
+  onLogAudit
 }) => {
+  // FXTT Table of Price Changes (as the second image) modal state
+  const [priceMatrixMaterial, setPriceMatrixMaterial] = useState<MaterialItem | null>(null);
+
+  const handleOpenPriceMatrix = (item: CatalogGridItem) => {
+    let targetMat: MaterialItem | null = null;
+    if (item.rawType === 'material') {
+      targetMat = materials.find((m) => m.id === item.id) || (item.rawItem as MaterialItem);
+    }
+    if (!targetMat) {
+      targetMat = {
+        id: item.id,
+        code: item.code,
+        name: item.name,
+        category: item.category,
+        subCategory: item.subCategory,
+        unit: item.unit,
+        retailPrice: item.rate,
+        currency: 'USD',
+        supplierId: item.rawItem?.supplierId || '',
+        supplierName: item.supplierName || 'Primary Supplier',
+        leadTimeDays: item.rawItem?.leadTimeDays || 7,
+        minOrderQty: item.rawItem?.moq || item.rawItem?.minOrderQty || 1,
+        inStock: item.inStockNumber || 0,
+        reorderPoint: item.rawItem?.reorderPoint || 10,
+        itemClassification: 'raw_material',
+        status: (item.status as any) || 'Active',
+        description: item.rawItem?.notes || item.rawItem?.description || '',
+        lastUpdated: item.createdTime || new Date().toISOString().slice(0, 10),
+        priceHistory: item.priceHistory || item.rawItem?.priceHistory || [],
+        vendorQuotes: item.rawItem?.vendorQuotes || []
+      };
+    }
+    setPriceMatrixMaterial(targetMat);
+  };
   // Top Filter Tabs (matching FXTT style)
   const [activeTab, setActiveTab] = useState<string>(initialFilterTab);
 
@@ -3027,10 +3067,10 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                             </button>
 
-                            {/* Quick View Details */}
+                            {/* View FXTT Table of Price Changes (as the second image) */}
                             <button
-                              onClick={() => setViewDetailItem(item)}
-                              title="View Full Specifications"
+                              onClick={() => handleOpenPriceMatrix(item)}
+                              title="View FXTT Price Changes Table & Vendor Matrix"
                               className="p-1 text-slate-500 hover:text-[#003049] hover:bg-slate-100 rounded transition-colors cursor-pointer"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -4369,6 +4409,24 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
           isOpen={Boolean(googleSearchItem)}
           onClose={() => setGoogleSearchItem(null)}
           item={googleSearchItem}
+        />
+      )}
+
+      {/* FXTT TABLE OF PRICE CHANGES & MULTI-VENDOR COMPARISON MATRIX MODAL */}
+      {priceMatrixMaterial && (
+        <MaterialVendorPriceMatrixModal
+          material={priceMatrixMaterial}
+          suppliers={suppliers}
+          currentUser={currentUser}
+          onClose={() => setPriceMatrixMaterial(null)}
+          onUpdateMaterial={(updated) => {
+            setPriceMatrixMaterial(updated);
+            if (onEditRecord) {
+              onEditRecord('material', updated);
+            }
+          }}
+          onUpdateMaterialPrice={onUpdateMaterialPrice}
+          onLogAudit={onLogAudit}
         />
       )}
     </div>

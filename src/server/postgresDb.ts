@@ -1185,6 +1185,8 @@ export class PostgresService {
     await this.ensureBarcodeRegistrySchema();
     // Ensure client and project database relationships exist (Task 10)
     await this.ensureClientProjectRelationships();
+    // Ensure material vendor quotes, price change matrix & archive tables exist
+    await this.ensureMaterialVendorQuotesSchema();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -11600,6 +11602,617 @@ export class PostgresService {
     }));
   }
 
+  // --- Material Vendor Quotes & Price Matrix Schema ---
+  public async ensureMaterialVendorQuotesSchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS material_vendor_quotes (
+          id TEXT PRIMARY KEY,
+          material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          vendor_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL,
+          vendor_name TEXT NOT NULL,
+          vendor_part_number TEXT DEFAULT '',
+          country TEXT DEFAULT 'United States',
+          current_price NUMERIC(18, 4) NOT NULL CHECK (current_price >= 0),
+          currency TEXT NOT NULL DEFAULT 'USD',
+          lead_time_days INT DEFAULT 7,
+          moq NUMERIC(18, 4) DEFAULT 1 CHECK (moq >= 0),
+          is_preferred BOOLEAN NOT NULL DEFAULT false,
+          last_quoted_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          status TEXT NOT NULL DEFAULT 'Active',
+          contact_email TEXT DEFAULT '',
+          contact_phone TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          volume_pricing JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS material_vendor_price_history (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL REFERENCES material_vendor_quotes(id) ON DELETE CASCADE,
+          material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          vendor_id TEXT,
+          vendor_name TEXT NOT NULL,
+          revision_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          price NUMERIC(18, 4) NOT NULL CHECK (price >= 0),
+          previous_price NUMERIC(18, 4),
+          change_pct NUMERIC(10, 2) DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT '',
+          quote_ref TEXT DEFAULT '',
+          moq NUMERIC(18, 4) DEFAULT 1,
+          lead_time_days INT DEFAULT 7,
+          updated_by TEXT NOT NULL DEFAULT 'System User',
+          target_tier_label TEXT DEFAULT '',
+          changed_tiers JSONB DEFAULT '[]'::jsonb,
+          tier_changes JSONB DEFAULT '[]'::jsonb,
+          applied_changes_summary JSONB DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS vendor_deletion_archives (
+          id TEXT PRIMARY KEY,
+          material_id TEXT NOT NULL,
+          material_code TEXT DEFAULT '',
+          material_name TEXT DEFAULT '',
+          vendor_id TEXT NOT NULL,
+          vendor_name TEXT NOT NULL,
+          history_count INT NOT NULL DEFAULT 0,
+          archived_filename TEXT NOT NULL,
+          archive_data JSONB NOT NULL DEFAULT '[]'::jsonb,
+          actor_id TEXT NOT NULL,
+          actor_name TEXT NOT NULL,
+          actor_role TEXT NOT NULL,
+          actor_email TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_mat_vendor_quotes_mat ON material_vendor_quotes(material_id);
+        CREATE INDEX IF NOT EXISTS idx_mat_vendor_quotes_vendor ON material_vendor_quotes(vendor_id);
+        CREATE INDEX IF NOT EXISTS idx_mat_vendor_quotes_pref ON material_vendor_quotes(material_id, is_preferred);
+        CREATE INDEX IF NOT EXISTS idx_mat_vendor_hist_quote ON material_vendor_price_history(quote_id, revision_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_mat_vendor_hist_mat ON material_vendor_price_history(material_id, revision_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_vendor_del_arch_mat ON vendor_deletion_archives(material_id, archived_at DESC);
+      `);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] ensureMaterialVendorQuotesSchema warning:', e?.message);
+    }
+  }
+
+  public async getMaterialVendorQuotes(materialId: string): Promise<any[]> {
+    const db = await this.getDb();
+
+    // Query existing vendor quotes
+    const quotesRes = await db.query(
+      `SELECT * FROM material_vendor_quotes WHERE material_id = $1 ORDER BY is_preferred DESC, current_price ASC, created_at ASC`,
+      [materialId]
+    );
+
+    let quotes = quotesRes.rows;
+
+    // If none exist yet in table, seed strictly from material's existing data (no dummy quotes)
+    if (quotes.length === 0) {
+      const matRes = await db.query('SELECT * FROM materials WHERE id = $1', [materialId]);
+      if (matRes.rows.length > 0) {
+        const mat = matRes.rows[0];
+        const supplierName = (mat.supplier_name || '').trim() || 'Primary Supplier';
+        const supplierId = mat.supplier_id || null;
+        const price = round4(mat.current_price || 0);
+        const leadTime = Number(mat.lead_time_days || 7);
+        const volumePricing = typeof mat.volume_pricing === 'string' ? JSON.parse(mat.volume_pricing) : mat.volume_pricing || [];
+        const rawHistory = typeof mat.price_history === 'string' ? JSON.parse(mat.price_history) : mat.price_history || [];
+
+        const defaultVolumePricing = (volumePricing && volumePricing.length > 0)
+          ? volumePricing
+          : [
+              { minQty: 1, maxQty: 10, unitPrice: price, discountPct: 0, label: '1–10 (Base MOQ)' },
+              { minQty: 11, maxQty: 50, unitPrice: round2(price * 0.92), discountPct: 8.0, label: '11–50 (Volume Pack)' },
+              { minQty: 51, unitPrice: round2(price * 0.85), discountPct: 15.0, label: '51+ (Bulk Mill Lot)' }
+            ];
+
+        const initialQuoteId = `vq-${materialId}-${Date.now()}`;
+        await db.query(
+          `INSERT INTO material_vendor_quotes (
+            id, material_id, vendor_id, vendor_name, vendor_part_number, country,
+            current_price, currency, lead_time_days, moq, is_preferred, last_quoted_date,
+            status, contact_email, contact_phone, notes, volume_pricing, created_at, updated_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE, $12, $13, $14, $15, $16, NOW(), NOW()
+          ) ON CONFLICT (id) DO NOTHING`,
+          [
+            initialQuoteId,
+            materialId,
+            supplierId,
+            supplierName,
+            mat.code || '',
+            'United States',
+            price,
+            mat.currency || 'USD',
+            leadTime,
+            1,
+            true,
+            'Preferred',
+            '',
+            '',
+            'Initial supplier quote migrated from catalog benchmark.',
+            JSON.stringify(defaultVolumePricing)
+          ]
+        );
+
+        // Seed price history if material had any
+        if (rawHistory.length > 0) {
+          for (let idx = 0; idx < rawHistory.length; idx++) {
+            const h = rawHistory[idx];
+            await db.query(
+              `INSERT INTO material_vendor_price_history (
+                id, quote_id, material_id, vendor_id, vendor_name, revision_date,
+                price, previous_price, change_pct, reason, quote_ref, moq, lead_time_days,
+                updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW()
+              ) ON CONFLICT (id) DO NOTHING`,
+              [
+                h.id || `hist-${initialQuoteId}-${idx}`,
+                initialQuoteId,
+                materialId,
+                supplierId,
+                supplierName,
+                formatSqlDate(h.date, new Date().toISOString().slice(0, 10)),
+                round4(h.newPrice ?? price),
+                round4(h.previousPrice ?? price),
+                round2(h.changePct ?? 0),
+                h.reason || 'Catalog price adjustment',
+                `QT-${mat.code}-${h.date || idx}`,
+                1,
+                leadTime,
+                h.updatedBy || 'Estimator',
+                'Base Rate',
+                '[]',
+                '[]',
+                JSON.stringify([`Quoted rate: $${round2(h.previousPrice ?? price)} -> $${round2(h.newPrice ?? price)}`])
+              ]
+            );
+          }
+        } else {
+          // Add 1 initial benchmark record
+          await db.query(
+            `INSERT INTO material_vendor_price_history (
+              id, quote_id, material_id, vendor_id, vendor_name, revision_date,
+              price, previous_price, change_pct, reason, quote_ref, moq, lead_time_days,
+              updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+            ) VALUES (
+              $1, $2, $3, $4, $5, CURRENT_DATE, $6, $7, 0, $8, $9, 1, $10, $11, 'Base MOQ', '[]', '[]', $12, NOW()
+            ) ON CONFLICT (id) DO NOTHING`,
+            [
+              `hist-init-${initialQuoteId}`,
+              initialQuoteId,
+              materialId,
+              supplierId,
+              supplierName,
+              price,
+              price,
+              'Initial benchmark quotation onboarding',
+              `QT-${mat.code}-INIT`,
+              leadTime,
+              'Catalog Lead',
+              JSON.stringify([`Initial Quoted Base Rate established at $${price.toFixed(2)}`])
+            ]
+          );
+        }
+
+        const refreshedRes = await db.query(
+          `SELECT * FROM material_vendor_quotes WHERE material_id = $1 ORDER BY is_preferred DESC, current_price ASC`,
+          [materialId]
+        );
+        quotes = refreshedRes.rows;
+      }
+    }
+
+    const result: any[] = [];
+    for (const q of quotes) {
+      const histRes = await db.query(
+        `SELECT * FROM material_vendor_price_history WHERE quote_id = $1 ORDER BY revision_date DESC, created_at DESC`,
+        [q.id]
+      );
+
+      const priceHistory = histRes.rows.map((h: any) => ({
+        id: h.id,
+        quoteId: h.quote_id,
+        materialId: h.material_id,
+        vendorId: h.vendor_id,
+        vendorName: h.vendor_name,
+        date: formatSqlDate(h.revision_date, ''),
+        price: round4(h.price),
+        previousPrice: h.previous_price != null ? round4(h.previous_price) : undefined,
+        changePct: h.change_pct != null ? round2(h.change_pct) : undefined,
+        reason: h.reason || '',
+        quoteRef: h.quote_ref || '',
+        moq: Number(h.moq || 1),
+        leadTimeDays: Number(h.lead_time_days || 7),
+        updatedBy: h.updated_by || 'System',
+        targetTierLabel: h.target_tier_label || '',
+        changedTiers: typeof h.changed_tiers === 'string' ? JSON.parse(h.changed_tiers) : h.changed_tiers || [],
+        tierChanges: typeof h.tier_changes === 'string' ? JSON.parse(h.tier_changes) : h.tier_changes || [],
+        appliedChangesSummary: typeof h.applied_changes_summary === 'string' ? JSON.parse(h.applied_changes_summary) : h.applied_changes_summary || []
+      }));
+
+      result.push({
+        id: q.id,
+        materialId: q.material_id,
+        vendorId: q.vendor_id || q.id,
+        vendorName: q.vendor_name,
+        vendorPartNumber: q.vendor_part_number || '',
+        country: q.country || 'United States',
+        currentPrice: round4(q.current_price),
+        currency: q.currency || 'USD',
+        leadTimeDays: Number(q.lead_time_days || 7),
+        moq: Number(q.moq || 1),
+        isPreferred: Boolean(q.is_preferred),
+        isPrimary: Boolean(q.is_preferred),
+        lastQuotedDate: formatSqlDate(q.last_quoted_date, ''),
+        status: q.status || 'Active',
+        contactEmail: q.contact_email || '',
+        contactPhone: q.contact_phone || '',
+        notes: q.notes || '',
+        volumePricing: typeof q.volume_pricing === 'string' ? JSON.parse(q.volume_pricing) : q.volume_pricing || [],
+        priceHistory,
+        createdAt: q.created_at,
+        updatedAt: q.updated_at
+      });
+    }
+
+    return result;
+  }
+
+  public async createMaterialVendorQuote(materialId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `vq-${materialId}-${Date.now()}`;
+    const price = round4(data.currentPrice ?? data.price ?? data.startingPrice ?? 0);
+    const moq = Number(data.moq || 1);
+    const leadTime = Number(data.leadTimeDays || 7);
+    const isPreferred = Boolean(data.isPreferred);
+    const volumePricing = data.volumePricing || data.volumeTiers || [
+      { minQty: moq, maxQty: moq * 4, unitPrice: price, discountPct: 0, label: `${moq}-${moq * 4} (Base MOQ)` },
+      { minQty: moq * 4 + 1, maxQty: moq * 15, unitPrice: round2(price * 0.92), discountPct: 8.0, label: `${moq * 4 + 1}-${moq * 15} (Volume Pack)` },
+      { minQty: moq * 15 + 1, unitPrice: round2(price * 0.85), discountPct: 15.0, label: `${moq * 15 + 1}+ (Bulk Mill Lot)` }
+    ];
+
+    if (isPreferred) {
+      await db.query(`UPDATE material_vendor_quotes SET is_preferred = false, status = 'Active' WHERE material_id = $1`, [materialId]);
+    }
+
+    await db.query(
+      `INSERT INTO material_vendor_quotes (
+        id, material_id, vendor_id, vendor_name, vendor_part_number, country,
+        current_price, currency, lead_time_days, moq, is_preferred, last_quoted_date,
+        status, contact_email, contact_phone, notes, volume_pricing, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE, $12, $13, $14, $15, $16, NOW(), NOW()
+      )`,
+      [
+        id,
+        materialId,
+        data.vendorId || data.supplierId || null,
+        data.vendorName || 'New Supplier',
+        data.vendorPartNumber || '',
+        data.country || 'United States',
+        price,
+        data.currency || 'USD',
+        leadTime,
+        moq,
+        isPreferred,
+        data.status || (isPreferred ? 'Preferred' : 'Active'),
+        data.contactEmail || '',
+        data.contactPhone || '',
+        data.notes || '',
+        JSON.stringify(volumePricing)
+      ]
+    );
+
+    // Initial price history record
+    const histId = `hist-${id}-init`;
+    await db.query(
+      `INSERT INTO material_vendor_price_history (
+        id, quote_id, material_id, vendor_id, vendor_name, revision_date,
+        price, previous_price, change_pct, reason, quote_ref, moq, lead_time_days,
+        updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, CURRENT_DATE, $6, $7, 0, $8, $9, $10, $11, $12, 'Base Rate', '[]', '[]', $13, NOW()
+      )`,
+      [
+        histId,
+        id,
+        materialId,
+        data.vendorId || data.supplierId || null,
+        data.vendorName || 'New Supplier',
+        price,
+        price,
+        data.quoteReason || 'Initial qualified vendor quote onboarding with multi-tier pricing structure.',
+        data.quoteRef || `QT-ONBOARD-${Date.now().toString().slice(-4)}`,
+        moq,
+        leadTime,
+        actor?.name || 'Catalog Lead',
+        JSON.stringify([`Initial quote onboarding established at $${price.toFixed(2)}`])
+      ]
+    );
+
+    // If preferred, also update material's supplier
+    if (isPreferred) {
+      await db.query(
+        `UPDATE materials SET supplier_name = $1, current_price = $2, last_updated = CURRENT_DATE, updated_at_ts = NOW() WHERE id = $3`,
+        [data.vendorName, price, materialId]
+      );
+    }
+
+    const quotes = await this.getMaterialVendorQuotes(materialId);
+    return quotes.find((q) => q.id === id) || quotes[0];
+  }
+
+  public async updateMaterialVendorQuote(quoteId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM material_vendor_quotes WHERE id = $1', [quoteId]);
+    if (existingRes.rows.length === 0) return null;
+    const existing = existingRes.rows[0];
+
+    const vendorName = (data.vendorName ?? existing.vendor_name).trim();
+    const country = data.country ?? existing.country;
+    const contactEmail = data.contactEmail ?? existing.contact_email;
+    const contactPhone = data.contactPhone ?? existing.contact_phone;
+    const leadTime = Number(data.leadTimeDays ?? existing.lead_time_days ?? 7);
+    const moq = Number(data.moq ?? existing.moq ?? 1);
+    const status = data.status ?? existing.status;
+    const notes = data.notes ?? existing.notes;
+    const currency = data.currency ?? existing.currency;
+    const volumePricing = data.volumePricing ? JSON.stringify(data.volumePricing) : existing.volume_pricing;
+    const isPreferred = data.isPreferred !== undefined ? Boolean(data.isPreferred) : Boolean(existing.is_preferred);
+
+    if (isPreferred && !existing.is_preferred) {
+      await db.query(`UPDATE material_vendor_quotes SET is_preferred = false, status = 'Active' WHERE material_id = $1`, [existing.material_id]);
+    }
+
+    await db.query(
+      `UPDATE material_vendor_quotes SET
+        vendor_name = $1,
+        country = $2,
+        contact_email = $3,
+        contact_phone = $4,
+        lead_time_days = $5,
+        moq = $6,
+        status = $7,
+        notes = $8,
+        currency = $9,
+        volume_pricing = $10,
+        is_preferred = $11,
+        updated_at = NOW()
+      WHERE id = $12`,
+      [vendorName, country, contactEmail, contactPhone, leadTime, moq, status, notes, currency, volumePricing, isPreferred, quoteId]
+    );
+
+    if (isPreferred) {
+      await db.query(`UPDATE materials SET supplier_name = $1, updated_at_ts = NOW() WHERE id = $2`, [vendorName, existing.material_id]);
+    }
+
+    const quotes = await this.getMaterialVendorQuotes(existing.material_id);
+    return quotes.find((q) => q.id === quoteId);
+  }
+
+  public async commitMaterialVendorPrice(materialId: string, quoteId: string, commitData: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM material_vendor_quotes WHERE id = $1', [quoteId]);
+    if (existingRes.rows.length === 0) throw new Error('Vendor quote not found');
+    const existing = existingRes.rows[0];
+
+    const oldPrice = round4(existing.current_price);
+    const newPrice = commitData.changeBasePrice ? round4(commitData.newBasePrice) : oldPrice;
+    const changePct = oldPrice > 0 ? round2(((newPrice - oldPrice) / oldPrice) * 100) : 0;
+    const setAsPrimary = Boolean(commitData.setAsPrimary);
+    const effectiveDate = formatSqlDate(commitData.effectiveDate, new Date().toISOString().slice(0, 10));
+    const moq = Number(commitData.moq || existing.moq || 1);
+    const leadTime = Number(commitData.leadTimeDays || existing.lead_time_days || 7);
+
+    // Build volume pricing update
+    let updatedTiers = typeof existing.volume_pricing === 'string' ? JSON.parse(existing.volume_pricing) : existing.volume_pricing || [];
+    if (commitData.selectedRanges && Array.isArray(commitData.selectedRanges)) {
+      commitData.selectedRanges.forEach((cr: any) => {
+        if (updatedTiers[cr.rangeIndex]) {
+          updatedTiers[cr.rangeIndex] = {
+            ...updatedTiers[cr.rangeIndex],
+            minQty: Number(cr.minQty),
+            maxQty: cr.maxQty ? Number(cr.maxQty) : undefined,
+            unitPrice: round4(cr.newPrice),
+            discountPct: round2(cr.discountPct),
+            label: cr.label
+          };
+        }
+      });
+    }
+
+    if (setAsPrimary) {
+      await db.query(`UPDATE material_vendor_quotes SET is_preferred = false, status = 'Active' WHERE material_id = $1`, [materialId]);
+    }
+
+    await db.query(
+      `UPDATE material_vendor_quotes SET
+        current_price = $1,
+        volume_pricing = $2,
+        lead_time_days = $3,
+        moq = $4,
+        is_preferred = $5,
+        status = $6,
+        last_quoted_date = $7,
+        updated_at = NOW()
+      WHERE id = $8`,
+      [
+        newPrice,
+        JSON.stringify(updatedTiers),
+        leadTime,
+        moq,
+        setAsPrimary ? true : existing.is_preferred,
+        setAsPrimary ? 'Preferred' : existing.status,
+        effectiveDate,
+        quoteId
+      ]
+    );
+
+    // Insert record into material_vendor_price_history
+    const histId = `hist-vq-${Date.now()}`;
+    await db.query(
+      `INSERT INTO material_vendor_price_history (
+        id, quote_id, material_id, vendor_id, vendor_name, revision_date,
+        price, previous_price, change_pct, reason, quote_ref, moq, lead_time_days,
+        updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW()
+      )`,
+      [
+        histId,
+        quoteId,
+        materialId,
+        existing.vendor_id,
+        existing.vendor_name,
+        effectiveDate,
+        newPrice,
+        oldPrice,
+        changePct,
+        commitData.reason || 'Official vendor quotation adjustment and volume structure update.',
+        commitData.quoteRef || `QT-${Date.now()}`,
+        moq,
+        leadTime,
+        actor?.name || commitData.updatedBy || 'Estimator',
+        commitData.targetTierLabel || 'Base Rate',
+        JSON.stringify(commitData.recordedChangedTiers || []),
+        JSON.stringify(commitData.tierChanges || []),
+        JSON.stringify(commitData.appliedChangesSummary || [])
+      ]
+    );
+
+    if (setAsPrimary) {
+      await db.query(
+        `UPDATE materials SET
+          current_price = $1,
+          last_price = $2,
+          supplier_name = $3,
+          supplier_id = $4,
+          lead_time_days = $5,
+          effective_date = $6,
+          last_updated = $6,
+          updated_at_ts = NOW()
+        WHERE id = $7`,
+        [newPrice, oldPrice, existing.vendor_name, existing.vendor_id, leadTime, effectiveDate, materialId]
+      );
+    }
+
+    const quotes = await this.getMaterialVendorQuotes(materialId);
+    return quotes.find((q) => q.id === quoteId);
+  }
+
+  public async deleteMaterialVendorQuote(
+    materialId: string,
+    quoteId: string,
+    archivePayload?: any,
+    actor?: any
+  ): Promise<{ success: boolean; archived: boolean; archiveRecord?: any }> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM material_vendor_quotes WHERE id = $1 AND material_id = $2', [quoteId, materialId]);
+    if (existingRes.rows.length === 0) {
+      throw new Error('Material vendor quote not found');
+    }
+    const quote = existingRes.rows[0];
+
+    // Check count of price history revisions
+    const histRes = await db.query('SELECT * FROM material_vendor_price_history WHERE quote_id = $1', [quoteId]);
+    const historyCount = histRes.rows.length;
+
+    // Strict compliance requirement: If history exists, archive payload with downloaded filename and user info is mandatory!
+    if (historyCount > 0) {
+      if (!archivePayload || !archivePayload.archivedFilename) {
+        throw Object.assign(new Error('Compliance Enforcement: Deletion is strictly blocked until price history archive is downloaded.'), { status: 400 });
+      }
+    }
+
+    let archiveRecord: any = null;
+    const actorUser = actor || archivePayload?.user || { id: 'ADMIN-01', name: 'Administrator', role: 'ADMIN' };
+
+    if (historyCount > 0) {
+      const matRes = await db.query('SELECT code, name FROM materials WHERE id = $1', [materialId]);
+      const matCode = matRes.rows[0]?.code || '';
+      const matName = matRes.rows[0]?.name || '';
+
+      const archiveId = `vda-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      await db.query(
+        `INSERT INTO vendor_deletion_archives (
+          id, material_id, material_code, material_name, vendor_id, vendor_name,
+          history_count, archived_filename, archive_data, actor_id, actor_name, actor_role, actor_email, notes, archived_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+        )`,
+        [
+          archiveId,
+          materialId,
+          matCode,
+          matName,
+          quote.vendor_id || quote.id,
+          quote.vendor_name,
+          historyCount,
+          archivePayload.archivedFilename,
+          JSON.stringify(histRes.rows),
+          actorUser.id || actorUser.employeeId || 'ADMIN-01',
+          actorUser.name || 'Administrator',
+          actorUser.role || 'ADMIN',
+          actorUser.email || '',
+          archivePayload.notes || 'Vendor price history archived prior to deletion'
+        ]
+      );
+
+      archiveRecord = {
+        id: archiveId,
+        materialId,
+        vendorName: quote.vendor_name,
+        historyCount,
+        archivedFilename: archivePayload.archivedFilename,
+        archivedAt: new Date().toISOString()
+      };
+    }
+
+    await db.query('DELETE FROM material_vendor_quotes WHERE id = $1', [quoteId]);
+
+    // If deleted quote was preferred, promote remaining
+    if (quote.is_preferred) {
+      const remainingRes = await db.query('SELECT * FROM material_vendor_quotes WHERE material_id = $1 ORDER BY current_price ASC LIMIT 1', [materialId]);
+      if (remainingRes.rows.length > 0) {
+        const nextPreferred = remainingRes.rows[0];
+        await db.query(`UPDATE material_vendor_quotes SET is_preferred = true, status = 'Preferred' WHERE id = $1`, [nextPreferred.id]);
+        await db.query(
+          `UPDATE materials SET supplier_name = $1, supplier_id = $2, current_price = $3, updated_at_ts = NOW() WHERE id = $4`,
+          [nextPreferred.vendor_name, nextPreferred.vendor_id, nextPreferred.current_price, materialId]
+        );
+      } else {
+        await db.query(`UPDATE materials SET supplier_name = '', supplier_id = NULL, updated_at_ts = NOW() WHERE id = $1`, [materialId]);
+      }
+    }
+
+    return {
+      success: true,
+      archived: historyCount > 0,
+      archiveRecord
+    };
+  }
+
+  public async getVendorDeletionArchives(materialId?: string): Promise<any[]> {
+    const db = await this.getDb();
+    if (materialId) {
+      const res = await db.query(
+        'SELECT * FROM vendor_deletion_archives WHERE material_id = $1 ORDER BY archived_at DESC',
+        [materialId]
+      );
+      return res.rows;
+    }
+    const res = await db.query('SELECT * FROM vendor_deletion_archives ORDER BY archived_at DESC');
+    return res.rows;
+  }
+
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
     const tables = [
@@ -11608,7 +12221,7 @@ export class PostgresService {
       'project_plan_overhead_allocations', 'project_plan_cost_summaries',
       'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
       'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',
-      'suppliers', 'materials', 'outsourced_services',
+      'suppliers', 'materials', 'material_vendor_quotes', 'material_vendor_price_history', 'vendor_deletion_archives', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
       'users', 'account_requests', 'media_assets', 'audit_logs', 'tariffs', 'tariff_versions', 'plan_tariffs', 'schema_migrations'

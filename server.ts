@@ -1687,6 +1687,88 @@ async function startServer() {
     }
   });
 
+  // --- Material Vendor Quotes & Price Matrix APIs (PostgreSQL inno_cost) ---
+  app.get('/api/materials/:id/vendor-quotes', async (req, res) => {
+    try {
+      const quotes = await postgresService.getMaterialVendorQuotes(req.params.id);
+      res.json(quotes);
+    } catch (e: any) {
+      console.error('Failed to fetch material vendor quotes:', e);
+      res.status(500).json({ error: 'Failed to fetch vendor quotes', details: e?.message });
+    }
+  });
+
+  app.post('/api/materials/:id/vendor-quotes', async (req, res) => {
+    try {
+      if (!req.body || (!req.body.vendorName && !req.body.supplierId && !req.body.vendorId)) {
+        return res.status(400).json({ error: 'Vendor name or supplier reference is required' });
+      }
+      const actor = (req as any).user;
+      const created = await postgresService.createMaterialVendorQuote(req.params.id, req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create material vendor quote:', e);
+      res.status(500).json({ error: 'Failed to create vendor quote', details: e?.message });
+    }
+  });
+
+  app.put('/api/materials/:id/vendor-quotes/:quoteId', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const updated = await postgresService.updateMaterialVendorQuote(req.params.quoteId, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Vendor quote not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update material vendor quote:', e);
+      res.status(500).json({ error: 'Failed to update vendor quote', details: e?.message });
+    }
+  });
+
+  app.post('/api/materials/:id/vendor-quotes/:quoteId/commit-price', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const updated = await postgresService.commitMaterialVendorPrice(req.params.id, req.params.quoteId, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to commit material vendor price:', e);
+      res.status(500).json({ error: 'Failed to commit vendor price revision', details: e?.message });
+    }
+  });
+
+  app.delete('/api/materials/:id/vendor-quotes/:quoteId', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const result = await postgresService.deleteMaterialVendorQuote(req.params.id, req.params.quoteId, req.body, actor);
+      res.json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete material vendor quote:', e);
+      res.status(500).json({ error: 'Failed to delete vendor quote', details: e?.message });
+    }
+  });
+
+  app.post('/api/materials/:id/vendor-quotes/:quoteId/archive-and-delete', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const result = await postgresService.deleteMaterialVendorQuote(req.params.id, req.params.quoteId, req.body, actor);
+      res.json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to archive and delete material vendor quote:', e);
+      res.status(500).json({ error: 'Failed to archive and delete vendor quote', details: e?.message });
+    }
+  });
+
+  app.get('/api/materials/:id/vendor-archives', async (req, res) => {
+    try {
+      const archives = await postgresService.getVendorDeletionArchives(req.params.id);
+      res.json(archives);
+    } catch (e: any) {
+      console.error('Failed to fetch vendor deletion archives:', e);
+      res.status(500).json({ error: 'Failed to fetch vendor deletion archives', details: e?.message });
+    }
+  });
+
   // --- Outsourced Services API (PostgreSQL inno_cost) ---
   app.get('/api/outsourced', async (req, res) => {
     try {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -24,7 +24,10 @@ import {
   MoreVertical,
   Sliders,
   Star,
-  History
+  History,
+  Download,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import {
   MaterialItem,
@@ -32,11 +35,15 @@ import {
   VendorPriceChangeRecord,
   VolumePriceTier,
   Supplier,
-  TierChangeDetail
+  TierChangeDetail,
+  AppUser,
+  AuditLogRecord
 } from '../types';
 import { api } from '../services/api';
 import { RevisionChangesAuditModal } from './RevisionChangesAuditModal';
 import { VendorLatestRangesModal } from './VendorLatestRangesModal';
+import { downloadCSV } from '../utils/csvExport';
+import { getStoredCurrentUser, saveStoredAuditLogs, getStoredAuditLogs } from '../data/userAndAuditData';
 
 interface MaterialVendorPriceMatrixModalProps {
   material: MaterialItem;
@@ -45,267 +52,134 @@ interface MaterialVendorPriceMatrixModalProps {
   onUpdateMaterial: (updatedMaterial: MaterialItem) => void;
   onUpdateMaterialPrice?: (id: string, newPrice: number, reason: string) => void;
   onAddSupplier?: (supplier: Partial<Supplier>) => void;
+  currentUser?: AppUser | null;
+  onLogAudit?: (action: string, module: any, recordId?: string, recordName?: string, details?: string) => void;
 }
 
-// Fallback vendor quotes generator with comprehensive multi-range bulk pricing & rich history
+// Sanitizes or initializes vendor quotes: strictly relevant vendors only, removes irrelevant dummy records
 export const getOrInitializeVendorQuotes = (
   material: MaterialItem,
   suppliers: Supplier[]
 ): MaterialVendorQuote[] => {
+  // Check if a vendor quote is one of the generic irrelevant dummy quotes injected by old template
+  const isGenericDummyQuote = (vq: MaterialVendorQuote) => {
+    const dummyNames = [
+      'vulcan forge & billet works',
+      'titan alloy sourcing international',
+      'nippon precision metal ltd'
+    ];
+    const dummyIds = ['sup-02', 'sup-03', 'sup-04'];
+    const vqNameLower = (vq.vendorName || '').toLowerCase().trim();
+    const isNamedDummy = dummyNames.includes(vqNameLower);
+    const isIdDummy = dummyIds.includes(vq.vendorId);
+
+    // If the material's actual supplier has this name or ID, it is not a dummy
+    const isActualMaterialSupplier =
+      (material.supplierName && material.supplierName.toLowerCase().trim() === vqNameLower) ||
+      (material.supplierId && material.supplierId === vq.vendorId);
+
+    return (isNamedDummy || isIdDummy) && !isActualMaterialSupplier;
+  };
+
+  // If vendor quotes already exist on the material, filter out any irrelevant dummy quotes
   if (material.vendorQuotes && material.vendorQuotes.length > 0) {
-    return material.vendorQuotes.map((vq) => {
-      // Ensure volume pricing exists
-      if (!vq.volumePricing || vq.volumePricing.length === 0) {
-        const p = vq.currentPrice;
-        const moq = vq.moq || 1;
-        return {
-          ...vq,
-          volumePricing: [
-            { minQty: moq, maxQty: moq * 4, unitPrice: p, discountPct: 0, label: `${moq}-${moq * 4} (Base MOQ)` },
-            { minQty: moq * 4 + 1, maxQty: moq * 15, unitPrice: Number((p * 0.92).toFixed(2)), discountPct: 8.0, label: `${moq * 4 + 1}-${moq * 15} (Volume Pack)` },
-            { minQty: moq * 15 + 1, unitPrice: Number((p * 0.85).toFixed(2)), discountPct: 15.0, label: `${moq * 15 + 1}+ (Bulk Mill Lot)` }
-          ]
-        };
-      }
-      return vq;
-    });
+    const relevantQuotes = material.vendorQuotes.filter((vq) => !isGenericDummyQuote(vq));
+    if (relevantQuotes.length > 0) {
+      return relevantQuotes.map((vq) => {
+        if (!vq.volumePricing || vq.volumePricing.length === 0) {
+          const p = vq.currentPrice;
+          const moq = vq.moq || 1;
+          return {
+            ...vq,
+            volumePricing: [
+              { minQty: moq, maxQty: moq * 4, unitPrice: p, discountPct: 0, label: `${moq}-${moq * 4} (Base MOQ)` },
+              { minQty: moq * 4 + 1, maxQty: moq * 15, unitPrice: Number((p * 0.92).toFixed(2)), discountPct: 8.0, label: `${moq * 4 + 1}-${moq * 15} (Volume Pack)` },
+              { minQty: moq * 15 + 1, unitPrice: Number((p * 0.85).toFixed(2)), discountPct: 15.0, label: `${moq * 15 + 1}+ (Bulk Mill Lot)` }
+            ]
+          };
+        }
+        return vq;
+      });
+    }
   }
 
-  const basePrice = material.retailPrice || 420;
-  const primarySupplierName = material.supplierName || 'Apex Precision Metallurgy Corp';
+  // If no relevant vendor quotes exist yet, initialize ONLY the material's actual relevant supplier
+  const basePrice = material.retailPrice || (material as any).rate || 100;
+  const primarySupplierName = material.supplierName;
 
-  return [
-    {
-      vendorId: material.supplierId || 'sup-01',
-      vendorName: primarySupplierName,
-      country: 'United States',
-      currentPrice: basePrice,
-      currency: 'USD',
-      leadTimeDays: material.leadTimeDays || 7,
-      moq: 10,
-      isPreferred: true,
-      status: 'Preferred',
-      lastUpdated: material.lastUpdated || '2026-03-01',
-      contactEmail: 'sales@' + primarySupplierName.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com',
-      contactPhone: '+1 415 252 7217',
-      notes: 'Current contracted primary vendor with AS9100 mill certificates.',
-      volumePricing: [
-        { minQty: 1, maxQty: 10, unitPrice: basePrice, discountPct: 0, label: '1–10 sheets (Base)' },
-        { minQty: 11, maxQty: 50, unitPrice: Number((basePrice * 0.92).toFixed(2)), discountPct: 8.0, label: '11–50 sheets (-8%)' },
-        { minQty: 51, maxQty: 200, unitPrice: Number((basePrice * 0.85).toFixed(2)), discountPct: 15.0, label: '51–200 sheets (-15%)' },
-        { minQty: 201, unitPrice: Number((basePrice * 0.77).toFixed(2)), discountPct: 23.0, label: '201+ sheets (-23%)' }
-      ],
-      priceHistory: [
-        {
-          id: `hist-prim-3`,
-          date: '2026-03-01',
-          price: basePrice,
-          previousPrice: Number((basePrice * 0.97).toFixed(2)),
-          changePct: 3.1,
-          reason: 'Q1 raw material freight & energy surcharge pass-through',
-          quoteRef: `QT-${material.code}-2026-01`,
-          moq: 10,
-          leadTimeDays: 7,
-          updatedBy: 'Chief Estimator',
-          appliedChangesSummary: [
-            `Base Quoted Rate: $${(basePrice * 0.97).toFixed(2)} → $${basePrice.toFixed(2)} (+3.1%)`,
-            'Range Size for Tier 2: 11–40 sheets expanded to 11–50 sheets',
-            'Discount Rate for Tier 3: 12.0% increased to 15.0%'
-          ],
-          tierChanges: [
+  if (primarySupplierName || material.supplierId) {
+    const matchedSupplier = suppliers.find(
+      (s) =>
+        (material.supplierId && s.id === material.supplierId) ||
+        (primarySupplierName && s.name.toLowerCase().trim() === primarySupplierName.toLowerCase().trim())
+    );
+
+    const supName = primarySupplierName || matchedSupplier?.name || 'Primary Supplier';
+    const supId = material.supplierId || matchedSupplier?.id || `sup-${material.id}`;
+    const moq = (material as any).moq || 1;
+    const leadTime = material.leadTimeDays || matchedSupplier?.leadTimeDays || 7;
+
+    // Use material's real price history if available, else 1 initial benchmark quote
+    const realHistory: VendorPriceChangeRecord[] =
+      material.priceHistory && material.priceHistory.length > 0
+        ? material.priceHistory.map((ph, idx) => ({
+            id: ph.id || `hist-${idx}-${ph.date}`,
+            date: ph.date || new Date().toISOString().slice(0, 10),
+            price: ph.newPrice,
+            previousPrice: ph.previousPrice,
+            changePct: ph.changePct,
+            reason: ph.reason || 'Tariff & price adjustment',
+            quoteRef: `QT-${material.code}-${ph.date}`,
+            moq,
+            leadTimeDays: leadTime,
+            updatedBy: ph.updatedBy || 'Procurement Estimator',
+            appliedChangesSummary: [
+              `Base Quoted Rate: $${ph.previousPrice != null ? ph.previousPrice.toFixed(2) : '0.00'} → $${ph.newPrice != null ? ph.newPrice.toFixed(2) : '0.00'}`
+            ]
+          }))
+        : [
             {
-              tierLabel: '11–50 sheets (-8%)',
-              previousMinQty: 11,
-              newMinQty: 11,
-              previousMaxQty: 40,
-              newMaxQty: 50,
-              previousPrice: Number((basePrice * 0.97 * 0.93).toFixed(2)),
-              newPrice: Number((basePrice * 0.92).toFixed(2)),
-              previousDiscountPct: 7.0,
-              newDiscountPct: 8.0,
-              changeType: 'all'
-            },
-            {
-              tierLabel: '51–200 sheets (-15%)',
-              previousMinQty: 41,
-              newMinQty: 51,
-              previousMaxQty: 200,
-              newMaxQty: 200,
-              previousPrice: Number((basePrice * 0.97 * 0.88).toFixed(2)),
-              newPrice: Number((basePrice * 0.85).toFixed(2)),
-              previousDiscountPct: 12.0,
-              newDiscountPct: 15.0,
-              changeType: 'discount'
+              id: `hist-init-${material.id}`,
+              date: material.lastUpdated || new Date().toISOString().slice(0, 10),
+              price: basePrice,
+              reason: 'Initial catalog onboarding benchmark quote',
+              quoteRef: `QT-${material.code}-INIT`,
+              moq,
+              leadTimeDays: leadTime,
+              updatedBy: 'Catalog Lead',
+              appliedChangesSummary: [
+                `Initial Quoted Base Rate established at $${basePrice.toFixed(2)}`
+              ]
             }
-          ]
-        },
-        {
-          id: `hist-prim-2`,
-          date: '2025-09-15',
-          price: Number((basePrice * 0.97).toFixed(2)),
-          previousPrice: Number((basePrice * 0.94).toFixed(2)),
-          changePct: 3.2,
-          reason: 'Ingot spot benchmark adjustment and port tariff',
-          quoteRef: `QT-${material.code}-2025-54`,
-          moq: 10,
-          leadTimeDays: 7,
-          updatedBy: 'Procurement Director',
-          appliedChangesSummary: [
-            `Base Quoted Rate: $${(basePrice * 0.94).toFixed(2)} → $${(basePrice * 0.97).toFixed(2)} (+3.2%)`
-          ]
-        },
-        {
-          id: `hist-prim-1`,
-          date: '2025-04-12',
-          price: Number((basePrice * 0.94).toFixed(2)),
-          reason: 'Initial catalog onboarding benchmark quote',
-          quoteRef: `QT-${material.code}-2025-01`,
-          moq: 10,
-          leadTimeDays: 7,
-          updatedBy: 'Sourcing Manager',
-          appliedChangesSummary: [
-            `Initial Quoted Base Rate established at $${(basePrice * 0.94).toFixed(2)}`
-          ]
-        }
-      ]
-    },
-    {
-      vendorId: 'sup-02',
-      vendorName: 'Vulcan Forge & Billet Works',
-      country: 'United States',
-      currentPrice: Number((basePrice * 0.98).toFixed(2)),
-      currency: 'USD',
-      leadTimeDays: 12,
-      moq: 25,
-      isPreferred: false,
-      status: 'Best Price',
-      lastUpdated: '2026-02-18',
-      contactEmail: 'contracts@vulcanforge.com',
-      contactPhone: '+1 312 884 9210',
-      notes: 'High-capacity mill supplier with bulk volume tier advantages.',
-      volumePricing: [
-        { minQty: 25, maxQty: 49, unitPrice: Number((basePrice * 0.98).toFixed(2)), discountPct: 0, label: '25–49 sheets (MOQ)' },
-        { minQty: 50, maxQty: 150, unitPrice: Number((basePrice * 0.98 * 0.91).toFixed(2)), discountPct: 9.0, label: '50–150 sheets (-9%)' },
-        { minQty: 151, unitPrice: Number((basePrice * 0.98 * 0.82).toFixed(2)), discountPct: 18.0, label: '151+ sheets (-18%)' }
-      ],
-      priceHistory: [
-        {
-          id: `hist-vulcan-2`,
-          date: '2026-02-18',
-          price: Number((basePrice * 0.98).toFixed(2)),
-          previousPrice: Number((basePrice * 0.95).toFixed(2)),
-          changePct: 3.2,
-          reason: 'Furnace refractory fuel charge recalibration',
-          quoteRef: `VLC-MAT-${material.code}-882`,
-          moq: 25,
-          leadTimeDays: 12,
-          updatedBy: 'Procurement Officer',
-          appliedChangesSummary: [
-            `Base Quoted Rate: $${(basePrice * 0.95).toFixed(2)} → $${(basePrice * 0.98).toFixed(2)} (+3.2%)`,
-            'Discount Rate for Tier 2: 7.5% updated to 9.0%'
-          ]
-        },
-        {
-          id: `hist-vulcan-1`,
-          date: '2025-08-01',
-          price: Number((basePrice * 0.95).toFixed(2)),
-          reason: 'Long-term volume reservation bid',
-          quoteRef: `VLC-MAT-${material.code}-104`,
-          moq: 25,
-          leadTimeDays: 12,
-          updatedBy: 'Procurement Officer',
-          appliedChangesSummary: [
-            `Initial Quoted Base Rate established at $${(basePrice * 0.95).toFixed(2)}`
-          ]
-        }
-      ]
-    },
-    {
-      vendorId: 'sup-03',
-      vendorName: 'Titan Alloy Sourcing International',
-      country: 'Germany',
-      currentPrice: Number((basePrice * 1.04).toFixed(2)),
-      currency: 'USD',
-      leadTimeDays: 14,
-      moq: 5,
-      isPreferred: false,
-      status: 'Active',
-      lastUpdated: '2026-01-20',
-      contactEmail: 'export@titanalloy.de',
-      contactPhone: '+49 89 2314 990',
-      notes: 'European aerospace distributor with express lot testing capability.',
-      volumePricing: [
-        { minQty: 5, maxQty: 20, unitPrice: Number((basePrice * 1.04).toFixed(2)), discountPct: 0, label: '5–20 sheets (Base MOQ)' },
-        { minQty: 21, maxQty: 80, unitPrice: Number((basePrice * 1.04 * 0.94).toFixed(2)), discountPct: 6.0, label: '21–80 sheets (-6%)' },
-        { minQty: 81, unitPrice: Number((basePrice * 1.04 * 0.87).toFixed(2)), discountPct: 13.0, label: '81+ sheets (-13%)' }
-      ],
-      priceHistory: [
-        {
-          id: `hist-titan-2`,
-          date: '2026-01-20',
-          price: Number((basePrice * 1.04).toFixed(2)),
-          previousPrice: Number((basePrice * 1.01).toFixed(2)),
-          changePct: 3.0,
-          reason: 'EUR/USD foreign exchange revaluation and transatlantic logistics indexing',
-          quoteRef: `EUR-TITAN-${material.code}-091`,
-          moq: 5,
-          leadTimeDays: 14,
-          updatedBy: 'Global Sourcing Manager',
-          appliedChangesSummary: [
-            `Base Quoted Rate: $${(basePrice * 1.01).toFixed(2)} → $${(basePrice * 1.04).toFixed(2)} (+3.0%)`
-          ]
-        },
-        {
-          id: `hist-titan-1`,
-          date: '2025-06-10',
-          price: Number((basePrice * 1.01).toFixed(2)),
-          reason: 'International multi-year qualification tender',
-          quoteRef: `EUR-TITAN-${material.code}-004`,
-          moq: 5,
-          leadTimeDays: 14,
-          updatedBy: 'Sourcing Director',
-          appliedChangesSummary: [
-            `Initial Quoted Base Rate established at $${(basePrice * 1.01).toFixed(2)}`
-          ]
-        }
-      ]
-    },
-    {
-      vendorId: 'sup-04',
-      vendorName: 'Nippon Precision Metal Ltd',
-      country: 'Japan',
-      currentPrice: Number((basePrice * 1.07).toFixed(2)),
-      currency: 'USD',
-      leadTimeDays: 21,
-      moq: 50,
-      isPreferred: false,
-      status: 'Under Review',
-      lastUpdated: '2025-11-05',
-      contactEmail: 'inquiries@nipponprecision.jp',
-      contactPhone: '+81 3 5555 0142',
-      notes: 'Ultra-tight dimensional tolerance specialist with mill run inspections.',
-      volumePricing: [
-        { minQty: 50, maxQty: 100, unitPrice: Number((basePrice * 1.07).toFixed(2)), discountPct: 0, label: '50–100 sheets (Base MOQ)' },
-        { minQty: 101, maxQty: 300, unitPrice: Number((basePrice * 1.07 * 0.90).toFixed(2)), discountPct: 10.0, label: '101–300 sheets (-10%)' },
-        { minQty: 301, unitPrice: Number((basePrice * 1.07 * 0.81).toFixed(2)), discountPct: 19.0, label: '301+ sheets (-19%)' }
-      ],
-      priceHistory: [
-        {
-          id: `hist-nip-1`,
-          date: '2025-11-05',
-          price: Number((basePrice * 1.07).toFixed(2)),
-          reason: 'Initial high-spec aerospace qualification bid',
-          quoteRef: `NIP-EXP-${material.code}-2025`,
-          moq: 50,
-          leadTimeDays: 21,
-          updatedBy: 'Senior Metallurgist',
-          appliedChangesSummary: [
-            `Initial Quoted Base Rate established at $${(basePrice * 1.07).toFixed(2)}`
-          ]
-        }
-      ]
-    }
-  ];
+          ];
+
+    return [
+      {
+        vendorId: supId,
+        vendorName: supName,
+        country: matchedSupplier?.country || 'United States',
+        currentPrice: basePrice,
+        currency: material.currency || 'USD',
+        leadTimeDays: leadTime,
+        moq,
+        isPreferred: true,
+        status: 'Preferred',
+        lastUpdated: material.lastUpdated || new Date().toISOString().slice(0, 10),
+        contactEmail: matchedSupplier?.email || `sales@${supName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+        contactPhone: matchedSupplier?.phone || '+1 415 252 7217',
+        notes: matchedSupplier?.notes || 'Contracted primary vendor with certified mill test specification.',
+        volumePricing: [
+          { minQty: 1, maxQty: moq * 4, unitPrice: basePrice, discountPct: 0, label: `1–${moq * 4} (Base MOQ)` },
+          { minQty: moq * 4 + 1, maxQty: moq * 15, unitPrice: Number((basePrice * 0.92).toFixed(2)), discountPct: 8.0, label: `${moq * 4 + 1}–${moq * 15} (-8%)` },
+          { minQty: moq * 15 + 1, unitPrice: Number((basePrice * 0.85).toFixed(2)), discountPct: 15.0, label: `${moq * 15 + 1}+ (-15%)` }
+        ],
+        priceHistory: realHistory
+      }
+    ];
+  }
+
+  // If material has no supplier at all, return empty list (user can click + Add Vendor Column)
+  return [];
 };
 
 export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixModalProps> = ({
@@ -314,12 +188,31 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
   onClose,
   onUpdateMaterial,
   onUpdateMaterialPrice,
-  onAddSupplier
+  onAddSupplier,
+  currentUser,
+  onLogAudit
 }) => {
   // Vendor quotes state
   const [vendorQuotes, setVendorQuotes] = useState<MaterialVendorQuote[]>(() =>
     getOrInitializeVendorQuotes(material, suppliers)
   );
+
+  // Sync vendor quotes from PostgreSQL database
+  useEffect(() => {
+    let isMounted = true;
+    api.getMaterialVendorQuotes(material.id)
+      .then((dbQuotes) => {
+        if (isMounted && Array.isArray(dbQuotes) && dbQuotes.length > 0) {
+          setVendorQuotes(dbQuotes);
+        }
+      })
+      .catch((err) => {
+        console.warn('[PriceMatrix] Database vendor quotes load warning:', err?.message);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [material.id]);
 
   const [searchFilter, setSearchFilter] = useState('');
 
@@ -347,7 +240,6 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
     leadTimeDays: number;
     setAsPrimary: boolean;
     updatedBy: string;
-    // Selective bulk ranges to change: records range sizes, discount rates, unit prices
     selectedRanges: {
       rangeIndex: number;
       label: string;
@@ -381,6 +273,359 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
   // "+ Add Vendor Column" modal state
   const [isAddVendorModalOpen, setIsAddVendorModalOpen] = useState(false);
   const [addVendorMode, setAddVendorMode] = useState<'select_existing' | 'create_new'>('select_existing');
+
+  // "Edit Vendor Details" modal state
+  const [editingVendor, setEditingVendor] = useState<MaterialVendorQuote | null>(null);
+  const [editVendorForm, setEditVendorForm] = useState({
+    vendorName: '',
+    country: 'United States',
+    contactEmail: '',
+    contactPhone: '',
+    leadTimeDays: 7,
+    moq: 1,
+    currency: 'USD',
+    status: 'Active' as const,
+    notes: ''
+  });
+
+  // "Delete Vendor" modal state with compliance archive download enforcement
+  const [vendorToDelete, setVendorToDelete] = useState<MaterialVendorQuote | null>(null);
+  const [isArchiveDownloaded, setIsArchiveDownloaded] = useState<boolean>(false);
+  const [lastDownloadedFilename, setLastDownloadedFilename] = useState<string>('');
+
+  const handleOpenEditVendor = (vendor: MaterialVendorQuote) => {
+    setOpenVendorMenuId(null);
+    setEditingVendor(vendor);
+    setEditVendorForm({
+      vendorName: vendor.vendorName,
+      country: vendor.country || 'United States',
+      contactEmail: vendor.contactEmail || '',
+      contactPhone: vendor.contactPhone || '',
+      leadTimeDays: vendor.leadTimeDays || 7,
+      moq: vendor.moq || 1,
+      currency: vendor.currency || 'USD',
+      status: (vendor.status as any) || 'Active',
+      notes: vendor.notes || ''
+    });
+  };
+
+  const handleSaveVendorEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingVendor) return;
+
+    const oldName = editingVendor.vendorName;
+    const newName = editVendorForm.vendorName.trim();
+    if (!newName) return;
+
+    const updatedQuotes = vendorQuotes.map((vq) => {
+      if (vq.vendorId === editingVendor.vendorId) {
+        return {
+          ...vq,
+          vendorName: newName,
+          country: editVendorForm.country,
+          contactEmail: editVendorForm.contactEmail,
+          contactPhone: editVendorForm.contactPhone,
+          leadTimeDays: Number(editVendorForm.leadTimeDays),
+          moq: Number(editVendorForm.moq),
+          currency: editVendorForm.currency,
+          status: editVendorForm.status,
+          notes: editVendorForm.notes
+        };
+      }
+      return vq;
+    });
+
+    setVendorQuotes(updatedQuotes);
+
+    const updatedMaterial: MaterialItem = {
+      ...material,
+      vendorQuotes: updatedQuotes,
+      supplierName: editingVendor.isPreferred ? newName : material.supplierName
+    };
+
+    onUpdateMaterial(updatedMaterial);
+
+    const actor = currentUser || getStoredCurrentUser() || {
+      id: 'ADMIN-01',
+      name: 'Administrator',
+      role: 'ADMIN',
+      employeeId: 'ADMIN-01'
+    };
+
+    const auditEntry: AuditLogRecord = {
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      actorId: actor.id || actor.employeeId || 'ADMIN-01',
+      actorName: actor.name || 'Administrator',
+      actorRole: actor.role || 'ADMIN',
+      action: 'VENDOR_UPDATED',
+      actionType: 'UPDATE',
+      module: 'Materials',
+      recordId: material.id,
+      recordName: `${material.code} - ${material.name}`,
+      entityType: 'MaterialVendorQuote',
+      entityId: editingVendor.vendorId,
+      details: `Updated supplier details for "${oldName}" ${oldName !== newName ? `(renamed to "${newName}")` : ''} on item ${material.code} (${material.name}). SLA: ${editVendorForm.leadTimeDays}d, MOQ: ${editVendorForm.moq}, Country: ${editVendorForm.country}. Operator: ${actor.name} (${actor.role}).`,
+      ipAddress: '127.0.0.1',
+      status: 'Success',
+      metadata: {
+        itemId: material.id,
+        itemCode: material.code,
+        vendorId: editingVendor.vendorId,
+        oldName,
+        newName,
+        leadTimeDays: editVendorForm.leadTimeDays,
+        moq: editVendorForm.moq,
+        status: editVendorForm.status,
+        user: {
+          id: actor.id,
+          name: actor.name,
+          role: actor.role
+        }
+      }
+    };
+
+    saveStoredAuditLogs([auditEntry, ...getStoredAuditLogs()]);
+    api.createAuditLog(auditEntry).catch(() => {});
+    if (onLogAudit) {
+      onLogAudit('VENDOR_UPDATED', 'Materials', material.id, material.name, auditEntry.details);
+    }
+
+    // Persist vendor quote modifications directly into PostgreSQL database
+    const quoteDbId = editingVendor.id || editingVendor.vendorId;
+    api.updateMaterialVendorQuote(material.id, quoteDbId, {
+      vendorName: newName,
+      country: editVendorForm.country,
+      contactEmail: editVendorForm.contactEmail,
+      contactPhone: editVendorForm.contactPhone,
+      leadTimeDays: Number(editVendorForm.leadTimeDays),
+      moq: Number(editVendorForm.moq),
+      currency: editVendorForm.currency,
+      status: editVendorForm.status,
+      notes: editVendorForm.notes
+    }).catch((err) => console.warn('[PriceMatrix] Update vendor quote API warning:', err?.message));
+
+    setEditingVendor(null);
+  };
+
+  const handleDeleteVendorClick = (vendor: MaterialVendorQuote) => {
+    setOpenVendorMenuId(null);
+    setVendorToDelete(vendor);
+    setIsArchiveDownloaded(false);
+    setLastDownloadedFilename('');
+  };
+
+  const handleDownloadPriceHistoryArchive = () => {
+    if (!vendorToDelete) return;
+
+    const actor = currentUser || getStoredCurrentUser() || {
+      id: 'ADMIN-01',
+      name: 'Administrator',
+      role: 'ADMIN',
+      employeeId: 'ADMIN-01'
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeVendorName = vendorToDelete.vendorName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `${material.code || material.id}_${safeVendorName}_PriceHistory_Archive_${timestamp}.csv`;
+
+    const headers = [
+      'Item ID',
+      'Item Code',
+      'Item Name',
+      'Unit',
+      'Vendor ID',
+      'Vendor Name',
+      'Vendor Country',
+      'Currency',
+      'Contact Email',
+      'Contact Phone',
+      'Lead Time Days',
+      'MOQ',
+      'Vendor Status',
+      'Revision ID',
+      'Revision Date',
+      'Previous Price',
+      'New Quoted Price',
+      'Change %',
+      'Reason',
+      'Quote Ref',
+      'Updated By',
+      'Summary of Applied Changes',
+      'Archived At Timestamp',
+      'Archived By User ID',
+      'Archived By User Name',
+      'Archived By User Role'
+    ];
+
+    const revisions = vendorToDelete.priceHistory && vendorToDelete.priceHistory.length > 0
+      ? vendorToDelete.priceHistory
+      : [
+          {
+            id: `init-${vendorToDelete.vendorId}`,
+            date: vendorToDelete.lastUpdated || new Date().toISOString().slice(0, 10),
+            price: vendorToDelete.currentPrice,
+            previousPrice: vendorToDelete.currentPrice,
+            changePct: 0,
+            reason: 'Current catalog rate (No prior revisions)',
+            quoteRef: `QT-${material.code}-CURR`,
+            updatedBy: 'Catalog Lead',
+            appliedChangesSummary: [`Current rate at $${vendorToDelete.currentPrice.toFixed(2)}`]
+          } as VendorPriceChangeRecord
+        ];
+
+    const nowIso = new Date().toISOString();
+    const rows = revisions.map((r) => [
+      material.id,
+      material.code,
+      material.name,
+      material.unit,
+      vendorToDelete.vendorId,
+      vendorToDelete.vendorName,
+      vendorToDelete.country || '',
+      vendorToDelete.currency || 'USD',
+      vendorToDelete.contactEmail || '',
+      vendorToDelete.contactPhone || '',
+      vendorToDelete.leadTimeDays || '',
+      vendorToDelete.moq || '',
+      vendorToDelete.status || '',
+      r.id,
+      r.date,
+      r.previousPrice != null ? r.previousPrice : '',
+      r.price != null ? r.price : '',
+      r.changePct != null ? `${r.changePct}%` : '0%',
+      r.reason || '',
+      r.quoteRef || '',
+      r.updatedBy || '',
+      (r.appliedChangesSummary || []).join('; '),
+      nowIso,
+      actor.id || actor.employeeId || 'ADMIN-01',
+      actor.name || 'Administrator',
+      actor.role || 'ADMIN'
+    ]);
+
+    downloadCSV(filename, headers, rows);
+    setIsArchiveDownloaded(true);
+    setLastDownloadedFilename(filename);
+  };
+
+  const handleConfirmDeleteVendor = () => {
+    if (!vendorToDelete) return;
+    const historyCount = vendorToDelete.priceHistory?.length || 0;
+
+    // Strict enforcement: if vendor has price history, download must occur
+    if (historyCount > 0 && !isArchiveDownloaded) {
+      handleDownloadPriceHistoryArchive();
+    }
+
+    const actor = currentUser || getStoredCurrentUser() || {
+      id: 'ADMIN-01',
+      name: 'Administrator',
+      role: 'ADMIN',
+      employeeId: 'ADMIN-01'
+    };
+
+    const safeFilename = lastDownloadedFilename || `${material.code}_${vendorToDelete.vendorName.replace(/[^a-zA-Z0-9_-]/g, '_')}_PriceHistory_Archive_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    const updatedQuotes = vendorQuotes.filter((vq) => vq.vendorId !== vendorToDelete.vendorId);
+
+    // If deleted vendor was primary, promote next available vendor to primary
+    let newSupplierName = material.supplierName;
+    let newSupplierId = material.supplierId;
+    let newRetailPrice = material.retailPrice;
+
+    if (vendorToDelete.isPreferred && updatedQuotes.length > 0) {
+      updatedQuotes[0].isPreferred = true;
+      updatedQuotes[0].status = 'Preferred';
+      newSupplierName = updatedQuotes[0].vendorName;
+      newSupplierId = updatedQuotes[0].vendorId;
+      newRetailPrice = updatedQuotes[0].currentPrice;
+    } else if (updatedQuotes.length === 0) {
+      newSupplierName = '';
+      newSupplierId = '';
+    }
+
+    setVendorQuotes(updatedQuotes);
+
+    const updatedMaterial: MaterialItem = {
+      ...material,
+      vendorQuotes: updatedQuotes,
+      supplierName: newSupplierName,
+      supplierId: newSupplierId,
+      retailPrice: newRetailPrice
+    };
+
+    onUpdateMaterial(updatedMaterial);
+
+    const auditEntry: AuditLogRecord = {
+      id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      actorId: actor.id || actor.employeeId || 'ADMIN-01',
+      actorName: actor.name || 'Administrator',
+      actorRole: actor.role || 'ADMIN',
+      action: historyCount > 0 ? 'VENDOR_PRICE_HISTORY_ARCHIVED_AND_DELETED' : 'VENDOR_DELETED',
+      actionType: 'DELETE',
+      module: 'Materials',
+      recordId: material.id,
+      recordName: `${material.code} - ${material.name}`,
+      entityType: 'MaterialVendorQuote',
+      entityId: vendorToDelete.vendorId,
+      details: historyCount > 0
+        ? `Archived and deleted vendor "${vendorToDelete.vendorName}" with ${historyCount} historical price revision(s) for item ${material.code} (${material.name}). Archive downloaded file: "${safeFilename}". Performed by: ${actor.name} (${actor.role}, ID: ${actor.id || actor.employeeId}).`
+        : `Deleted vendor "${vendorToDelete.vendorName}" from item ${material.code} (${material.name}). No prior price revision history existed. Performed by: ${actor.name} (${actor.role}).`,
+      ipAddress: '127.0.0.1',
+      status: 'Success',
+      metadata: {
+        itemId: material.id,
+        itemCode: material.code,
+        itemName: material.name,
+        vendorId: vendorToDelete.vendorId,
+        vendorName: vendorToDelete.vendorName,
+        historyCount,
+        archivedFileName: safeFilename,
+        user: {
+          id: actor.id || actor.employeeId,
+          name: actor.name,
+          role: actor.role,
+          email: (actor as any).email
+        },
+        deletedAt: new Date().toISOString()
+      }
+    };
+
+    saveStoredAuditLogs([auditEntry, ...getStoredAuditLogs()]);
+    api.createAuditLog(auditEntry).catch(() => {});
+    if (onLogAudit) {
+      onLogAudit(
+        historyCount > 0 ? 'VENDOR_PRICE_HISTORY_ARCHIVED_AND_DELETED' : 'VENDOR_DELETED',
+        'Materials',
+        material.id,
+        material.name,
+        auditEntry.details
+      );
+    }
+
+    // Persist archive record and delete quote from PostgreSQL database
+    const quoteDbId = vendorToDelete.id || vendorToDelete.vendorId;
+    api.archiveAndDeleteVendor(material.id, quoteDbId, {
+      archivedFilename: safeFilename,
+      user: {
+        id: actor.id || actor.employeeId,
+        name: actor.name,
+        role: actor.role,
+        email: (actor as any).email
+      },
+      notes: historyCount > 0
+        ? `Archived ${historyCount} historical price revisions and deleted vendor`
+        : 'Deleted vendor'
+    }).catch((err) => {
+      console.warn('[PriceMatrix] API archiveAndDeleteVendor warning:', err?.message);
+    });
+
+    setVendorToDelete(null);
+    setIsArchiveDownloaded(false);
+    setLastDownloadedFilename('');
+  };
 
   const [newVendorForm, setNewVendorForm] = useState({
     supplierId: '',
@@ -738,6 +983,25 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
       );
     }
 
+    // Persist price revision & volume tiers directly into PostgreSQL database
+    const quoteDbId = selectedVendorForCommit.id || selectedVendorForCommit.vendorId;
+    api.commitMaterialVendorPrice(material.id, quoteDbId, {
+      changeBasePrice: isBaseChanged,
+      newBasePrice: finalBasePrice,
+      effectiveDate: commitForm.effectiveDate,
+      reason: commitForm.reason,
+      quoteRef: commitForm.quoteRef,
+      moq: commitForm.moq,
+      leadTimeDays: commitForm.leadTimeDays,
+      setAsPrimary: commitForm.setAsPrimary,
+      updatedBy: commitForm.updatedBy,
+      selectedRanges: changedRanges,
+      recordedChangedTiers,
+      targetTierLabel,
+      tierChanges,
+      appliedChangesSummary
+    }).catch((err) => console.warn('[PriceMatrix] API commitMaterialVendorPrice warning:', err?.message));
+
     setSelectedVendorForCommit(null);
   };
 
@@ -869,6 +1133,23 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
     };
 
     onUpdateMaterial(updatedMaterial);
+
+    // Persist new vendor quote directly to PostgreSQL database
+    api.createMaterialVendorQuote(material.id, {
+      vendorId: finalSupplierId,
+      vendorName: newVendorForm.vendorName.trim(),
+      country: newVendorForm.country,
+      currentPrice: startingPrice,
+      currency: 'USD',
+      leadTimeDays: Number(newVendorForm.leadTimeDays),
+      moq: Number(newVendorForm.moq),
+      isPreferred: newVendorForm.isPreferred,
+      status: newVendorForm.isPreferred ? 'Preferred' : 'Active',
+      quoteReason: newVendorForm.quoteReason.trim(),
+      quoteRef: newVendorForm.quoteRef.trim(),
+      volumePricing: newVendorForm.volumeTiers
+    }).catch((err) => console.warn('[PriceMatrix] API createMaterialVendorQuote warning:', err?.message));
+
     setIsAddVendorModalOpen(false);
   };
 
@@ -1088,7 +1369,27 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
                             <span>+ Change</span>
                           </button>
 
-                          {/* 3. Menu Button Containing All Commands */}
+                          {/* 3. Quick Edit Supplier Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditVendor(vendor)}
+                            className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-blue-800 hover:bg-blue-50 transition-colors flex items-center cursor-pointer"
+                            title={`Edit supplier profile & terms for ${vendor.vendorName}`}
+                          >
+                            <Edit className="w-3 h-3 text-blue-600" />
+                          </button>
+
+                          {/* 4. Quick Delete Supplier Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVendorClick(vendor)}
+                            className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-rose-800 hover:bg-rose-50 transition-colors flex items-center cursor-pointer"
+                            title={`Delete supplier ${vendor.vendorName} (Requires archive download if price history exists)`}
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-500" />
+                          </button>
+
+                          {/* 5. Menu Button Containing All Commands */}
                           <div className="relative">
                             <button
                               type="button"
@@ -1170,6 +1471,21 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
                                   </div>
 
                                   <div className="py-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenVendorMenuId(null);
+                                        handleOpenEditVendor(vendor);
+                                      }}
+                                      className="w-full px-3 py-1.5 flex items-start space-x-2 hover:bg-blue-50 text-slate-800 transition-colors cursor-pointer text-left"
+                                    >
+                                      <Edit className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                                      <div>
+                                        <div className="font-semibold text-slate-900">Edit Supplier Details</div>
+                                        <div className="text-[10px] text-slate-500">Update company, SLA, MOQ & contact</div>
+                                      </div>
+                                    </button>
+
                                     {!isPrimary ? (
                                       <button
                                         type="button"
@@ -1207,6 +1523,27 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
                                       </div>
                                     </button>
                                   </div>
+
+                                  <div className="py-1 border-t border-slate-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenVendorMenuId(null);
+                                        handleDeleteVendorClick(vendor);
+                                      }}
+                                      className="w-full px-3 py-1.5 flex items-start space-x-2 hover:bg-rose-50 text-slate-800 transition-colors cursor-pointer text-left"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                                      <div>
+                                        <div className="font-semibold text-rose-700">Delete Supplier</div>
+                                        <div className="text-[10px] text-rose-500">
+                                          {(vendor.priceHistory || []).length > 0
+                                            ? 'Archive download required before delete'
+                                            : 'Remove supplier column'}
+                                        </div>
+                                      </div>
+                                    </button>
+                                  </div>
                                 </div>
                               </>
                             )}
@@ -1235,7 +1572,25 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
 
           {/* ROWS - STRICTLY ONE LINE ROW WITH MINIMUM DETAIL */}
           <tbody className="divide-y divide-slate-200 text-xs">
-            {timelineRecords.length === 0 ? (
+            {vendorQuotes.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="py-12 text-center text-slate-500 bg-slate-50">
+                  <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <div className="font-semibold text-slate-800 text-xs">No Qualified Vendors Linked Yet</div>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                    Click "+ Add Vendor" to link registered suppliers or onboard new vendors and track their price revisions.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddVendorModalOpen(true)}
+                    className="mt-3 inline-flex items-center space-x-1.5 px-3 py-1.5 bg-[#003049] text-white text-xs rounded font-medium hover:bg-[#002235] cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Vendor Column</span>
+                  </button>
+                </td>
+              </tr>
+            ) : timelineRecords.length === 0 ? (
               <tr>
                 <td colSpan={vendorQuotes.length + 2} className="py-8 text-center text-slate-400 text-xs">
                   No historical revision records found.
@@ -2359,6 +2714,352 @@ export const MaterialVendorPriceMatrixModal: React.FC<MaterialVendorPriceMatrixM
             handleOpenCommitPrice(v);
           }}
         />
+      )}
+
+      {/* 10. EDIT VENDOR DETAILS MODAL */}
+      {editingVendor && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-3 animate-in fade-in">
+          <div className="bg-white border border-slate-300 rounded-lg max-w-lg w-full p-4 shadow-2xl space-y-3 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-7 h-7 rounded bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Edit className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">Edit Supplier / Vendor Details</h3>
+                  <p className="text-[10px] text-slate-500">{editingVendor.vendorName} • {material.code}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingVendor(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveVendorEdit} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                  Supplier / Vendor Company Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editVendorForm.vendorName}
+                  onChange={(e) => setEditVendorForm({ ...editVendorForm, vendorName: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 font-medium focus:outline-none focus:border-[#003049]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Country
+                  </label>
+                  <input
+                    type="text"
+                    value={editVendorForm.country}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, country: e.target.value })}
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Status Badge
+                  </label>
+                  <select
+                    value={editVendorForm.status}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, status: e.target.value as any })}
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900"
+                  >
+                    <option value="Preferred">Preferred (Primary)</option>
+                    <option value="Active">Active</option>
+                    <option value="Under Review">Under Review</option>
+                    <option value="Best Price">Best Price</option>
+                    <option value="Lead Exist">Lead Exist</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    value={editVendorForm.contactEmail}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, contactEmail: e.target.value })}
+                    placeholder="sales@supplier.com"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Contact Phone
+                  </label>
+                  <input
+                    type="text"
+                    value={editVendorForm.contactPhone}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, contactPhone: e.target.value })}
+                    placeholder="+1 (555) 000-0000"
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Lead Time SLA (Days)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editVendorForm.leadTimeDays}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, leadTimeDays: Math.max(1, parseInt(e.target.value) || 1) })}
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                    Minimum Order Qty (MOQ)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editVendorForm.moq}
+                    onChange={(e) => setEditVendorForm({ ...editVendorForm, moq: Math.max(1, parseInt(e.target.value) || 1) })}
+                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-slate-700 mb-1">
+                  Notes & Mill Certification
+                </label>
+                <textarea
+                  rows={2}
+                  value={editVendorForm.notes}
+                  onChange={(e) => setEditVendorForm({ ...editVendorForm, notes: e.target.value })}
+                  placeholder="Contract terms, compliance certificates, warranty notes..."
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditingVendor(null)}
+                  className="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded font-medium transition-colors cursor-pointer"
+                >
+                  Save Changes & Log Audit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 11. DELETE VENDOR MODAL (WITH COMPLIANCE ARCHIVE & DOWNLOAD REQUIREMENT) */}
+      {vendorToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-2xs p-3 animate-in fade-in">
+          <div className="bg-white border border-slate-300 rounded-lg max-w-xl w-full p-4 shadow-2xl space-y-3 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">
+                    Delete Supplier: {vendorToDelete.vendorName}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    Catalog Item: <span className="font-mono font-semibold">{material.code}</span> ({material.name})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVendorToDelete(null);
+                  setIsArchiveDownloaded(false);
+                }}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {(vendorToDelete.priceHistory && vendorToDelete.priceHistory.length > 0) ? (
+              <div className="space-y-3">
+                {/* Regulatory Compliance & Audit Notice */}
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-2.5">
+                  <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-900 space-y-1">
+                    <div className="font-bold">
+                      Archive & Download Required Before Deletion ({vendorToDelete.priceHistory.length} Price Revisions)
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      This supplier contains <b>{vendorToDelete.priceHistory.length} historical price revision event(s)</b>.
+                      In accordance with enterprise auditing standards, vendor price history cannot be deleted without first archiving and downloading the full audit record.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Historical Revisions Preview Table */}
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-600 mb-1 flex items-center justify-between">
+                    <span>Historical Price Changes to be Archived</span>
+                    <span className="font-mono text-slate-500">{vendorToDelete.priceHistory.length} records</span>
+                  </div>
+                  <div className="border border-slate-200 rounded max-h-40 overflow-y-auto">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 text-slate-600 font-medium">
+                        <tr>
+                          <th className="py-1 px-2">Date</th>
+                          <th className="py-1 px-2">Prev Rate</th>
+                          <th className="py-1 px-2">New Rate</th>
+                          <th className="py-1 px-2">Change %</th>
+                          <th className="py-1 px-2">Reason</th>
+                          <th className="py-1 px-2">Approved By</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[10px]">
+                        {vendorToDelete.priceHistory.map((h, i) => (
+                          <tr key={h.id || i} className="hover:bg-slate-50">
+                            <td className="py-1 px-2 text-slate-800 whitespace-nowrap">{h.date}</td>
+                            <td className="py-1 px-2 text-slate-500">${(h.previousPrice ?? 0).toFixed(2)}</td>
+                            <td className="py-1 px-2 font-bold text-slate-900">${(h.price ?? 0).toFixed(2)}</td>
+                            <td className="py-1 px-2 text-slate-700">{h.changePct ? `${h.changePct}%` : '0%'}</td>
+                            <td className="py-1 px-2 text-slate-600 font-sans truncate max-w-[150px]" title={h.reason}>{h.reason || 'Benchmark rate'}</td>
+                            <td className="py-1 px-2 text-slate-500 font-sans">{h.updatedBy || 'Estimator'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Archive Download Status */}
+                <div className="p-2.5 rounded-lg border flex items-center justify-between transition-colors bg-slate-50 border-slate-200">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800">
+                      {isArchiveDownloaded ? '✓ Archive Download Complete' : 'Step 1: Download Price History Archive'}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      {isArchiveDownloaded
+                        ? lastDownloadedFilename || 'CSV archive downloaded'
+                        : 'Click below to download full CSV archive before deletion'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadPriceHistoryArchive}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                      isArchiveDownloaded
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-sky-700 hover:bg-sky-800 text-white shadow-xs'
+                    }`}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{isArchiveDownloaded ? 'Re-Download CSV' : 'Download Archive (CSV)'}</span>
+                  </button>
+                </div>
+
+                {/* User Audit Confirmation Info */}
+                <div className="p-2 bg-slate-100 rounded text-[10px] text-slate-600">
+                  <b>Audit Log Notice:</b> This deletion will be logged under user <b>{(currentUser || getStoredCurrentUser())?.name || 'Administrator'}</b> ({(currentUser || getStoredCurrentUser())?.role || 'ADMIN'}) including timestamp, item SKU, and archive reference.
+                </div>
+
+                {/* Modal Actions */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVendorToDelete(null);
+                      setIsArchiveDownloaded(false);
+                    }}
+                    className="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded text-xs font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+
+                  <div className="flex items-center space-x-2">
+                    {!isArchiveDownloaded ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleDownloadPriceHistoryArchive();
+                          setTimeout(() => {
+                            handleConfirmDeleteVendor();
+                          }, 400);
+                        }}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                        title="Downloads the archive file and immediately confirms deletion with audit log"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Archive & Delete</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConfirmDeleteVendor}
+                        className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Confirm Delete & Record in Audit Log</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* If no price history exists */
+              <div className="space-y-3 text-xs">
+                <p className="text-slate-700 leading-relaxed">
+                  Are you sure you want to remove supplier <b>{vendorToDelete.vendorName}</b> from catalog item <b>{material.code}</b> ({material.name})?
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  No price change history has been logged for this supplier. The supplier column will be removed and an audit record created.
+                </p>
+
+                <div className="p-2 bg-slate-100 rounded text-[10px] text-slate-600">
+                  <b>Audit Log Notice:</b> Action will be recorded by user <b>{(currentUser || getStoredCurrentUser())?.name || 'Administrator'}</b>.
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setVendorToDelete(null)}
+                    className="px-3 py-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteVendor}
+                    className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-medium transition-colors cursor-pointer"
+                  >
+                    Delete Supplier
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
