@@ -325,6 +325,7 @@ async function startServer() {
   // ---- Login and role checks for every /api route ----
   const PUBLIC_ROUTES: Array<[string, RegExp]> = [
     ['GET', /^\/api\/health$/],
+    ['GET', /^\/api\/database\/status$/],
     ['GET', /^\/api\/company-details$/],
     ['GET', /^\/api\/images\/[^/]+$/],
     ['POST', /^\/api\/auth\/(login|verify-mfa|google-login|signup-init|signup-verify)$/],
@@ -338,7 +339,7 @@ async function startServer() {
     ['GET', /^\/api\/audit-logs$/],
     ['GET', /^\/api\/account-requests$/],
     ['PUT', /^\/api\/account-requests\/[^/]+\/status$/],
-    ['*', /^\/api\/database(\/|$)/],
+    ['*', /^\/api\/database\/(?!status$)/],
     ['*', /^\/api\/reset-data$/],
     ['PUT', /^\/api\/company-details$/]
   ];
@@ -3633,6 +3634,71 @@ async function startServer() {
     } catch (e: any) {
       console.error('Database import failed:', e);
       res.status(400).json({ error: 'Failed to import to PostgreSQL database', details: e?.message });
+    }
+  });
+
+  // Live PostgreSQL Database Health, Metadata, and Row Counts
+  app.get('/api/database/status', async (_req, res) => {
+    try {
+      const startTime = Date.now();
+      const testRes = await postgresService.query('SELECT 1 as connected, current_database() as db_name, version() as version_str');
+      const latencyMs = Date.now() - startTime;
+
+      // Fetch row counts across primary relational tables
+      const [
+        projCount,
+        matCount,
+        supCount,
+        subCount,
+        tariffCount,
+        invCount,
+        catCount,
+        ovhCount,
+        revCount,
+        auditCount,
+        plansCount
+      ] = await Promise.all([
+        postgresService.query('SELECT COUNT(*) as count FROM projects').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM materials').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM suppliers').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM subcontractors').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM tariffs').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM inventory').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM categories').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM overhead_items').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM revenue_items').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM audit_logs').catch(() => ({ rows: [{ count: 0 }] })),
+        postgresService.query('SELECT COUNT(*) as count FROM project_plans').catch(() => ({ rows: [{ count: 0 }] }))
+      ]);
+
+      const migrationsRes = await postgresService.query('SELECT migration_name, applied_at FROM schema_migrations ORDER BY id DESC').catch(() => ({ rows: [] }));
+
+      res.json({
+        status: 'Connected',
+        engine: 'PostgreSQL (PGlite Relational Engine)',
+        database: testRes.rows[0]?.db_name || 'inno_cost',
+        latencyMs,
+        uptimeSeconds: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+        tables: {
+          projects: Number(projCount.rows[0]?.count || 0),
+          materials: Number(matCount.rows[0]?.count || 0),
+          suppliers: Number(supCount.rows[0]?.count || 0),
+          subcontractors: Number(subCount.rows[0]?.count || 0),
+          tariffs: Number(tariffCount.rows[0]?.count || 0),
+          inventory: Number(invCount.rows[0]?.count || 0),
+          categories: Number(catCount.rows[0]?.count || 0),
+          overhead_items: Number(ovhCount.rows[0]?.count || 0),
+          revenue_items: Number(revCount.rows[0]?.count || 0),
+          audit_logs: Number(auditCount.rows[0]?.count || 0),
+          project_plans: Number(plansCount.rows[0]?.count || 0)
+        },
+        migrationsApplied: migrationsRes.rows.length,
+        recentMigrations: migrationsRes.rows.slice(0, 5)
+      });
+    } catch (e: any) {
+      console.error('Database status error:', e);
+      res.status(500).json({ status: 'Error', error: e?.message });
     }
   });
 

@@ -20,6 +20,7 @@ import { ProcurementPriceHistoryModal } from './components/pricing/ProcurementPr
 import { SettingsView } from './components/SettingsView';
 import { AuditLogView } from './components/AuditLogView';
 import { LoginPage } from './components/LoginPage';
+import { HomeCommandView } from './components/HomeCommandView';
 import { SessionTimeoutWarningModal } from './components/SessionTimeoutWarningModal';
 import {
   initSessionActivityTracker,
@@ -174,7 +175,7 @@ export default function App() {
     return () => window.removeEventListener('fxtt_session_cleared', onCleared);
   }, []);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('directory-hub');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [marginsViewMode, setMarginsViewMode] = useState<'landing' | 'detail'>('landing');
   const [timelinesViewMode, setTimelinesViewMode] = useState<'landing' | 'detail'>('landing');
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
@@ -1130,7 +1131,7 @@ export default function App() {
       'Inventory',
       transaction.materialCode,
       transaction.materialName,
-      `Recorded Inventory ${transaction.type} (${transaction.type === 'IN' ? '+' : '-'}${transaction.quantity} ${transaction.unit}) at $${transaction.price.toFixed(2)}/unit. Project: ${transaction.projectName || 'General Inventory'}. Discount: ${transaction.discount}%. Net Total: $${transaction.totalAmount.toFixed(2)}.`
+      `Recorded Inventory ${transaction.type} (${transaction.type === 'IN' ? '+' : '-'}${transaction.quantity} ${transaction.unit}) at $${Number(transaction.price ?? 0).toFixed(2)}/unit. Project: ${transaction.projectName || 'General Inventory'}. Discount: ${transaction.discount}%. Net Total: $${Number(transaction.totalAmount ?? 0).toFixed(2)}.`
     );
 
     showToast(`Recorded Inventory ${transaction.type}: ${transaction.quantity} ${transaction.unit} for ${transaction.materialCode}`);
@@ -1269,6 +1270,45 @@ export default function App() {
 
       {/* Main Content Viewport - Full Width without unnecessary blank side margins */}
       <main className="flex-1 w-full px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3">
+
+        {activeTab === 'home' && (
+          <HomeCommandView
+            projects={projects}
+            selectedProject={selectedProject}
+            onSelectProject={(p) => setSelectedProjectId(p.id)}
+            materials={materials}
+            suppliers={suppliers}
+            outsourcedServices={outsourcedServices}
+            subcontractors={subcontractors}
+            produceItems={produceItems}
+            inventory={inventory}
+            onNavigateTab={(tabId) => {
+              if (tabId === 'cost-analysis') {
+                setMarginsViewMode('landing');
+              } else if (tabId === 'project-timelines') {
+                setTimelinesViewMode('landing');
+              }
+              setActiveTab(tabId as any);
+            }}
+            onAddMaterial={handleAddMaterial}
+            onAddSupplier={handleAddSupplier}
+            onAddSubcontractor={handleAddSubcontractor}
+            onAddOutsourcedService={handleAddOutsourcedService}
+            onAddProduceItem={handleAddProduceItem}
+            onAddInventory={handleAddInventory}
+            onAddProject={handleCreateProject}
+            onUpdateProject={handleUpdateProject}
+            onRefreshAnalytics={handleRefreshAnalytics}
+            onExportPDF={() => handleExportPDF(selectedProject || undefined)}
+            showToast={showToast}
+            companyDetails={companyDetails}
+            currentUser={currentUser}
+            overheads={overheads}
+            revenueItems={revenueItems}
+            onAddOverheadItem={handleAddOverheadItem}
+            onAddRevenueItem={handleAddRevenueItem}
+          />
+        )}
 
         {activeTab === 'directory-hub' && (
           <DirectoryCardsHubView

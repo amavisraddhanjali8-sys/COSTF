@@ -384,6 +384,16 @@ export class PostgresService {
     }
   }
 
+  public async query(sql: string, params?: any[]): Promise<{ rows: any[] }> {
+    const db = await this.getDb();
+    return db.query(sql, params);
+  }
+
+  public async exec(sql: string): Promise<void> {
+    const db = await this.getDb();
+    return db.exec(sql);
+  }
+
   private async initSchemaAndSeed() {
     const db = this.db!;
     try {

@@ -151,9 +151,9 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   // Competitor Benchmark Aggregates
   const benchmarkCount = Object.keys(benchmarksMap).length;
   const avgAdvantagePct = React.useMemo(() => {
-    const validSpreads = Object.values(benchmarksMap)
-      .map((b) => b.spreadPct)
-      .filter((p) => typeof p === 'number');
+    const validSpreads = (Object.values(benchmarksMap) as CompetitorBenchmarkSummary[])
+      .map((b) => b?.spreadPct)
+      .filter((p): p is number => typeof p === 'number');
     if (validSpreads.length === 0) return 4.8;
     const sum = validSpreads.reduce((a, b) => a + b, 0);
     return Number((sum / validSpreads.length).toFixed(1));
@@ -814,12 +814,6 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                     </tr>
                   );
                 })
-              )}
-            </tbody>
-          </table>
-        </div>
-                  </tr>
-                ))
               )}
             </tbody>
           </table>

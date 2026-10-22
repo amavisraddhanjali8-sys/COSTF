@@ -459,7 +459,7 @@ export const RecordPriceModal: React.FC<RecordPriceModalProps> = ({
                 <option value="">-- Choose Existing Item --</option>
                 {availableItems.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.code ? `[${item.code}] ` : ''}{item.name} ({item.unit}) — Current: ${item.currentPrice.toFixed(2)}
+                    {item.code ? `[${item.code}] ` : ''}{item.name} ({item.unit}) — Current: ${Number(item.currentPrice ?? 0).toFixed(2)}
                   </option>
                 ))}
               </select>

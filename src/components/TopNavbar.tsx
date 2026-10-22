@@ -421,7 +421,12 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
          ========================================================================= */}
       <div className="px-3 lg:px-6 py-2 flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b101b]">
         {/* Left: Brand Identity & Portal Title */}
-        <div className="flex items-center space-x-3 shrink-0">
+        <button
+          type="button"
+          onClick={() => onSelectTab('home')}
+          className="flex items-center space-x-3 shrink-0 cursor-pointer text-left focus:outline-none"
+          title="Go to Home"
+        >
           {companyDetails.logoUrl ? (
             <img
               src={companyDetails.logoUrl}
@@ -443,7 +448,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               Enterprise
             </span>
           </div>
-        </div>
+        </button>
 
         {/* =========================================================================
             CENTER: OMNIPRESENT GLOBAL SEARCH BAR ACROSS ENTIRE SYSTEM
@@ -988,6 +993,20 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
          ========================================================================= */}
       <div className="px-3 lg:px-6 flex items-center justify-between overflow-x-auto no-scrollbar bg-slate-50/80 dark:bg-[#070b12] border-t border-slate-100 dark:border-slate-800/80">
         <nav className="flex items-center space-x-1 py-1.5 text-xs font-medium" aria-label="Ribbon Navigation">
+
+          {/* Home */}
+          <button
+            type="button"
+            id="nav-tab-home"
+            onClick={() => onSelectTab('home')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+              activeTab === 'home'
+                ? 'bg-[#003049] text-white shadow-2xs'
+                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+            }`}
+          >
+            <span>Home</span>
+          </button>
 
           {/* Directory */}
           <button

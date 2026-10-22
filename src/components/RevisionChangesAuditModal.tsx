@@ -193,9 +193,12 @@ export const RevisionChangesAuditModal: React.FC<RevisionChangesAuditModalProps>
             </div>
           ) : (
             displayedEntries.map(({ vendor, record }) => {
-              const prevPrice = record.previousPrice ?? record.price;
-              const hasBaseChange = prevPrice !== record.price;
-              const changePct = record.changePct ?? (prevPrice > 0 ? Number((((record.price - prevPrice) / prevPrice) * 100).toFixed(2)) : 0);
+              const recPrice = Number(record.price ?? (record as any).newPrice ?? 0);
+              const prevPrice = Number(record.previousPrice ?? recPrice);
+              const hasBaseChange = prevPrice !== recPrice;
+              const changePct = record.changePct != null
+                ? Number(record.changePct)
+                : (prevPrice > 0 ? Number((((recPrice - prevPrice) / prevPrice) * 100).toFixed(2)) : 0);
               const isIncrease = changePct > 0;
 
               return (
@@ -218,7 +221,7 @@ export const RevisionChangesAuditModal: React.FC<RevisionChangesAuditModalProps>
 
                     <div className="flex items-center space-x-2 shrink-0">
                       <div className="text-right font-mono font-bold text-slate-900 text-xs">
-                        ${record.price.toFixed(2)} <span className="text-[10px] font-normal text-slate-400">/{materialUnit}</span>
+                        ${recPrice.toFixed(2)} <span className="text-[10px] font-normal text-slate-400">/{materialUnit}</span>
                       </div>
                       {onOpenCommitForVendor && (
                         <button
@@ -249,11 +252,11 @@ export const RevisionChangesAuditModal: React.FC<RevisionChangesAuditModalProps>
                         <tr className={hasBaseChange ? 'bg-amber-50/20' : ''}>
                           <td className="py-1 px-2 text-slate-800">Base Price</td>
                           <td className="py-1 px-2 font-mono text-slate-500">${prevPrice.toFixed(2)}</td>
-                          <td className="py-1 px-2 font-mono font-semibold text-slate-900">${record.price.toFixed(2)}</td>
+                          <td className="py-1 px-2 font-mono font-semibold text-slate-900">${recPrice.toFixed(2)}</td>
                           <td className="py-1 px-2 text-right font-mono">
                             {hasBaseChange ? (
                               <span className={isIncrease ? 'text-rose-600' : 'text-emerald-600'}>
-                                {isIncrease ? `+$${(record.price - prevPrice).toFixed(2)}` : `-$${(prevPrice - record.price).toFixed(2)}`} ({changePct > 0 ? `+${changePct}%` : `${changePct}%`})
+                                {isIncrease ? `+$${(recPrice - prevPrice).toFixed(2)}` : `-$${(prevPrice - recPrice).toFixed(2)}`} ({changePct > 0 ? `+${changePct}%` : `${changePct}%`})
                               </span>
                             ) : (
                               <span className="text-slate-400">—</span>

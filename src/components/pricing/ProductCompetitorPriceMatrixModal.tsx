@@ -321,18 +321,18 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         item.name,
         item.category || 'Direct Offering',
         item.unit || 'pcs',
-        `$${ourPrice.toFixed(2)}`,
-        `$${ourCost.toFixed(2)}`,
+        `$${Number(ourPrice || 0).toFixed(2)}`,
+        `$${Number(ourCost || 0).toFixed(2)}`,
         `${ourMarginPct}%`,
         q.competitorName,
-        `$${p.toFixed(2)}`,
-        `$${(q.priceDelta || 0).toFixed(2)}`,
-        `${q.spreadPct || 0}%`,
+        `$${Number(p ?? 0).toFixed(2)}`,
+        `$${Number(q.priceDelta ?? 0).toFixed(2)}`,
+        `${Number(q.spreadPct ?? 0)}%`,
         p < ourPrice ? 'Competitor Cheaper' : 'Our Price Cheaper',
         q.volumePricing?.length || 0,
-        q.volumePricing?.[0] ? `$${q.volumePricing[0].unitPrice.toFixed(2)}` : 'N/A',
-        q.volumePricing?.[1] ? `$${q.volumePricing[1].unitPrice.toFixed(2)}` : 'N/A',
-        q.volumePricing?.[2] ? `$${q.volumePricing[2].unitPrice.toFixed(2)}` : 'N/A',
+        q.volumePricing?.[0]?.unitPrice != null ? `$${Number(q.volumePricing[0].unitPrice).toFixed(2)}` : 'N/A',
+        q.volumePricing?.[1]?.unitPrice != null ? `$${Number(q.volumePricing[1].unitPrice).toFixed(2)}` : 'N/A',
+        q.volumePricing?.[2]?.unitPrice != null ? `$${Number(q.volumePricing[2].unitPrice).toFixed(2)}` : 'N/A',
         q.lastUpdatedDate || q.effectiveDate || q.lastQuotedDate || 'N/A'
       ];
     });
@@ -423,7 +423,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Our Quoted Selling Rate</span>
-                    <span className="text-xl font-bold text-emerald-400">${ourPrice.toFixed(2)}</span>
+                    <span className="text-xl font-bold text-emerald-400">${Number(ourPrice || 0).toFixed(2)}</span>
                     <span className="text-[11px] text-slate-500 block">per {item.unit || 'unit'}</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -434,7 +434,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Our Internal Cost</span>
-                    <span className="text-xl font-bold text-amber-400">${ourCost.toFixed(2)}</span>
+                    <span className="text-xl font-bold text-amber-400">${Number(ourCost || 0).toFixed(2)}</span>
                     <span className="text-[11px] text-slate-500 block">COGS / direct service cost</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -448,7 +448,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                     <span className={`text-xl font-bold ${ourMarginPct >= 25 ? 'text-cyan-400' : 'text-rose-400'}`}>
                       {ourMarginPct}%
                     </span>
-                    <span className="text-[11px] text-slate-500 block">${(ourPrice - ourCost).toFixed(2)} gross profit</span>
+                    <span className="text-[11px] text-slate-500 block">${(Number(ourPrice || 0) - Number(ourCost || 0)).toFixed(2)} gross profit</span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                     <Percent className="w-5 h-5" />
@@ -549,15 +549,16 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             Base Quoted Price
                           </td>
                           <td className="py-3.5 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="text-base font-bold text-emerald-400">${ourPrice.toFixed(2)}</span>
+                            <span className="text-base font-bold text-emerald-400">${Number(ourPrice || 0).toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400 block">Our Active Standard Rate</span>
                           </td>
                           {quotes.map((q) => {
-                            const isCheaper = q.competitorPrice < ourPrice;
+                            const compPrice = Number(q.competitorPrice ?? q.currentPrice ?? 0);
+                            const isCheaper = compPrice < ourPrice;
                             return (
                               <td key={q.id} className="py-3.5 px-5 border-r border-slate-800">
                                 <div className="flex items-baseline gap-2">
-                                  <span className="text-base font-bold text-white">${q.competitorPrice.toFixed(2)}</span>
+                                  <span className="text-base font-bold text-white">${compPrice.toFixed(2)}</span>
                                   <span
                                     className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
                                       isCheaper
@@ -585,8 +586,8 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             Baseline Offering (0.0%)
                           </td>
                           {quotes.map((q) => {
-                            const diff = q.priceDelta;
-                            const spread = q.spreadPct;
+                            const diff = Number(q.priceDelta ?? 0);
+                            const spread = Number(q.spreadPct ?? 0);
                             const isPositive = diff > 0;
                             return (
                               <td key={q.id} className="py-3.5 px-5 border-r border-slate-800">
@@ -614,13 +615,14 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             Range 1: 1 - 100 pcs
                           </td>
                           <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-white">${ourPrice.toFixed(2)}</span>
+                            <span className="font-semibold text-white">${Number(ourPrice || 0).toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400 ml-1.5">(0% off)</span>
                           </td>
                           {quotes.map((q) => {
                             const t1 = q.volumePricing?.[0];
-                            const price = t1 ? t1.unitPrice : q.competitorPrice;
-                            const disc = t1 ? t1.discountPct : 0;
+                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? 0);
+                            const price = Number(t1?.unitPrice != null ? t1.unitPrice : compBase);
+                            const disc = Number(t1 ? t1.discountPct : 0);
                             return (
                               <td key={q.id} className="py-3 px-5 border-r border-slate-800">
                                 <span className="font-semibold text-white">${price.toFixed(2)}</span>
@@ -636,13 +638,14 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             Range 2: 101 - 500 pcs
                           </td>
                           <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-emerald-400">${(ourPrice * 0.95).toFixed(2)}</span>
+                            <span className="font-semibold text-emerald-400">${(Number(ourPrice || 0) * 0.95).toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400 ml-1.5">(5% discount)</span>
                           </td>
                           {quotes.map((q) => {
                             const t2 = q.volumePricing?.[1];
-                            const price = t2 ? t2.unitPrice : q.competitorPrice * 0.95;
-                            const disc = t2 ? t2.discountPct : 5;
+                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? ourPrice);
+                            const price = Number(t2?.unitPrice != null ? t2.unitPrice : compBase * 0.95);
+                            const disc = Number(t2 ? t2.discountPct : 5);
                             return (
                               <td key={q.id} className="py-3 px-5 border-r border-slate-800">
                                 <span className="font-semibold text-cyan-300">${price.toFixed(2)}</span>
@@ -658,13 +661,14 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             Range 3: 501+ pcs (Bulk)
                           </td>
                           <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-emerald-400">${(ourPrice * 0.90).toFixed(2)}</span>
+                            <span className="font-semibold text-emerald-400">${(Number(ourPrice || 0) * 0.90).toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400 ml-1.5">(10% bulk discount)</span>
                           </td>
                           {quotes.map((q) => {
                             const t3 = q.volumePricing?.[2];
-                            const price = t3 ? t3.unitPrice : q.competitorPrice * 0.90;
-                            const disc = t3 ? t3.discountPct : 10;
+                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? ourPrice);
+                            const price = Number(t3?.unitPrice != null ? t3.unitPrice : compBase * 0.90);
+                            const disc = Number(t3 ? t3.discountPct : 10);
                             return (
                               <td key={q.id} className="py-3 px-5 border-r border-slate-800">
                                 <span className="font-semibold text-cyan-300">${price.toFixed(2)}</span>
@@ -777,17 +781,20 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                     </thead>
                     <tbody className="divide-y divide-slate-800 text-xs text-slate-300">
                       {history.map((h) => {
-                        const isUp = (h.changePct || 0) > 0;
+                        const changePctNum = Number(h.changePct || 0);
+                        const isUp = changePctNum > 0;
+                        const prevPriceNum = h.previousPrice != null ? Number(h.previousPrice) : null;
+                        const currentPriceNum = Number(h.price ?? (h as any).newPrice ?? 0);
                         return (
                           <tr key={h.id} className="hover:bg-slate-900/40 transition-colors">
                             <td className="py-3 px-4 font-mono text-slate-400">{h.revisionDate}</td>
                             <td className="py-3 px-4 font-semibold text-white">{h.competitorName}</td>
                             <td className="py-3 px-4 text-cyan-400 font-mono text-[11px]">{h.quoteRef || '—'}</td>
                             <td className="py-3 px-4 text-right font-mono text-slate-400">
-                              {h.previousPrice != null ? `$${h.previousPrice.toFixed(2)}` : '—'}
+                              {prevPriceNum != null && !isNaN(prevPriceNum) ? `$${prevPriceNum.toFixed(2)}` : '—'}
                             </td>
                             <td className="py-3 px-4 text-right font-mono font-bold text-white">
-                              ${h.price.toFixed(2)}
+                              ${currentPriceNum.toFixed(2)}
                             </td>
                             <td className="py-3 px-4 text-right font-mono">
                               <span
@@ -797,7 +804,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                                     : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40'
                                 }`}
                               >
-                                {isUp ? '+' : ''}{h.changePct || 0}%
+                                {isUp ? '+' : ''}{changePctNum}%
                               </span>
                             </td>
                             <td className="py-3 px-4 text-slate-300 max-w-xs truncate" title={h.reason}>
@@ -1060,7 +1067,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                             </div>
                           </td>
                           <td className="py-2 px-3 font-mono font-bold text-emerald-400">
-                            ${tier.unitPrice.toFixed(2)}
+                            ${Number(tier.unitPrice ?? 0).toFixed(2)}
                           </td>
                           <td className="py-2 px-2 text-center">
                             <button
@@ -1231,12 +1238,12 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 <div>
                   <span className="text-slate-400 block">Price Change:</span>
                   <span className="font-mono text-slate-300">
-                    ${selectedHistoryRecord.previousPrice?.toFixed(2) || '0.00'} → ${selectedHistoryRecord.price.toFixed(2)}
+                    {selectedHistoryRecord.previousPrice != null ? `$${Number(selectedHistoryRecord.previousPrice).toFixed(2)}` : '—'} → ${Number(selectedHistoryRecord.price ?? (selectedHistoryRecord as any).newPrice ?? 0).toFixed(2)}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block">Change %:</span>
-                  <span className="font-semibold text-cyan-400">{selectedHistoryRecord.changePct}%</span>
+                  <span className="font-semibold text-cyan-400">{Number(selectedHistoryRecord.changePct || 0)}%</span>
                 </div>
               </div>
 
