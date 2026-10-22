@@ -446,6 +446,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [addItemPortal, setAddItemPortal] = useState<string>('materials-hierarchy');
+  const [addItemCategoryId, setAddItemCategoryId] = useState<string | undefined>(undefined);
+  const [addItemSubCategoryId, setAddItemSubCategoryId] = useState<string | undefined>(undefined);
 
   const [editModalData, setEditModalData] = useState<{
     isOpen: boolean;
@@ -2776,6 +2778,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                   <button
                     onClick={() => {
                       setAddItemPortal('materials-hierarchy');
+                      setAddItemCategoryId(selectedMaterialCatId);
+                      setAddItemSubCategoryId(undefined);
                       setIsAddItemModalOpen(true);
                     }}
                     className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2"
@@ -2870,6 +2874,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                   <button
                     onClick={() => {
                       setAddItemPortal('materials-hierarchy');
+                      setAddItemCategoryId(selectedMaterialCatId);
+                      setAddItemSubCategoryId(selectedMaterialSubCatId);
                       setIsAddItemModalOpen(true);
                     }}
                     className="text-xs text-emerald-700 hover:text-emerald-800 flex items-center space-x-1 font-normal"
@@ -3519,6 +3525,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       type="button"
                       onClick={() => {
                         setAddItemPortal('service-providers');
+                        setAddItemCategoryId(selectedOutsourcedCatId || undefined);
+                        setAddItemSubCategoryId(selectedOutsourcedSubCatId || undefined);
                         setIsAddItemModalOpen(true);
                       }}
                       className="px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
@@ -4247,6 +4255,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         type="button"
                         onClick={() => {
                           setAddItemPortal('service-providers');
+                          setAddItemCategoryId(
+                            selectedOutsourcedCatId ||
+                            (outsourcedTableCategoryFilter !== 'all' ? categories.find((c) => c.name === outsourcedTableCategoryFilter)?.id : undefined)
+                          );
+                          setAddItemSubCategoryId(selectedOutsourcedSubCatId || undefined);
                           setIsAddItemModalOpen(true);
                         }}
                         className="px-2.5 py-1 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-medium flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
@@ -4688,6 +4701,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                     type="button"
                     onClick={() => {
                       setAddItemPortal('products-hierarchy');
+                      setAddItemCategoryId(
+                        selectedProductCatId ||
+                        (revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined)
+                      );
+                      setAddItemSubCategoryId(selectedProductSubCatId || undefined);
                       setIsAddItemModalOpen(true);
                     }}
                     className="flex items-center space-x-1 px-2.5 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
@@ -4699,6 +4717,10 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                     type="button"
                     onClick={() => {
                       setAddItemPortal('revenue');
+                      setAddItemCategoryId(
+                        revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined
+                      );
+                      setAddItemSubCategoryId(undefined);
                       setIsAddItemModalOpen(true);
                     }}
                     className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
@@ -4985,6 +5007,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             type="button"
                             onClick={() => {
                               setAddItemPortal('products-hierarchy');
+                              setAddItemCategoryId(selectedProductCatId || undefined);
+                              setAddItemSubCategoryId(undefined);
                               setIsAddItemModalOpen(true);
                             }}
                             className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center space-x-1 ml-2 cursor-pointer"
@@ -5060,6 +5084,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                           <button
                             onClick={() => {
                               setAddItemPortal('products-hierarchy');
+                              setAddItemCategoryId(selectedProductCatId);
+                              setAddItemSubCategoryId(undefined);
                               setIsAddItemModalOpen(true);
                             }}
                             className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2"
@@ -5472,6 +5498,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       <button
                         onClick={() => {
                           setAddItemPortal('services-hierarchy');
+                          setAddItemCategoryId(selectedServiceCatId);
+                          setAddItemSubCategoryId(undefined);
                           setIsAddItemModalOpen(true);
                         }}
                         className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2"
@@ -5764,6 +5792,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 type="button"
                 onClick={() => {
                   setAddItemPortal('overheads-hierarchy');
+                  setAddItemCategoryId(selectedOverheadCatId || undefined);
+                  setAddItemSubCategoryId(selectedOverheadSubCatId || undefined);
                   setIsAddItemModalOpen(true);
                 }}
                 className="px-2.5 py-1 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold flex items-center space-x-1 transition-colors cursor-pointer shadow-xs"
@@ -5857,6 +5887,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       <button
                         onClick={() => {
                           setAddItemPortal('overheads-hierarchy');
+                          setAddItemCategoryId(selectedOverheadCatId);
+                          setAddItemSubCategoryId(undefined);
                           setIsAddItemModalOpen(true);
                         }}
                         className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2 cursor-pointer"
@@ -5882,8 +5914,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         const style = getTileStyle(subCat.id, subCat.themeId || 'sunset-amber');
                         const matchingItems = overheadItems.filter(
                           (o) =>
-                            o.category?.toLowerCase() === subCat.name.toLowerCase() ||
-                            o.description?.toLowerCase().includes(subCat.name.toLowerCase())
+                            o.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
+                            o.costType?.toLowerCase() === subCat.name.toLowerCase() ||
+                            o.category?.toLowerCase() === subCat.name.toLowerCase()
                         );
 
                         return (
@@ -5936,8 +5969,23 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               {selectedOverheadSubCatId && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="text-xs text-slate-500 font-semibold">
-                      Items in Sub-Category: {categories.find((c) => c.id === selectedOverheadSubCatId)?.name}
+                    <div className="flex items-center space-x-2">
+                      <div className="text-xs text-slate-500 font-semibold">
+                        Items in Sub-Category: {categories.find((c) => c.id === selectedOverheadSubCatId)?.name}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddItemPortal('overheads-hierarchy');
+                          setAddItemCategoryId(selectedOverheadCatId);
+                          setAddItemSubCategoryId(selectedOverheadSubCatId);
+                          setIsAddItemModalOpen(true);
+                        }}
+                        className="text-xs text-amber-700 hover:text-amber-800 flex items-center space-x-1 font-semibold cursor-pointer ml-2"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Add Item to this Sub-Category</span>
+                      </button>
                     </div>
                     <button
                       onClick={() => setSelectedOverheadSubCatId(null)}
@@ -5964,12 +6012,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {overheadItems
                           .filter((o) => {
-                            const subName = categories.find((c) => c.id === selectedOverheadSubCatId)?.name.toLowerCase();
-                            const catName = categories.find((c) => c.id === selectedOverheadCatId)?.name.toLowerCase();
+                            const subNode = categories.find((c) => c.id === selectedOverheadSubCatId);
+                            const subName = subNode?.name.toLowerCase();
+                            const subId = subNode?.id;
+                            const oSub = (o.subCategory || o.costType || '').toLowerCase();
                             return (
-                              o.category?.toLowerCase() === subName ||
-                              o.category?.toLowerCase() === catName ||
-                              o.description?.toLowerCase().includes(subName || '')
+                              (subId && o.subCategoryId === subId) ||
+                              (subName && oSub === subName) ||
+                              (subName && oSub.includes(subName)) ||
+                              (subName && subName.includes(oSub) && oSub.length > 3) ||
+                              (subName && o.category?.toLowerCase() === subName)
                             );
                           })
                           .map((item) => (
@@ -6724,10 +6776,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* 8. MODAL: DEDICATED ADD ITEM MODAL */}
       <AddItemModal
         isOpen={isAddItemModalOpen}
-        onClose={() => setIsAddItemModalOpen(false)}
+        onClose={() => {
+          setIsAddItemModalOpen(false);
+          setAddItemCategoryId(undefined);
+          setAddItemSubCategoryId(undefined);
+        }}
         portal={addItemPortal}
         categories={categories}
         suppliers={suppliers}
+        initialCategoryId={addItemCategoryId}
+        initialSubCategoryId={addItemSubCategoryId}
         onSave={handleSaveItem}
       />
 

@@ -815,6 +815,20 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     const titleLower = cardTitle.toLowerCase();
     const idLower = (cardId || '').toLowerCase();
 
+    const isSubCat =
+      cardTag === 'SUB-CATEGORY' ||
+      cardTag === 'DEEP MATERIAL SPEC' ||
+      cardTag === 'PRODUCT SUB-CATEGORY' ||
+      cardTag === 'OVERHEAD SUB-CATEGORY' ||
+      cardTag === 'CUSTOMER SERVICE TARIFF' ||
+      cardTag === 'HIRED SUBCONTRACTOR TRADE' ||
+      (cardSubtitle && cardSubtitle.toLowerCase().includes('sub-category')) ||
+      (categories || []).some(
+        (c) =>
+          (c.id === cardId || c.name.toLowerCase() === titleLower) &&
+          (c.type === 'sub_category' || c.type === 'sub_sub_category')
+      );
+
     // 1. SUPPLIER CARD: View all materials and supplies strictly relevant to this supplier only, or all suppliers
     if (cardType === 'supplier') {
       const isAll =
@@ -1106,12 +1120,25 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       materials
         .filter((m) => {
           if (!cardId && !cardTitle) return true;
+          if (isSubCat) {
+            // STRICT sub-category isolation: must match this specific sub-category only
+            const mSub = (m.subCategory || '').toLowerCase().trim();
+            const mDeep = (m.moreSubCategory || '').toLowerCase().trim();
+            return (
+              mSub === titleLower ||
+              mDeep === titleLower ||
+              mSub.includes(titleLower) ||
+              titleLower.includes(mSub) ||
+              (cardId && (m.subCategoryId === cardId || m.subCategory === cardId))
+            );
+          }
+          // Top-level category card: match parent category
+          const mCat = (m.category || '').toLowerCase().trim();
           return (
-            m.category.toLowerCase().includes(titleLower) ||
-            titleLower.includes(m.category.toLowerCase()) ||
-            m.subCategory.toLowerCase().includes(titleLower) ||
-            (m.moreSubCategory && m.moreSubCategory.toLowerCase().includes(titleLower)) ||
-            (cardId && (m.category === cardId || m.subCategory === cardId))
+            mCat === titleLower ||
+            mCat.includes(titleLower) ||
+            titleLower.includes(mCat) ||
+            (cardId && (m.categoryId === cardId || m.category === cardId))
           );
         })
         .forEach((m, idx) => {
@@ -1142,7 +1169,8 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
     // 4. PRODUCT CATEGORY OR PRODUCE CATALOG
     else if (cardType === 'product_category' || cardType === 'produce') {
-      const targetCatNode = (categories || []).find((c) => c.id === cardId);
+      const targetCatNode = (categories || []).find((c) => c.id === cardId || c.name.toLowerCase() === titleLower);
+      const isProductSub = isSubCat || targetCatNode?.type === 'sub_category' || targetCatNode?.type === 'sub_sub_category';
       const targetName = (targetCatNode?.name || cardTitle || '').toLowerCase().trim();
 
       const matchedProducts = produceItems.filter((p) => {
@@ -1164,32 +1192,28 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         const subLower = (p.subCategory || '').toLowerCase().trim();
         const deepLower = (p.moreSubCategory || '').toLowerCase().trim();
 
-        // Exact match or substring matching
+        if (isProductSub) {
+          // Strictly match subCategory only - do not match parent category
+          return (
+            subLower === targetName ||
+            deepLower === targetName ||
+            subLower.includes(targetName) ||
+            targetName.includes(subLower) ||
+            deepLower.includes(targetName) ||
+            targetName.includes(deepLower) ||
+            (cardId && (p.subCategoryId === cardId || p.subCategory === cardId))
+          );
+        }
+
         return (
-          subLower === targetName ||
-          subLower.includes(targetName) ||
-          targetName.includes(subLower) ||
-          deepLower === targetName ||
-          deepLower.includes(targetName) ||
-          targetName.includes(deepLower) ||
           catLower === targetName ||
           catLower.includes(targetName) ||
-          targetName.includes(catLower)
+          targetName.includes(catLower) ||
+          (cardId && (p.categoryId === cardId || p.category === cardId))
         );
       });
 
-      // If strict filter yielded none, fuzzy match
-      const finalItems =
-        matchedProducts.length > 0
-          ? matchedProducts
-          : produceItems.filter(
-              (p) =>
-                p.type === 'product' &&
-                (p.subCategory.toLowerCase().includes(titleLower.slice(0, 10)) ||
-                  p.category.toLowerCase().includes(titleLower.slice(0, 10)))
-            );
-
-      finalItems.forEach((p, idx) => {
+      matchedProducts.forEach((p, idx) => {
         list.push({
           id: p.id,
           code: p.code || `PRD-VAR-${1000 + idx}`,
@@ -1212,7 +1236,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           rawItem: p
         });
       });
-      // Do NOT include materials or outsourced services ("dont put others")
     }
 
     // 5A. OUTSOURCED SERVICE PROVIDER CARD (Relevant to that provider only)
@@ -1234,7 +1257,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         const provName = prov ? prov.name : cardTitle;
         const targetClean = provName.toLowerCase().trim();
 
-        // Strictly match only items belonging to this provider only ("dont put other only the provider related items only")
+        // Strictly match only items belonging to this provider only
         filteredOutsourced = outsourcedServices.filter((o) => {
           if (cardId && (o.providerId === cardId || (prov && o.providerId === prov.id))) {
             return true;
@@ -1274,7 +1297,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           rawItem: o
         });
       });
-      // Exclusively provider-related services only
     }
 
     // 5B. SERVICE CATEGORY OR OUTSOURCED CATALOG
@@ -1290,7 +1312,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       if (isAll) {
         filteredOutsourced = outsourcedServices;
       } else {
-        // 1. Resolve cardId or cardTitle in categories or INITIAL_CATEGORY_HIERARCHY
         const activeCategories = categories || INITIAL_CATEGORY_HIERARCHY;
         const catNode = activeCategories.find(
           (c) =>
@@ -1298,63 +1319,30 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             c.name.trim().toLowerCase() === titleLower.trim()
         );
 
-        if (catNode) {
-          if (catNode.type === 'sub_category') {
-            filteredOutsourced = outsourcedServices.filter(
-              (o) =>
-                o.subCategory.trim().toLowerCase() === catNode.name.trim().toLowerCase() ||
-                o.subCategory.toLowerCase().includes(catNode.name.toLowerCase()) ||
-                catNode.name.toLowerCase().includes(o.subCategory.toLowerCase())
-            );
-          } else if (catNode.type === 'category') {
-            filteredOutsourced = outsourcedServices.filter(
-              (o) =>
-                o.category.trim().toLowerCase() === catNode.name.trim().toLowerCase() ||
-                o.category.toLowerCase().includes(catNode.name.toLowerCase()) ||
-                catNode.name.toLowerCase().includes(o.category.toLowerCase())
-            );
-          } else {
-            filteredOutsourced = outsourcedServices.filter(
-              (o) =>
-                o.id === cardId ||
-                o.code === cardId ||
-                o.name.trim().toLowerCase() === catNode.name.trim().toLowerCase()
-            );
-          }
-        }
+        const isServiceSub = isSubCat || catNode?.type === 'sub_category' || catNode?.type === 'sub_sub_category';
+        const matchTarget = (catNode?.name || cardTitle).toLowerCase().trim();
 
-        if (filteredOutsourced.length === 0) {
+        if (isServiceSub) {
           filteredOutsourced = outsourcedServices.filter((o) => {
-            if (cardId && (o.id === cardId || o.providerId === cardId || o.code === cardId)) {
-              return true;
-            }
-            if (
-              o.subCategory.trim().toLowerCase() === titleLower.trim() ||
-              o.subCategory.toLowerCase().includes(titleLower.trim()) ||
-              titleLower.trim().includes(o.subCategory.toLowerCase())
-            ) {
-              return true;
-            }
-            if (
-              o.category.trim().toLowerCase() === titleLower.trim() ||
-              o.category.toLowerCase().includes(titleLower.trim()) ||
-              titleLower.trim().includes(o.category.toLowerCase())
-            ) {
-              return true;
-            }
-            if (
-              o.name.trim().toLowerCase() === titleLower.trim() ||
-              o.name.toLowerCase().includes(titleLower.trim())
-            ) {
-              return true;
-            }
-            if (
-              o.providerName.trim().toLowerCase() === titleLower.trim() ||
-              o.providerName.toLowerCase().includes(titleLower.trim())
-            ) {
-              return true;
-            }
-            return false;
+            const oSub = (o.subCategory || '').toLowerCase().trim();
+            const oDeep = (o.moreSubCategory || '').toLowerCase().trim();
+            return (
+              oSub === matchTarget ||
+              oDeep === matchTarget ||
+              oSub.includes(matchTarget) ||
+              matchTarget.includes(oSub) ||
+              (cardId && (o.subCategoryId === cardId || o.subCategory === cardId))
+            );
+          });
+        } else {
+          filteredOutsourced = outsourcedServices.filter((o) => {
+            const oCat = (o.category || '').toLowerCase().trim();
+            return (
+              oCat === matchTarget ||
+              oCat.includes(matchTarget) ||
+              matchTarget.includes(oCat) ||
+              (cardId && (o.categoryId === cardId || o.category === cardId))
+            );
           });
         }
       }
@@ -1384,7 +1372,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       });
     }
 
-    // 6. SUBCONTRACTOR PROFILE CARD: ONLY SUBCONTRACTOR SERVICE ITEMS & LABOUR CHARGES
+    // 6. SUBCONTRACTOR PROFILE OR TRADE CARD
     else if (cardType === 'subcontractor') {
       const isAll =
         !cardTitle ||
@@ -1395,7 +1383,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         cardId === 'subcontractors-catalog';
 
       if (isAll) {
-        // All subcontractor service items & labour charges only
         subcontractors.forEach((s, idx) => {
           list.push({
             id: s.id,
@@ -1420,21 +1407,44 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           });
         });
       } else {
-        // Resolve this specific subcontractor entity
         const targetClean = (cardTitle || '').toLowerCase().trim();
-        const matchingSub = subcontractors.find(
-          (s) =>
-            (cardId && (s.subcontractorId === cardId || s.id === cardId)) ||
-            s.subcontractorName.toLowerCase().trim() === targetClean ||
-            (targetClean && s.subcontractorName.toLowerCase().includes(targetClean)) ||
-            (targetClean && targetClean.includes(s.subcontractorName.toLowerCase().trim()))
-        );
+        const isTradeOrSubCat = isSubCat || cardTag === 'HIRED SUBCONTRACTOR TRADE';
+
+        let filteredSubs: SubcontractorRateItem[] = [];
+
+        if (isTradeOrSubCat) {
+          filteredSubs = subcontractors.filter((s) => {
+            const sTrade = (s.serviceType || '').toLowerCase().trim();
+            const sSub = (s.serviceSubCategory || s.subCategory || '').toLowerCase().trim();
+            const sName = (s.name || s.nicheServiceName || '').toLowerCase().trim();
+            return (
+              sTrade === targetClean ||
+              sSub === targetClean ||
+              sTrade.includes(targetClean) ||
+              targetClean.includes(sTrade) ||
+              sSub.includes(targetClean) ||
+              targetClean.includes(sSub) ||
+              sName === targetClean
+            );
+          });
+        } else {
+          filteredSubs = subcontractors.filter((s) => {
+            if (cardId && (s.subcontractorId === cardId || s.id === cardId)) return true;
+            const sName = (s.subcontractorName || '').toLowerCase().trim();
+            return (
+              sName === targetClean ||
+              (targetClean && sName.includes(targetClean)) ||
+              (sName && targetClean.includes(sName))
+            );
+          });
+        }
+
+        const matchingSub = filteredSubs[0];
         const subProfile = suppliers.find(
           (s) =>
             (cardId && s.id === cardId) ||
             s.name.toLowerCase().trim() === targetClean ||
-            (targetClean && s.name.toLowerCase().includes(targetClean)) ||
-            (targetClean && targetClean.includes(s.name.toLowerCase().trim()))
+            (targetClean && s.name.toLowerCase().includes(targetClean))
         );
 
         const subName = matchingSub?.subcontractorName || subProfile?.name || cardTitle;
@@ -1442,19 +1452,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         const subEmail = (matchingSub as any)?.contactEmail || subProfile?.email || 'dispatch@subcontractors.com';
         const subPhone = (matchingSub as any)?.contactPhone || subProfile?.phone || '+1 (800) 555-0188';
 
-        // Filter subcontractors dataset: strictly relevant to this subcontractor only
-        const filteredSubs = subcontractors.filter((s) => {
-          if (cardId && (s.subcontractorId === cardId || s.id === cardId)) return true;
-          const sName = (s.subcontractorName || '').toLowerCase().trim();
-          return (
-            sName === targetClean ||
-            sName === (subName || '').toLowerCase().trim() ||
-            (targetClean && sName.includes(targetClean)) ||
-            (sName && targetClean.includes(sName))
-          );
-        });
-
-        // Strictly subcontractor service items and labour charges only (no materials, no unrelated items)
         filteredSubs.forEach((s, idx) => {
           list.push({
             id: s.id,
@@ -1465,7 +1462,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             category: s.serviceCategory || s.category || 'Specialist Fabrication & Machining',
             subCategory: s.serviceSubCategory || s.subCategory || s.serviceType || 'Trade Operation',
             moreSubCategory: s.moreServiceSubCategory || s.moreSubCategory || s.skillLevel || 'Field Execution',
-            supplierName: subName,
+            supplierName: s.subcontractorName || subName,
             supplierCountry: (s as any).country || subCountry,
             email: (s as any).contactEmail || subEmail,
             phone: (s as any).contactPhone || subPhone,
@@ -1481,7 +1478,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       }
     }
 
-    // 6. CLIENT PROFILE CARD: View all and only projects related to this specific client!
+    // 6B. CLIENT PROFILE CARD: View all and only projects related to this specific client!
     else if (cardType === 'client') {
       const clientNameClean = cardTitle.toLowerCase().trim();
       const matchedProjects = projects.filter((p) => {
@@ -1496,7 +1493,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       });
 
       matchedProjects.forEach((proj, idx) => {
-        const totalBudget = proj.quotedPrice || 0;
         const marginPct = proj.targetMarginPct || 35;
         const phasesCount = (proj.phases || []).length;
 
@@ -1534,13 +1530,24 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'all-overheads' || cardTitle.toLowerCase().includes('all overhead');
       const filtered = isAll
         ? activeOverheads
-        : activeOverheads.filter((o) =>
-            (cardId && (o.id === cardId || o.category === cardId)) ||
-            (o.category && o.category.toLowerCase().includes(titleLower)) ||
-            titleLower.includes((o.category || '').toLowerCase()) ||
-            (o.name && o.name.toLowerCase().includes(titleLower)) ||
-            (o.description && o.description.toLowerCase().includes(titleLower))
-          );
+        : activeOverheads.filter((o) => {
+            if (isSubCat) {
+              const oSub = (o.subCategory || o.costType || '').toLowerCase().trim();
+              return (
+                oSub === titleLower ||
+                oSub.includes(titleLower) ||
+                titleLower.includes(oSub) ||
+                (cardId && (o.subCategoryId === cardId || o.subCategory === cardId))
+              );
+            }
+            const oCat = (o.category || '').toLowerCase().trim();
+            return (
+              oCat === titleLower ||
+              oCat.includes(titleLower) ||
+              titleLower.includes(oCat) ||
+              (cardId && (o.id === cardId || o.category === cardId || o.categoryId === cardId))
+            );
+          });
 
       filtered.forEach((o, idx) => {
         list.push({
@@ -1550,7 +1557,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           itemType: 'overhead',
           status: o.status === 'Inactive' ? 'Under Review' : 'Active',
           category: o.category || 'Operational Overhead',
-          subCategory: o.costType || 'General Facility',
+          subCategory: o.subCategory || o.costType || 'General Facility',
           moreSubCategory: o.defaultCalculationMethod,
           supplierName: 'Internal Organization Overhead',
           supplierCountry: 'United States',
@@ -1573,13 +1580,24 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'rev-all' || cardTitle.toLowerCase().includes('all revenue');
       const filtered = isAll
         ? activeRevenue
-        : activeRevenue.filter((r) =>
-            (cardId && (r.id === cardId || r.category === cardId)) ||
-            (r.category && r.category.toLowerCase().includes(titleLower)) ||
-            titleLower.includes((r.category || '').toLowerCase()) ||
-            (r.subCategory && r.subCategory.toLowerCase().includes(titleLower)) ||
-            (r.name && r.name.toLowerCase().includes(titleLower))
-          );
+        : activeRevenue.filter((r) => {
+            if (isSubCat) {
+              const rSub = (r.subCategory || '').toLowerCase().trim();
+              return (
+                rSub === titleLower ||
+                rSub.includes(titleLower) ||
+                titleLower.includes(rSub) ||
+                (cardId && (r.subCategoryId === cardId || r.subCategory === cardId))
+              );
+            }
+            const rCat = (r.category || '').toLowerCase().trim();
+            return (
+              rCat === titleLower ||
+              rCat.includes(titleLower) ||
+              titleLower.includes(rCat) ||
+              (cardId && (r.id === cardId || r.category === cardId || r.categoryId === cardId))
+            );
+          });
 
       filtered.forEach((r, idx) => {
         list.push({
@@ -1606,37 +1624,35 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       });
     }
 
-    // 9. Fallback ONLY for material_category when completely empty
-    if (
-      list.length === 0 &&
-      (cardType === 'material_category' || !cardType)
-    ) {
-      materials.forEach((m, idx) => {
-        list.push({
-          id: m.id,
-          code: m.code || `ACC100${15840 + idx}`,
-          name: m.name,
-          itemType: m.itemClassification === 'final_product' ? 'final_product' : 'material',
-          status: 'Enabled',
-          category: m.category,
-          subCategory: m.subCategory,
-          moreSubCategory: m.moreSubCategory,
-          supplierName: m.supplierName,
-          supplierCountry: 'United States',
-          email: 'procurement@fxtt-crm.com',
-          phone: '+1 415 252 7217',
-          rate: m.retailPrice,
-          retailPrice: m.retailPrice,
-          unit: m.unit,
-          stockOrScope: `${m.inStock} ${m.unit}s`,
-          createdTime: m.lastUpdated || '',
-          assignedTo: 'Catalog Manager',
-          rawItem: m
-        });
-      });
-    }
+    // Strict addedRows filtering by active card
+    const filteredAddedRows = addedRows.filter((r) => {
+      // Must match itemType
+      if (cardType === 'material_category' && r.itemType !== 'material') return false;
+      if ((cardType === 'product_category' || cardType === 'produce') && r.itemType !== 'final_product' && r.itemType !== 'produce') return false;
+      if ((cardType === 'service_category' || cardType === 'outsourced') && r.itemType !== 'service') return false;
+      if (cardType === 'subcontractor' && r.itemType !== 'subcontractor') return false;
+      if (cardType === 'overhead' && r.itemType !== 'overhead') return false;
+      if (cardType === 'revenue' && r.itemType !== 'revenue') return false;
+      if (cardType === 'client' && r.itemType !== 'project') return false;
+      if (cardType === 'supplier') {
+        const supMatch = suppliers.find((s) => s.id === cardId || s.name.toLowerCase() === titleLower);
+        const supName = supMatch ? supMatch.name.toLowerCase() : titleLower;
+        return (r.supplierName || '').toLowerCase() === supName;
+      }
 
-    const combined = addedRows.length > 0 ? [...addedRows, ...list] : list;
+      // Check subcategory isolation for added rows
+      if (isSubCat) {
+        const rSub = (r.subCategory || '').toLowerCase().trim();
+        const rDeep = (r.moreSubCategory || '').toLowerCase().trim();
+        return rSub === titleLower || rDeep === titleLower || rSub.includes(titleLower) || titleLower.includes(rSub);
+      } else if (cardTitle && cardTitle.toLowerCase() !== 'all') {
+        const rCat = (r.category || '').toLowerCase().trim();
+        return rCat === titleLower || rCat.includes(titleLower) || titleLower.includes(rCat);
+      }
+      return true;
+    });
+
+    const combined = filteredAddedRows.length > 0 ? [...filteredAddedRows, ...list] : list;
     return combined.map((r) => {
       const edit = editedRowsMap[r.id];
       if (edit) {
@@ -2778,18 +2794,50 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               const matchingCat = categories?.find(
                 (c) => c.id === cardId || c.name.toLowerCase() === cardTitle.toLowerCase()
               );
-              let resolvedCategory = cardTitle;
-              let resolvedSubCategory = 'General Specification';
 
-              if (matchingCat) {
-                if (matchingCat.type === 'sub_category' && matchingCat.parentId) {
+              const isCurrentCardSubCat =
+                cardTag === 'SUB-CATEGORY' ||
+                cardTag === 'DEEP MATERIAL SPEC' ||
+                cardTag === 'PRODUCT SUB-CATEGORY' ||
+                cardTag === 'OVERHEAD SUB-CATEGORY' ||
+                cardTag === 'CUSTOMER SERVICE TARIFF' ||
+                cardTag === 'HIRED SUBCONTRACTOR TRADE' ||
+                (cardSubtitle && cardSubtitle.toLowerCase().includes('sub-category')) ||
+                matchingCat?.type === 'sub_category' ||
+                matchingCat?.type === 'sub_sub_category' ||
+                (categories || []).some(
+                  (c) =>
+                    (c.id === cardId || c.name.toLowerCase() === cardTitle.toLowerCase()) &&
+                    (c.type === 'sub_category' || c.type === 'sub_sub_category')
+                );
+
+              let resolvedCategory = cardTitle;
+              let resolvedSubCategory = cardTitle;
+
+              if (isCurrentCardSubCat) {
+                // Strictly lock subcategory to this card's title
+                resolvedSubCategory = cardTitle;
+                if (matchingCat && matchingCat.parentId) {
                   const parent = categories?.find((c) => c.id === matchingCat.parentId);
-                  resolvedCategory = parent ? parent.name : cardTitle;
-                  resolvedSubCategory = matchingCat.name;
+                  resolvedCategory = parent ? parent.name : (matchingCat.category || cardSubtitle || 'Metals & Structural Alloys');
                 } else {
-                  resolvedCategory = matchingCat.name;
+                  const anySub = categories?.find(
+                    (c) => c.name.toLowerCase() === cardTitle.toLowerCase() && c.parentId
+                  );
+                  if (anySub && anySub.parentId) {
+                    const parent = categories?.find((c) => c.id === anySub.parentId);
+                    resolvedCategory = parent ? parent.name : 'Metals & Structural Alloys';
+                  } else {
+                    resolvedCategory = cardSubtitle || 'Metals & Structural Alloys';
+                  }
+                }
+              } else {
+                resolvedCategory = matchingCat ? matchingCat.name : cardTitle;
+                if (matchingCat) {
                   const firstChild = categories?.find((c) => c.parentId === matchingCat.id);
-                  if (firstChild) resolvedSubCategory = firstChild.name;
+                  resolvedSubCategory = firstChild ? firstChild.name : 'General Specification';
+                } else {
+                  resolvedSubCategory = 'General Specification';
                 }
               }
 

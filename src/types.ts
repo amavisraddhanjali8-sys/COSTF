@@ -717,6 +717,9 @@ export interface OverheadItem {
   barcode?: string;
   name: string;
   category: string;
+  categoryId?: string;
+  subCategory?: string;
+  subCategoryId?: string;
   description?: string;
   costType: OverheadCostType;
   defaultCalculationMethod: OverheadCalculationMethod;
