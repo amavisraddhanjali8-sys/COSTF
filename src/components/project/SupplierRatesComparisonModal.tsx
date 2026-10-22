@@ -157,109 +157,111 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
     });
   }, [materials, selectedCategory, materialSearch, sortBy]);
 
-  // Generate competitive quotes for the selected material
+  // Generate competitive quotes for the selected material from actual database suppliers
   const quotes: SupplierQuoteOption[] = useMemo(() => {
     if (!selectedMaterial) return [];
 
-    const basePrice = selectedMaterial.retailPrice || 100;
-    const baseSupplierName = selectedMaterial.supplierName || 'Apex Precision Metallurgy Corp';
+    const basePrice = selectedMaterial.costPrice || selectedMaterial.retailPrice || 100;
     const baseUnit = selectedMaterial.unit || 'pcs';
+
+    // 1. Primary Supplier from database
+    const primarySup = suppliers.find(
+      s => (selectedMaterial.supplierId && s.id === selectedMaterial.supplierId) ||
+           (selectedMaterial.supplierName && s.name.toLowerCase() === selectedMaterial.supplierName.toLowerCase())
+    );
+
+    const primarySupplierName = primarySup?.name || selectedMaterial.supplierName || 'Primary Supplier';
+
+    // Volume tiers from material's database volumePricing if present
+    const dbVolumeTiers = (selectedMaterial.volumePricing && selectedMaterial.volumePricing.length > 0)
+      ? selectedMaterial.volumePricing.map(vp => ({
+          minQty: vp.minQuantity,
+          unitPrice: vp.unitPrice,
+          discountPct: vp.discountPercentage,
+          label: vp.label || `Min ${vp.minQuantity} ${baseUnit} (-${vp.discountPercentage}%)`
+        }))
+      : [
+          { minQty: 1, unitPrice: basePrice, discountPct: 0, label: `Standard (1-24 ${baseUnit})` },
+          { minQty: 25, unitPrice: Number((basePrice * 0.95).toFixed(2)), discountPct: 5, label: `Batch (25-99 ${baseUnit})` },
+          { minQty: 100, unitPrice: Number((basePrice * 0.90).toFixed(2)), discountPct: 10, label: `Volume (100-499 ${baseUnit})` },
+          { minQty: 500, unitPrice: Number((basePrice * 0.85).toFixed(2)), discountPct: 15, label: `Bulk (500+ ${baseUnit})` }
+        ];
 
     const list: SupplierQuoteOption[] = [
       {
-        id: 'quote-1',
-        supplierName: baseSupplierName,
-        city: 'Pittsburgh, PA',
-        country: 'USA',
-        rating: 4.8,
-        onTimeDeliveryPct: 97.4,
-        qualityScorePct: 99.1,
-        certifications: ['ISO 9001:2015', 'AS9100D Aerospace Certified', 'NADCAP Heat Treat'],
+        id: primarySup ? `quote-${primarySup.id}` : 'quote-1',
+        supplierName: primarySupplierName,
+        supplierId: primarySup?.id || selectedMaterial.supplierId,
+        city: primarySup?.address || 'Colombo',
+        country: 'LK',
+        rating: primarySup?.rating || 4.8,
+        onTimeDeliveryPct: primarySup?.deliveryPerformance || 98.0,
+        qualityScorePct: primarySup?.qualityScore || 99.0,
+        certifications: primarySup?.certifications?.length ? primarySup.certifications : ['ISO 9001:2015', 'Verified'],
         unitRate: basePrice,
         currency: 'LKR',
-        volumeTiers: [
-          { minQty: 1, unitPrice: basePrice, discountPct: 0, label: `Standard Tier (1-24 ${baseUnit})` },
-          { minQty: 25, unitPrice: basePrice * 0.95, discountPct: 5, label: `Production Batch (25-99 ${baseUnit})` },
-          { minQty: 100, unitPrice: basePrice * 0.90, discountPct: 10, label: `Volume Lot (100-499 ${baseUnit})` },
-          { minQty: 500, unitPrice: basePrice * 0.85, discountPct: 15, label: `Enterprise Mill Run (500+ ${baseUnit})` }
-        ],
-        leadTimeDays: selectedMaterial.leadTimeDays || 5,
-        paymentTerms: 'Net 30',
-        badge: 'Primary Certified Mill (AS9100D)',
-        notes: 'Guaranteed heat lot metallurgical test reports with zero defect warranty.'
-      },
-      {
-        id: 'quote-2',
-        supplierName: 'Titan Heavy Structural Fabricators',
-        city: 'Detroit, MI',
-        country: 'USA',
-        rating: 4.6,
-        onTimeDeliveryPct: 95.0,
-        qualityScorePct: 98.2,
-        certifications: ['ISO 9001:2015', 'ASME Section IX Certified'],
-        unitRate: Number((basePrice * 0.93).toFixed(2)), // 7% cheaper
-        currency: 'LKR',
-        volumeTiers: [
-          { minQty: 1, unitPrice: Number((basePrice * 0.93).toFixed(2)), discountPct: 0, label: `Standard Contract Tier` },
-          { minQty: 50, unitPrice: Number((basePrice * 0.86).toFixed(2)), discountPct: 8, label: `High Volume Fabricator Batch` }
-        ],
-        leadTimeDays: (selectedMaterial.leadTimeDays || 7) + 4,
-        paymentTerms: 'Net 60',
-        badge: 'Lowest Rate Guarantee (-7%)',
-        notes: 'Direct mill stock with standard certification and flexible 60-day terms.'
-      },
-      {
-        id: 'quote-3',
-        supplierName: 'Global Integrated Logistics & Materials Fleet',
-        city: 'Chicago, IL',
-        country: 'USA',
-        rating: 4.9,
-        onTimeDeliveryPct: 99.2,
-        qualityScorePct: 99.6,
-        certifications: ['C-TPAT Tier 2 Certified', 'ISO 28000 SCM'],
-        unitRate: Number((basePrice * 1.05).toFixed(2)), // 5% premium
-        currency: 'LKR',
-        volumeTiers: [
-          { minQty: 1, unitPrice: Number((basePrice * 1.05).toFixed(2)), discountPct: 0, label: `Fast-Track Dispatch` }
-        ],
-        leadTimeDays: Math.max(2, Math.round((selectedMaterial.leadTimeDays || 6) / 2)),
-        paymentTerms: 'Net 15 / Advance 50%',
-        badge: 'Fast-Track Expedited (48h)',
-        notes: 'Express courier & satellite-tracked freight with guaranteed delivery dispatch.'
-      },
-      {
-        id: 'quote-4',
-        supplierName: 'Pacific Raw Metals & Industrial Alloys',
-        city: 'Seattle, WA',
-        country: 'USA',
-        rating: 4.4,
-        onTimeDeliveryPct: 92.8,
-        qualityScorePct: 96.5,
-        certifications: ['ISO 9001 Certified'],
-        unitRate: Number((basePrice * 0.91).toFixed(2)), // 9% cheaper
-        currency: 'LKR',
-        leadTimeDays: (selectedMaterial.leadTimeDays || 7) + 10,
-        paymentTerms: 'Commercial Escrow',
-        badge: 'Budget Economy (-9%)',
-        notes: 'Commercial specification with factory certificate. Ideal for cost-optimized runs.'
+        volumeTiers: dbVolumeTiers,
+        leadTimeDays: primarySup?.leadTimeDays || selectedMaterial.leadTimeDays || 3,
+        paymentTerms: primarySup?.paymentTerms || 'Net 30',
+        badge: 'Primary Supplier'
       }
     ];
 
+    // Other suppliers from database
+    const otherSuppliers = suppliers.filter(s => s.name !== primarySupplierName);
+    otherSuppliers.slice(0, 3).forEach((sup, idx) => {
+      const varianceFactor = [0.94, 1.05, 0.92, 0.97][idx % 4];
+      const supRate = Number((basePrice * varianceFactor).toFixed(2));
+      const badge = varianceFactor < 1 ? `Savings (-${Math.round((1 - varianceFactor) * 100)}%)` : 'Express';
+      list.push({
+        id: `quote-${sup.id || idx + 2}`,
+        supplierName: sup.name,
+        supplierId: sup.id,
+        city: sup.address || 'Sri Lanka',
+        country: 'LK',
+        rating: sup.rating || 4.5,
+        onTimeDeliveryPct: sup.deliveryPerformance || 95.0,
+        qualityScorePct: sup.qualityScore || 96.0,
+        certifications: sup.certifications?.length ? sup.certifications : ['ISO 9001'],
+        unitRate: supRate,
+        currency: 'LKR',
+        volumeTiers: dbVolumeTiers.map(t => ({
+          ...t,
+          unitPrice: Number((supRate * (1 - t.discountPct / 100)).toFixed(2))
+        })),
+        leadTimeDays: sup.leadTimeDays || (selectedMaterial.leadTimeDays || 5) + (idx + 1),
+        paymentTerms: sup.paymentTerms || 'Net 30',
+        badge
+      });
+    });
+
     return [...list, ...customQuotesList];
-  }, [selectedMaterial, customQuotesList]);
+  }, [selectedMaterial, suppliers, customQuotesList]);
 
   // Active quote
   const selectedQuote = useMemo(() => {
     return quotes.find(q => q.id === selectedQuoteId) || quotes[0];
   }, [quotes, selectedQuoteId]);
 
-  // Bulk Tier Presets
-  const bulkTierOptions = [
-    { id: 'proto', label: 'Prototype Batch', range: '1 - 24 units', defaultQty: 10, discountPct: 0, desc: 'Single unit prototyping' },
-    { id: 'batch', label: 'Production Batch', range: '25 - 99 units', defaultQty: 50, discountPct: 5, desc: 'Standard production run' },
-    { id: 'volume', label: 'Volume Lot', range: '100 - 499 units', defaultQty: 150, discountPct: 10, desc: 'Optimized bulk pricing' },
-    { id: 'enterprise', label: 'Enterprise Mill Run', range: '500+ units', defaultQty: 500, discountPct: 15, desc: 'Maximum volume discount' }
-  ];
+  // Bulk Tier Presets derived from material volumePricing if available
+  const bulkTierOptions = useMemo(() => {
+    if (selectedMaterial?.volumePricing && selectedMaterial.volumePricing.length > 0) {
+      return selectedMaterial.volumePricing.map((vp, idx) => ({
+        id: `tier-${idx}`,
+        label: vp.label || `Tier ${idx + 1}`,
+        range: vp.maxQuantity ? `${vp.minQuantity} - ${vp.maxQuantity}` : `${vp.minQuantity}+`,
+        defaultQty: vp.minQuantity,
+        discountPct: vp.discountPercentage,
+        desc: vp.unitPrice ? `@ ${formatLKR(vp.unitPrice)}` : `${vp.discountPercentage}% discount`
+      }));
+    }
+    return [
+      { id: 'proto', label: 'Tier 1', range: '1 - 24', defaultQty: 10, discountPct: 0, desc: 'Base' },
+      { id: 'batch', label: 'Tier 2', range: '25 - 99', defaultQty: 50, discountPct: 5, desc: '5% off' },
+      { id: 'volume', label: 'Tier 3', range: '100 - 499', defaultQty: 150, discountPct: 10, desc: '10% off' },
+      { id: 'enterprise', label: 'Tier 4', range: '500+', defaultQty: 500, discountPct: 15, desc: '15% off' }
+    ];
+  }, [selectedMaterial]);
 
   const handleSelectBulkTier = (tier: typeof bulkTierOptions[0]) => {
     setSelectedBulkTier(tier.id);
@@ -860,10 +862,10 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                   <button
                     type="button"
                     onClick={() => handleQuickInsertDirectly(selectedMaterial)}
-                    className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
+                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>⚡ Quick Insert ({formatLKR(selectedMaterial.retailPrice)})</span>
+                    <span>Quick Add</span>
                   </button>
                   <button
                     type="button"
@@ -871,7 +873,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                     className="px-3 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
                   >
                     <Columns className="w-3.5 h-3.5" />
-                    <span>Open Multi-Vendor &amp; Profit Engine &rarr;</span>
+                    <span>Configure &rarr;</span>
                   </button>
                 </div>
               </div>
@@ -900,7 +902,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                     onClick={() => setSelectedMaterial(null)}
                     className="text-xs text-slate-600 hover:text-slate-900 underline whitespace-nowrap"
                   >
-                    Change Material
+                    Change
                   </button>
                 </div>
               </div>
@@ -911,7 +913,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                   <div className="flex items-center space-x-1.5">
                     <Building2 className="w-3.5 h-3.5 text-[#003049]" />
                     <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                      1. Choose Certified Supplier Rate
+                      Supplier
                     </span>
                   </div>
                   <button
@@ -919,7 +921,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                     className="flex items-center space-x-1 text-[11px] text-[#c1121f] hover:underline font-medium"
                   >
                     <Plus className="w-3 h-3" />
-                    <span>+ Custom Vendor</span>
+                    <span>+ Vendor</span>
                   </button>
                 </div>
 
@@ -1051,7 +1053,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                 <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-1.5">
                   <Boxes className="w-3.5 h-3.5 text-[#003049]" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    2. Choose Bulk Size &amp; Volume Discount
+                    Volume
                   </span>
                 </div>
 
@@ -1092,14 +1094,14 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
                     <label className="block text-[11px] text-slate-700 font-medium mb-1">
-                      Required Quantity ({selectedMaterial.unit})
+                      Quantity ({selectedMaterial.unit})
                     </label>
                     <div className="flex items-center space-x-1">
                       <button
                         type="button"
                         onClick={() => setQuantity(q => Math.max(1, q - 10))}
                         className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 text-xs text-slate-700"
-                        title="-10 units"
+                        title="-10"
                       >
                         -10
                       </button>
@@ -1114,7 +1116,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                         type="button"
                         onClick={() => setQuantity(q => q + 10)}
                         className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 text-xs text-slate-700"
-                        title="+10 units"
+                        title="+10"
                       >
                         +10
                       </button>
@@ -1122,7 +1124,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                         type="button"
                         onClick={() => setQuantity(q => q + 50)}
                         className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 text-xs text-slate-700"
-                        title="+50 units"
+                        title="+50"
                       >
                         +50
                       </button>
@@ -1131,7 +1133,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
 
                   <div>
                     <label className="block text-[11px] text-slate-700 font-medium mb-1">
-                      Volume Discount Applied (%)
+                      Discount (%)
                     </label>
                     <div className="relative">
                       <input
@@ -1153,14 +1155,14 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                 <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-1.5">
                   <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    3. Manage Revenues, Costs &amp; Profits
+                    Markup
                   </span>
                 </div>
 
                 {/* Markup & Billable Rate Controls */}
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] text-slate-700 font-medium">Target Client Markup (%)</label>
+                    <label className="text-[11px] text-slate-700 font-medium">Markup (%)</label>
                     <div className="flex items-center space-x-1">
                       {[15, 25, 35, 50, 75].map(pct => (
                         <button
@@ -1192,7 +1194,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                       />
                       <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
                         <span>0%</span>
-                        <span className="font-semibold text-emerald-700">{markupPct}% Markup</span>
+                        <span className="font-semibold text-emerald-700">{markupPct}%</span>
                         <span>100%</span>
                       </div>
                     </div>
@@ -1203,14 +1205,14 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                         <input
                           type="number"
                           step={0.01}
-                          placeholder="Client Billable Rate"
+                          placeholder="Client Rate"
                           value={customBillableRate !== null ? customBillableRate : calculatedBillableRate}
                           onChange={e => handleBillablePriceChange(Number(e.target.value))}
                           className="w-full bg-white border border-slate-300 rounded pl-6 pr-2 py-1 text-xs text-slate-900 font-medium focus:outline-none focus:border-emerald-600"
                         />
                       </div>
                       <span className="text-[10px] text-slate-400 block mt-0.5">
-                        Client price / {selectedMaterial.unit}
+                        Client rate / {selectedMaterial.unit}
                       </span>
                     </div>
                   </div>
@@ -1219,7 +1221,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                 {/* LIVE FINANCIAL SUMMARY DISPLAY */}
                 <div className="bg-[#003049] text-white rounded-xl p-3 shadow-md space-y-2">
                   <div className="text-[10px] text-[#fdf0d5] uppercase font-semibold tracking-wider flex items-center justify-between">
-                    <span>Live Profitability Breakdown</span>
+                    <span>Profit</span>
                     <span className="bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-500/30">
                       {grossMarginPct}% Margin
                     </span>
@@ -1227,7 +1229,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
 
                   <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-white/10">
                     <div className="bg-white/5 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-300 block">Total Direct Cost</span>
+                      <span className="text-[10px] text-slate-300 block">Cost</span>
                       <span className="text-xs font-semibold text-white">
                         ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
@@ -1237,7 +1239,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                     </div>
 
                     <div className="bg-white/5 rounded-lg p-2">
-                      <span className="text-[10px] text-[#fdf0d5] block">Projected Revenue</span>
+                      <span className="text-[10px] text-[#fdf0d5] block">Revenue</span>
                       <span className="text-xs font-semibold text-[#fdf0d5]">
                         ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
@@ -1247,12 +1249,12 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                     </div>
 
                     <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-lg p-2">
-                      <span className="text-[10px] text-emerald-300 block">Gross Profit</span>
+                      <span className="text-[10px] text-emerald-300 block">Profit</span>
                       <span className="text-xs font-bold text-emerald-400">
                         +${grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </span>
                       <span className="text-[9px] text-emerald-200 block mt-0.5">
-                        {grossMarginPct}% ROI
+                        {grossMarginPct}%
                       </span>
                     </div>
                   </div>
@@ -1263,7 +1265,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
               <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-3 shadow-2xs">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div>
-                    <label className="block text-[11px] text-slate-700 font-medium mb-1">Assign to Project Phase</label>
+                    <label className="block text-[11px] text-slate-700 font-medium mb-1">Phase</label>
                     <select
                       value={selectedPhaseId}
                       onChange={e => setSelectedPhaseId(e.target.value)}
@@ -1285,7 +1287,7 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                         onChange={e => setSyncRevenueWithProject(e.target.checked)}
                         className="rounded border-slate-300 text-[#003049] focus:ring-[#003049]"
                       />
-                      <span>Sync with Project Quoted Revenue</span>
+                      <span>Sync Revenue</span>
                     </label>
                   </div>
                 </div>
@@ -1294,19 +1296,17 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg font-medium transition-colors"
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg font-medium transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmAndAdd}
-                    className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                    className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#fdf0d5]" />
-                    <span>
-                      Insert into Project Plan (${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} Cost / +${grossProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })} Profit)
-                    </span>
+                    <span>Add to Plan</span>
                   </button>
                 </div>
               </div>
@@ -1317,9 +1317,9 @@ export const SupplierRatesComparisonModal: React.FC<SupplierRatesComparisonModal
               <div className="w-14 h-14 rounded-2xl bg-[#003049]/5 flex items-center justify-center text-[#003049] mb-3">
                 <Boxes className="w-7 h-7" />
               </div>
-              <h4 className="text-sm font-semibold text-slate-800">Select a Material from the Catalog</h4>
+              <h4 className="text-sm font-semibold text-slate-800">Select Item</h4>
               <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-                Choose any material on the left in either <strong>FXTT Table View</strong> or <strong>Grid View</strong> to compare vendor rates, configure bulk sizes, and calculate project revenues &amp; profit margins in real time.
+                Choose an item to compare rates, set volume, and add to plan.
               </p>
             </div>
           ) : null}

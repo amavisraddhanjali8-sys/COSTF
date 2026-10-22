@@ -160,56 +160,53 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
           <div>
             <div className="flex items-center space-x-2 text-xs font-semibold text-sky-200 uppercase tracking-wider">
               <Calendar className="w-4 h-4 text-[#fdf0d5]" />
-              <span>Project Schedules &amp; Milestone Tracking</span>
+              <span>Schedules</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white mt-1">
-              Project Timelines Portfolio
+              Timelines
             </h1>
-            <p className="text-xs text-sky-100/90 mt-0.5">
-              Review critical path schedules, phase progress, delivery commitments, and subcontractor resource assignments across all enterprise projects.
-            </p>
           </div>
         </div>
 
         {/* 4-Stat Telemetry Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3">
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Total Active Projects</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Projects</span>
             <div className="text-xl sm:text-2xl font-black font-mono text-white mt-0.5">
               {aggregateStats.totalProjects}
             </div>
             <span className="text-[10px] text-sky-200 block mt-0.5">
-              Tracked in schedule calendar
+              Active
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Milestones Completed</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Milestones</span>
             <div className="text-lg sm:text-xl font-black font-mono text-[#fdf0d5] mt-0.5">
               {aggregateStats.completedMilestones} / {aggregateStats.totalMilestones}
             </div>
             <span className="text-[10px] text-sky-200 block mt-0.5">
-              {aggregateStats.overallProgress}% Portfolio milestone rate
+              {aggregateStats.overallProgress}% done
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
             <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">On Schedule</span>
             <div className="text-lg sm:text-xl font-black font-mono text-emerald-300 mt-0.5">
-              {aggregateStats.onTrack} Projects
+              {aggregateStats.onTrack}
             </div>
             <span className="text-[10px] text-emerald-200 block mt-0.5">
-              Milestone dates satisfied
+              Normal
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Critical Path Alerts</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Critical</span>
             <div className="text-lg sm:text-xl font-black font-mono text-amber-300 mt-0.5">
-              {aggregateStats.critical} Projects
+              {aggregateStats.critical}
             </div>
             <span className="text-[10px] text-amber-200 block mt-0.5">
-              Target delivery within 14 days
+              Urgent
             </span>
           </div>
         </div>
@@ -231,11 +228,11 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
 
         {/* Filter Pills */}
         <div className="flex items-center space-x-1.5 overflow-x-auto text-xs">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase mr-1">Status:</span>
+          <span className="text-[11px] font-semibold text-slate-400 uppercase mr-1">Filter:</span>
           {[
-            { id: 'all', label: 'All Projects', count: timelineCards.length },
+            { id: 'all', label: 'All', count: timelineCards.length },
             { id: 'on_track', label: 'On Schedule', count: aggregateStats.onTrack },
-            { id: 'critical', label: 'Critical Path', count: aggregateStats.critical },
+            { id: 'critical', label: 'Critical', count: aggregateStats.critical },
             { id: 'completed', label: 'Delivered', count: aggregateStats.completed }
           ].map((tab) => {
             const active = statusFilter === tab.id;
@@ -434,7 +431,7 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
                     }}
                     className="px-3 py-1.5 bg-[#003049] group-hover:bg-[#0078d4] text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
                   >
-                    <span>Open Timeline &amp; Gantt</span>
+                    <span>Timeline</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                   </button>
                 </div>

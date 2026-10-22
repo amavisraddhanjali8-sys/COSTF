@@ -179,11 +179,8 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
               <span>Executive Margin Intelligence Portfolio</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white mt-1">
-              Project Marginal Profit Analysis
+              Margins
             </h1>
-            <p className="text-xs text-sky-100/90 mt-0.5">
-              Select any project to drill down into unit deliverables, supplier cost models, sensitivity curves, and live break-even analysis.
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -191,10 +188,10 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
               <button
                 type="button"
                 onClick={onOpenCreateProject}
-                className="px-3.5 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#003049]" />
-                <span>+ New Project Budget</span>
+                <span>+ New Project</span>
               </button>
             )}
           </div>
@@ -203,55 +200,55 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
         {/* 5-Column Portfolio KPI Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-3">
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Avg Margin</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Margin</span>
             <div className="text-xl sm:text-2xl font-black font-mono text-[#fdf0d5] mt-0.5">
               {portfolioSummary.avgMargin}%
             </div>
             <span className="text-[10px] text-sky-200 block mt-0.5">
-              Target benchmark: 35.0%
+              Target: 35%
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Portfolio Revenue</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Revenue</span>
             <div className="text-lg sm:text-xl font-black font-mono text-white mt-0.5">
               {formatCurrency(portfolioSummary.totalRev, baseCurrency)}
             </div>
             <span className="text-[10px] text-sky-200 block mt-0.5">
-              {portfolioSummary.count} Active Projects
+              {portfolioSummary.count} Projects
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Direct Variable Costs</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Cost</span>
             <div className="text-lg sm:text-xl font-black font-mono text-white mt-0.5">
               {formatCurrency(portfolioSummary.totalDirect, baseCurrency)}
             </div>
             <span className="text-[10px] text-sky-200 block mt-0.5">
-              Materials, Labor &amp; Sourced
+              Direct
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Projected Profit</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Profit</span>
             <div className="text-lg sm:text-xl font-black font-mono text-emerald-300 mt-0.5">
               +{formatCurrency(portfolioSummary.totalProfit, baseCurrency)}
             </div>
             <span className="text-[10px] text-emerald-200 block mt-0.5">
-              Net gross generation
+              Gross
             </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15 col-span-2 sm:col-span-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Target Adherence</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Target</span>
             <div className="flex items-baseline space-x-1 mt-0.5">
               <span className="text-lg sm:text-xl font-black text-emerald-300">
                 {portfolioSummary.meetingTargetCount}
               </span>
-              <span className="text-xs text-sky-200">/ {portfolioSummary.count} on target</span>
+              <span className="text-xs text-sky-200">/ {portfolioSummary.count}</span>
             </div>
             <span className="text-[10px] text-amber-200 block mt-0.5">
-              {portfolioSummary.atRiskCount} require sourcing review
+              {portfolioSummary.atRiskCount} at risk
             </span>
           </div>
         </div>
@@ -275,11 +272,11 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
         <div className="flex items-center space-x-1.5 overflow-x-auto text-xs">
           <span className="text-[11px] font-semibold text-slate-400 uppercase mr-1">Filter:</span>
           {[
-            { id: 'all', label: 'All Projects', count: projectMetrics.length },
-            { id: 'high', label: 'High Margin (≥35%)', count: projectMetrics.filter(m => m.grossMarginPct >= 35).length },
-            { id: 'target', label: 'On Target', count: projectMetrics.filter(m => m.grossMarginPct >= m.targetMargin * 0.8 && m.grossMarginPct < 35).length },
-            { id: 'risk', label: 'At Risk (<25%)', count: projectMetrics.filter(m => m.grossMarginPct < m.targetMargin * 0.8 && m.grossMarginPct > 0).length },
-            { id: 'negative', label: 'Deficit (≤0%)', count: projectMetrics.filter(m => m.grossMarginPct <= 0).length }
+            { id: 'all', label: 'All', count: projectMetrics.length },
+            { id: 'high', label: 'High', count: projectMetrics.filter(m => m.grossMarginPct >= 35).length },
+            { id: 'target', label: 'Target', count: projectMetrics.filter(m => m.grossMarginPct >= m.targetMargin * 0.8 && m.grossMarginPct < 35).length },
+            { id: 'risk', label: 'Risk', count: projectMetrics.filter(m => m.grossMarginPct < m.targetMargin * 0.8 && m.grossMarginPct > 0).length },
+            { id: 'negative', label: 'Deficit', count: projectMetrics.filter(m => m.grossMarginPct <= 0).length }
           ].map((tab) => {
             const active = marginFilter === tab.id;
             return (
@@ -531,7 +528,7 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
                     }}
                     className="px-3 py-1.5 bg-[#003049] group-hover:bg-[#0078d4] text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
                   >
-                    <span>Analyze Margins</span>
+                    <span>Margins</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                   </button>
                 </div>

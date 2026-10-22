@@ -11,7 +11,7 @@ import { convertCurrency, getCurrencyInfo } from './currency';
 export interface ItemWarningAnalysis {
   itemId: string;
   itemName: string;
-  itemType: 'material' | 'subcontractor' | 'outsourced';
+  itemType: 'material' | 'subcontractor' | 'outsourced' | 'overhead' | 'produce' | 'other';
   phaseId: string;
   phaseName: string;
   phaseBudget: number;

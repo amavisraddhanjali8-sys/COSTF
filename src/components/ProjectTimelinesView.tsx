@@ -53,6 +53,7 @@ interface ProjectTimelinesViewProps {
   projects?: Project[];
   onSelectProject?: (proj: Project) => void;
   onOpenProjectPicker?: () => void;
+  onNavigateToLanding?: () => void;
   onUpdateProject: (updated: Project) => void;
   onExportPDF: () => void;
   users?: AppUser[];
@@ -64,6 +65,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   projects = [],
   onSelectProject,
   onOpenProjectPicker,
+  onNavigateToLanding,
   onUpdateProject,
   onExportPDF,
   users = [],
@@ -792,6 +794,17 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
          ========================================================================= */}
       <div className="bg-white dark:bg-[#0b101b] p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
+          {onNavigateToLanding && (
+            <button
+              type="button"
+              onClick={onNavigateToLanding}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shrink-0 shadow-2xs"
+              title="Return to all project cards"
+            >
+              <span>← All Projects</span>
+            </button>
+          )}
+
           <div className="p-2.5 rounded-xl bg-[#0078d4]/10 dark:bg-sky-950/60 text-[#0078d4] dark:text-sky-400">
             <Calendar className="w-5 h-5" />
           </div>

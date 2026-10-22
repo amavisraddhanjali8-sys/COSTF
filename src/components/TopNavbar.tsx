@@ -109,6 +109,8 @@ interface TopNavbarProps {
   showNotification?: (message: string) => void;
   sessionRemainingSeconds?: number;
   onExtendSession?: () => void;
+  onOpenMarginsLanding?: () => void;
+  onOpenTimelinesLanding?: () => void;
 }
 
 export const TopNavbar: React.FC<TopNavbarProps> = ({
@@ -130,7 +132,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   onGlobalSearchNavigate,
   showNotification,
   sessionRemainingSeconds,
-  onExtendSession
+  onExtendSession,
+  onOpenMarginsLanding,
+  onOpenTimelinesLanding
 }) => {
   // Theme state
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredThemeMode());
@@ -1032,9 +1036,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-cost-analysis"
             onClick={() => {
-              onSelectTab('cost-analysis');
-              if (!selectedProject && onOpenProjectPicker) {
-                onOpenProjectPicker('margins');
+              if (onOpenMarginsLanding) {
+                onOpenMarginsLanding();
+              } else {
+                onSelectTab('cost-analysis');
               }
             }}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
@@ -1051,9 +1056,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             type="button"
             id="nav-tab-project-timelines"
             onClick={() => {
-              onSelectTab('project-timelines');
-              if (!selectedProject && onOpenProjectPicker) {
-                onOpenProjectPicker('timelines');
+              if (onOpenTimelinesLanding) {
+                onOpenTimelinesLanding();
+              } else {
+                onSelectTab('project-timelines');
               }
             }}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${

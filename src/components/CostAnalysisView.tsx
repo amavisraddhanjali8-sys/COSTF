@@ -56,6 +56,7 @@ interface CostAnalysisViewProps {
   onRefreshAnalytics: () => void;
   onExportPDF: () => void;
   onNavigateToProjects: () => void;
+  onNavigateToLanding?: () => void;
   initialTab?: 'margins' | 'trend' | 'dashboard' | 'cost-controls' | 'variance-heatmap';
 }
 
@@ -75,6 +76,7 @@ export const CostAnalysisView: React.FC<CostAnalysisViewProps> = ({
   onRefreshAnalytics,
   onExportPDF,
   onNavigateToProjects,
+  onNavigateToLanding,
   initialTab = 'margins'
 }) => {
   // Five tabs:
@@ -139,32 +141,45 @@ export const CostAnalysisView: React.FC<CostAnalysisViewProps> = ({
     <div className="space-y-4">
       {/* Top Project Breadcrumb & Quick Switcher Box */}
       <div className="bg-white dark:bg-[#0b101b] p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        {currentProject ? (
-          <div>
-            <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400">
-              <span className="font-mono text-[#0078d4] font-bold uppercase">{currentProject.code}</span>
-              <span>•</span>
-              <span>{currentProject.productCategory || currentProject.category || 'Engineering'}</span>
-              <span>•</span>
-              <span className="text-slate-700 dark:text-slate-300 font-semibold flex items-center space-x-1">
-                <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                <span>{currentProject.clientName || currentProject.client || 'Client'}</span>
-              </span>
-            </div>
+        <div className="flex items-center space-x-3">
+          {onNavigateToLanding && (
+            <button
+              type="button"
+              onClick={onNavigateToLanding}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shrink-0 shadow-2xs"
+              title="Return to all project cards"
+            >
+              <span>← All Projects</span>
+            </button>
+          )}
 
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5 flex items-center space-x-2">
-              <span>{currentProject.name}</span>
-              {currentProject.targetProduct && (
-                <span className="text-xs text-slate-500 font-normal">({currentProject.targetProduct})</span>
-              )}
-            </h2>
-          </div>
-        ) : (
-          <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Project Planning &amp; Margins</h2>
-            <p className="text-xs text-slate-500">Select a project to connect all database cost items.</p>
-          </div>
-        )}
+          {currentProject ? (
+            <div>
+              <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="font-mono text-[#0078d4] font-bold uppercase">{currentProject.code}</span>
+                <span>•</span>
+                <span>{currentProject.productCategory || currentProject.category || 'Engineering'}</span>
+                <span>•</span>
+                <span className="text-slate-700 dark:text-slate-300 font-semibold flex items-center space-x-1">
+                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                  <span>{currentProject.clientName || currentProject.client || 'Client'}</span>
+                </span>
+              </div>
+
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5 flex items-center space-x-2">
+                <span>{currentProject.name}</span>
+                {currentProject.targetProduct && (
+                  <span className="text-xs text-slate-500 font-normal">({currentProject.targetProduct})</span>
+                )}
+              </h2>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Project Planning &amp; Margins</h2>
+              <p className="text-xs text-slate-500">Select a project to connect all database cost items.</p>
+            </div>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Simple Project Selector Box */}

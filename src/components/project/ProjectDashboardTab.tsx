@@ -99,7 +99,43 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     };
   });
 
-  const deliverables = project.deliverables || [];
+  const activePlan = project.budgetaryPlans?.find((plan) => plan.id === project.activePlanId) || project.budgetaryPlans?.[0];
+  const planOrSelectedItems = (activePlan?.selectedItems && activePlan.selectedItems.length > 0)
+    ? activePlan.selectedItems
+    : (project.selectedItems || []);
+
+  const deliverables: ProjectDeliverableItem[] = React.useMemo(() => {
+    if (project.deliverables && project.deliverables.length > 0) {
+      return project.deliverables;
+    }
+    if (planOrSelectedItems.length > 0) {
+      return planOrSelectedItems.map((item, idx) => {
+        const qty = item.quantity || 1;
+        const cst = item.unitCost || 0;
+        const totCst = item.totalCost || (cst * qty);
+        const billRate = item.billableRate || (cst > 0 ? Number((cst * 1.35).toFixed(2)) : 100);
+        const totRev = item.totalRevenue || Number((billRate * qty).toFixed(2));
+        const margin = totRev > 0 ? Number((((totRev - totCst) / totRev) * 100).toFixed(1)) : 35;
+        return {
+          id: item.id || `item-deliv-${idx}`,
+          code: item.itemId || `ITM-${idx + 1}`,
+          name: item.name,
+          category: item.category || 'Direct Item',
+          unit: item.unit || 'pcs',
+          quantity: qty,
+          costPrice: cst,
+          quotedPrice: billRate,
+          totalCost: totCst,
+          totalRevenue: totRev,
+          marginPct: margin,
+          type: item.type === 'material' ? 'product' : 'service',
+          isCustom: false,
+          status: 'pending' as const
+        };
+      });
+    }
+    return [];
+  }, [project.deliverables, planOrSelectedItems]);
 
   // Deliverables financial summary
   const deliverablesSummary = React.useMemo(() => {
@@ -125,9 +161,27 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     const updatedDeliverables = [...deliverables, item];
     const updatedQuotedPrice = updatedDeliverables.reduce((sum, d) => sum + d.totalRevenue, 0);
 
+    const newCostItem: any = {
+      id: item.id,
+      phaseId: project.phases[0]?.id || 'phase-01',
+      type: item.type === 'product' ? 'material' : 'subcontractor',
+      itemId: item.code,
+      name: item.name,
+      category: item.category,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitCost: item.costPrice,
+      totalCost: item.totalCost,
+      billableRate: item.quotedPrice,
+      totalRevenue: item.totalRevenue,
+      grossProfit: item.totalRevenue - item.totalCost,
+      markupPct: item.marginPct
+    };
+
     onUpdateProject({
       ...project,
       deliverables: updatedDeliverables,
+      selectedItems: [...(project.selectedItems || []), newCostItem],
       quotedPrice: updatedQuotedPrice > 0 ? updatedQuotedPrice : project.quotedPrice
     });
   };
@@ -137,7 +191,8 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     const updatedDeliverables = deliverables.filter(d => d.id !== id);
     onUpdateProject({
       ...project,
-      deliverables: updatedDeliverables
+      deliverables: updatedDeliverables,
+      selectedItems: (project.selectedItems || []).filter(it => it.id !== id)
     });
   };
 

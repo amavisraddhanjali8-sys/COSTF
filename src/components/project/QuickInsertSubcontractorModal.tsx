@@ -155,86 +155,75 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
       });
   }, [subcontractors, selectedCategory, search, sortBy]);
 
-  // Dynamic contractor quote options for selected trade
+  // Dynamic contractor quote options from actual database subcontractors
   const quotes: ContractorQuoteOption[] = useMemo(() => {
     if (!selectedSub) return [];
 
     const baseRate = selectedSub.baseRate ?? selectedSub.rate ?? 110;
-    const firm = selectedSub.subcontractorName || 'Titan Certified Heavy Fabrication';
+    const firm = selectedSub.subcontractorName || selectedSub.name || 'Certified Contractor';
 
     const list: ContractorQuoteOption[] = [
       {
-        id: 'quote-1',
+        id: `quote-${selectedSub.id || '1'}`,
         contractorName: firm,
-        city: 'Houston, TX',
+        city: 'Colombo, LK',
         rating: 4.9,
-        certifications: ['ISO 9001:2015', 'ASME Section IX', 'OSHA 30 Certified'],
+        certifications: ['ISO 9001:2015', 'Certified Trade'],
         hourlyRate: baseRate,
         currency: 'LKR',
-        leadTimeDays: 2,
-        paymentTerms: 'Net 30 Progress',
-        badge: 'Primary Certified Firm',
-        skillBadge: selectedSub.skillLevel || 'Senior Master Specialist',
-        notes: 'Dedicated project union crew with full safety escrow and tool transport.'
-      },
-      {
-        id: 'quote-2',
-        contractorName: 'Continental Guild & Union Tradesmen',
-        city: 'Cleveland, OH',
-        rating: 4.8,
-        certifications: ['AISC Certified Fabricator', 'AWS D1.1 Structural'],
-        hourlyRate: Number((baseRate * 0.92).toFixed(2)), // 8% cheaper
-        currency: 'LKR',
-        leadTimeDays: 5,
-        paymentTerms: 'Net 45 Commercial',
-        badge: 'Lowest Rate Guarantee (-8%)',
-        skillBadge: 'Journeyman Trades Guild',
-        notes: 'Verified competitive rate for high-volume shift mobilization.'
-      },
-      {
-        id: 'quote-3',
-        contractorName: 'RapidResponse 24/7 Industrial Trades Fleet',
-        city: 'Detroit, MI',
-        rating: 4.95,
-        certifications: ['Emergency Dispatch SLA', 'ISO 45001 Safety'],
-        hourlyRate: Number((baseRate * 1.12).toFixed(2)), // 12% premium
-        currency: 'LKR',
-        leadTimeDays: 1,
-        paymentTerms: 'Net 15 / Advance 30%',
-        badge: 'Fast-Track 24/7 Weekend Crew (+12%)',
-        skillBadge: 'Emergency Specialized Crew',
-        notes: 'Guaranteed 24-hour crew mobilization for accelerated turnarounds.'
-      },
-      {
-        id: 'quote-4',
-        contractorName: 'Allied Engineering & Escrow Contractors',
-        city: 'Denver, CO',
-        rating: 4.6,
-        certifications: ['ASME Boiler Code', 'API 650 Certified'],
-        hourlyRate: Number((baseRate * 0.95).toFixed(2)), // 5% cheaper
-        currency: 'LKR',
-        leadTimeDays: 7,
-        paymentTerms: 'Milestone Escrow Net 60',
-        badge: 'Long-Term Escrow (-5%)',
-        skillBadge: 'Certified Journeyman',
-        notes: 'Escrow-managed billing tied to FAT / SAT project inspection releases.'
+        leadTimeDays: selectedSub.leadTimeDays || 2,
+        paymentTerms: 'Net 30',
+        badge: 'Primary Firm',
+        skillBadge: selectedSub.skillLevel || 'Senior Specialist'
       }
     ];
 
+    // Other subcontractors from database
+    const others = subcontractors.filter(s => s.id !== selectedSub.id && (s.name !== selectedSub.name));
+    others.slice(0, 3).forEach((sub, idx) => {
+      const varianceFactor = [0.92, 1.10, 0.95][idx % 3];
+      const otherRate = sub.baseRate ?? sub.rate ?? Number((baseRate * varianceFactor).toFixed(2));
+      list.push({
+        id: `quote-${sub.id || idx + 2}`,
+        contractorName: sub.subcontractorName || sub.name,
+        city: 'Sri Lanka',
+        rating: 4.7,
+        certifications: ['Certified Trade'],
+        hourlyRate: otherRate,
+        currency: 'LKR',
+        leadTimeDays: sub.leadTimeDays || 3,
+        paymentTerms: 'Net 30',
+        badge: varianceFactor < 1 ? 'Savings' : 'Express',
+        skillBadge: sub.skillLevel || 'Trade Specialist'
+      });
+    });
+
     return [...list, ...customQuotesList];
-  }, [selectedSub, customQuotesList]);
+  }, [selectedSub, subcontractors, customQuotesList]);
 
   const selectedQuote = useMemo(() => {
     return quotes.find(q => q.id === selectedQuoteId) || quotes[0];
   }, [quotes, selectedQuoteId]);
 
-  // Shift & Hours Presets
-  const shiftTierOptions = [
-    { id: 'sprint', label: 'Short Sprint', range: '8 - 24 hrs', defaultHours: 16, discountPct: 0, desc: 'Single shift emergency task' },
-    { id: 'week', label: 'Full Workweek', range: '40 hrs', defaultHours: 40, discountPct: 5, desc: 'Standard 40-hr crew allocation' },
-    { id: 'multiweek', label: 'Multi-Week Crew', range: '80 - 160 hrs', defaultHours: 120, discountPct: 8, desc: 'Multi-week continuous project shift' },
-    { id: 'master', label: 'Master Agreement', range: '200+ hrs', defaultHours: 240, discountPct: 15, desc: 'Enterprise contractor bulk agreement' }
-  ];
+  // Shift & Hours Presets - use bulkPricingRanges from database if available
+  const shiftTierOptions = useMemo(() => {
+    if (selectedSub?.bulkPricingRanges && selectedSub.bulkPricingRanges.length > 0) {
+      return selectedSub.bulkPricingRanges.map((range, idx) => ({
+        id: `range-${idx}`,
+        label: `Tier ${idx + 1}`,
+        range: range.maxUnits ? `${range.minUnits} - ${range.maxUnits} hrs` : `${range.minUnits}+ hrs`,
+        defaultHours: range.minUnits,
+        discountPct: range.discountPct,
+        desc: `${range.discountPct}% discount`
+      }));
+    }
+    return [
+      { id: 'sprint', label: 'Tier 1', range: '8 - 24 hrs', defaultHours: 16, discountPct: 0, desc: 'Sprint' },
+      { id: 'week', label: 'Tier 2', range: '40 hrs', defaultHours: 40, discountPct: 5, desc: 'Week' },
+      { id: 'multiweek', label: 'Tier 3', range: '80 - 160 hrs', defaultHours: 120, discountPct: 8, desc: 'Multi-Week' },
+      { id: 'master', label: 'Tier 4', range: '200+ hrs', defaultHours: 240, discountPct: 15, desc: 'Bulk' }
+    ];
+  }, [selectedSub]);
 
   const handleSelectShiftTier = (tier: typeof shiftTierOptions[0]) => {
     setSelectedShiftTier(tier.id);
@@ -864,10 +853,10 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 <button
                   type="button"
                   onClick={() => handleQuickInsertDirectly(selectedSub)}
-                  className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
+                  className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>⚡ Quick Insert Trade ({formatLKR((selectedSub.baseRate ?? selectedSub.rate ?? 100) * 8)})</span>
+                  <span>Quick Add</span>
                 </button>
                 <button
                   type="button"
@@ -875,7 +864,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                   className="px-3 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
                 >
                   <Columns className="w-3.5 h-3.5" />
-                  <span>Open Multi-Contractor &amp; Profit Engine &rarr;</span>
+                  <span>Configure &rarr;</span>
                 </button>
               </div>
             </div>
@@ -902,9 +891,9 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 </div>
                 <button
                   onClick={() => setSelectedSub(null)}
-                  className="text-xs text-slate-600 hover:text-slate-900 underline whitespace-nowrap"
+                  className="text-xs text-slate-600 hover:text-slate-900 underline whitespace-nowrap cursor-pointer"
                 >
-                  Change Trade
+                  Change
                 </button>
               </div>
             </div>
@@ -915,15 +904,15 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 <div className="flex items-center space-x-1.5">
                   <Building2 className="w-3.5 h-3.5 text-[#003049]" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    1. Choose Certified Contractor Rate
+                    Contractor
                   </span>
                 </div>
                 <button
                   onClick={() => setIsAddingCustomQuote(true)}
-                  className="text-[11px] text-[#003049] hover:underline flex items-center space-x-1 font-medium"
+                  className="text-[11px] text-[#003049] hover:underline flex items-center space-x-1 font-medium cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-[#c1121f]" />
-                  <span>+ Custom Contractor</span>
+                  <span>+ Contractor</span>
                 </button>
               </div>
 
@@ -1057,7 +1046,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
               <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#003049]" />
                 <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                  2. Choose Shift Hours &amp; Crew Discount
+                  Hours
                 </span>
               </div>
 
@@ -1070,7 +1059,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                       key={tier.id}
                       type="button"
                       onClick={() => handleSelectShiftTier(tier)}
-                      className={`p-2 rounded-lg border text-left transition-all ${
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
                         isSelected
                           ? 'border-[#003049] bg-[#003049]/5 ring-1 ring-[#003049]'
                           : 'border-slate-200 bg-white hover:border-slate-300'
@@ -1094,20 +1083,20 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-slate-700 font-medium text-xs mb-1">
-                    Direct Project Hours ({selectedSub.unit || 'hours'})
+                    Hours ({selectedSub.unit || 'hours'})
                   </label>
                   <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
                     <button
                       type="button"
                       onClick={() => setHours(Math.max(1, hours - 8))}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-r border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-r border-slate-300 cursor-pointer"
                     >
                       -8
                     </button>
                     <button
                       type="button"
                       onClick={() => setHours(Math.max(1, hours - 1))}
-                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-r border-slate-300"
+                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-r border-slate-300 cursor-pointer"
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -1121,14 +1110,14 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                     <button
                       type="button"
                       onClick={() => setHours(hours + 1)}
-                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-l border-slate-300"
+                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-l border-slate-300 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setHours(hours + 8)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-l border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-l border-slate-300 cursor-pointer"
                     >
                       +8
                     </button>
@@ -1137,7 +1126,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-700 font-medium text-xs">Volume Discount</label>
+                    <label className="text-slate-700 font-medium text-xs">Discount</label>
                     <span className="text-xs font-semibold text-emerald-700">{customDiscountPct}%</span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -1148,7 +1137,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                       step="1"
                       value={customDiscountPct}
                       onChange={e => setCustomDiscountPct(Number(e.target.value))}
-                      className="w-full accent-[#003049]"
+                      className="w-full accent-[#003049] cursor-pointer"
                     />
                     <span className="text-xs text-slate-500 w-10 text-right">{customDiscountPct}%</span>
                   </div>
@@ -1162,15 +1151,14 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 <div className="flex items-center space-x-1.5">
                   <TrendingUp className="w-3.5 h-3.5 text-[#003049]" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    3. Project Phase &amp; Profit Margin Engine
+                    Markup
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-500">Live Bid Calculation</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">Assign to Project Phase</label>
+                  <label className="block text-slate-700 font-medium mb-1">Phase</label>
                   <select
                     value={selectedPhaseId}
                     onChange={e => setSelectedPhaseId(e.target.value)}
@@ -1178,7 +1166,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                   >
                     {phases.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.status})
+                        {p.name}
                       </option>
                     ))}
                   </select>
@@ -1186,7 +1174,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-700 font-medium">Target Markup %</label>
+                    <label className="text-slate-700 font-medium">Markup %</label>
                     <span className="font-semibold text-[#003049]">{markupPct}%</span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -1197,7 +1185,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                       step="1"
                       value={markupPct}
                       onChange={e => handleMarkupChange(Number(e.target.value))}
-                      className="w-full accent-[#003049]"
+                      className="w-full accent-[#003049] cursor-pointer"
                     />
                     <input
                       type="number"
@@ -1211,7 +1199,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 <div className="sm:col-span-2 pt-1 border-t border-slate-100 grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-700 font-medium mb-1">
-                      Direct Contractor Rate ($/hr)
+                      Rate ($/hr)
                     </label>
                     <div className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 font-bold text-slate-800 text-sm">
                       ${netHourlyCost.toFixed(2)}
@@ -1221,8 +1209,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-700 font-medium">Client Billable Rate ($/hr)</label>
-                      <span className="text-[10px] text-[#003049] font-medium">Quoted To Client</span>
+                      <label className="text-slate-700 font-medium">Client Rate ($/hr)</label>
                     </div>
                     <div className="relative">
                       <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
@@ -1245,7 +1232,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                       onChange={e => setSyncRevenueWithProject(e.target.checked)}
                       className="rounded border-slate-300 text-[#003049] focus:ring-[#003049]"
                     />
-                    <span>Sync Client Billable Total with Project Plan Revenue</span>
+                    <span>Sync Revenue</span>
                   </label>
                 </div>
               </div>
@@ -1255,7 +1242,7 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
             <div className="bg-[#003049] text-white rounded-xl p-3.5 shadow-md space-y-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-xs font-semibold text-[#fdf0d5] uppercase tracking-wider">
-                  Live Project Financial Impact
+                  Profit
                 </span>
                 <span className="text-[11px] text-slate-300 font-mono">
                   {hours} {selectedSub.unit || 'hrs'} × ${netHourlyCost.toFixed(2)}
@@ -1264,28 +1251,28 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-slate-300">Total Labour Cost</div>
+                  <div className="text-[10px] text-slate-300">Cost</div>
                   <div className="text-sm font-bold text-white mt-0.5">
                     ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-slate-300">Client Revenue</div>
+                  <div className="text-[10px] text-slate-300">Revenue</div>
                   <div className="text-sm font-bold text-[#fdf0d5] mt-0.5">
                     ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-emerald-300">Projected Profit</div>
+                  <div className="text-[10px] text-emerald-300">Profit</div>
                   <div className="text-sm font-bold text-emerald-400 mt-0.5">
                     +${grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-emerald-300">Margin %</div>
+                  <div className="text-[10px] text-emerald-300">Margin</div>
                   <div className="text-sm font-bold text-emerald-400 mt-0.5">
                     {grossMarginPct}%
                   </div>
@@ -1296,19 +1283,17 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs rounded-lg font-medium transition-colors"
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs rounded-lg font-medium transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmAndAdd}
-                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-[#fdf0d5]" />
-                  <span>
-                    Insert into Project Plan (${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} Cost / +${grossProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })} Profit)
-                  </span>
+                  <span>Add to Plan</span>
                 </button>
               </div>
             </div>
@@ -1319,9 +1304,9 @@ export const QuickInsertSubcontractorModal: React.FC<QuickInsertSubcontractorMod
             <div className="w-14 h-14 rounded-2xl bg-[#003049]/5 flex items-center justify-center text-[#003049] mb-3">
               <Wrench className="w-7 h-7" />
             </div>
-            <h4 className="text-sm font-semibold text-slate-800">Select a Specialized Trade from the Catalog</h4>
+            <h4 className="text-sm font-semibold text-slate-800">Select Contractor</h4>
             <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-              Choose any subcontractor trade on the left in either <strong>FXTT Table View</strong> or <strong>Grid View</strong> to compare contractor quotes, configure crew shift hours, and calculate live profit margins in real time.
+              Choose a contractor to configure hours and add to plan.
             </p>
           </div>
         ) : null}

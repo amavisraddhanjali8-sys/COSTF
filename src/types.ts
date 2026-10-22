@@ -408,12 +408,23 @@ export interface InventoryTransaction {
   newAvailableQuantity: number;
 }
 
+export interface ProjectMilestone {
+  id: string;
+  name?: string;
+  title?: string;
+  completed?: boolean;
+  status?: string;
+  dueDate?: string;
+  date?: string;
+}
+
 export interface ProjectPhase {
   id: string;
   name: string;
   description?: string;
   budget?: number;
   actualCost: number;
+  actual?: number;
   plannedCost?: number;
   materialBudget?: number;
   laborBudget?: number;
@@ -429,6 +440,7 @@ export interface ProjectPhase {
   capacityHours?: number;
   allocatedHours?: number;
   assignedResources?: PhaseResourceAssignment[];
+  milestones?: ProjectMilestone[];
 }
 
 export interface PhaseResourceAssignment {
@@ -476,11 +488,12 @@ export interface ResourceScheduleConflict {
 export interface ProjectCostItem {
   id: string;
   phaseId: string;
-  type: 'material' | 'subcontractor' | 'outsourced';
+  type: 'material' | 'subcontractor' | 'outsourced' | 'overhead' | 'produce' | 'other';
   itemId?: string;
   name: string;
   category?: string;
   supplierOrProvider: string;
+  supplierId?: string;
   quantity: number;
   unit: string;
   unitCost: number;
@@ -638,7 +651,7 @@ export interface ProjectPlanBoqItem {
   projectId?: string;
   sectionId?: string;
   phaseId?: string;
-  type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'other';
+  type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'overhead' | 'other';
   itemId?: string;
   itemCode?: string;
   barcode?: string;

@@ -138,70 +138,49 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
       });
   }, [outsourcedServices, selectedCategory, search, sortBy]);
 
-  // Dynamic provider quote options for selected service
+  // Dynamic provider quote options for selected service from actual database
   const quotes: ProviderQuoteOption[] = useMemo(() => {
     if (!selectedService) return [];
 
     const baseRate = selectedService.rate ?? 50;
-    const provider = selectedService.providerName || 'Certified Prime Logistics Carrier';
+    const provider = selectedService.providerName || selectedService.name || 'Certified Provider';
 
     const list: ProviderQuoteOption[] = [
       {
-        id: 'quote-1',
+        id: `quote-${selectedService.id || '1'}`,
         providerName: provider,
-        location: 'National Industrial Network',
+        location: 'Colombo, LK',
         rating: 4.9,
-        slaLevel: selectedService.slaLevel || 'Mission Critical 24/7',
+        slaLevel: selectedService.slaLevel || 'Standard SLA',
         unitRate: baseRate,
         currency: 'LKR',
-        leadTimeDays: 3,
-        paymentTerms: 'Net 30 Commercial',
-        badge: 'Primary Certified Provider',
-        notes: 'Guaranteed scheduled transport with active GPS telematics & temperature escrow.'
-      },
-      {
-        id: 'quote-2',
-        providerName: 'Consolidated Logistics & Utility Alliance',
-        location: 'Regional Terminal Hub',
-        rating: 4.7,
-        slaLevel: 'Standard SLA (3-Day Transit)',
-        unitRate: Number((baseRate * 0.90).toFixed(2)), // 10% cheaper
-        currency: 'LKR',
-        leadTimeDays: 6,
-        paymentTerms: 'Net 45 Enterprise',
-        badge: 'Volume Fleet Tariff (-10%)',
-        notes: 'High-volume consolidated freight tariff for scheduled industrial batch runs.'
-      },
-      {
-        id: 'quote-3',
-        providerName: 'Apex Rush Intermodal Logistics',
-        location: 'Rapid Hub Express',
-        rating: 4.95,
-        slaLevel: 'Mission Critical 24/7 (Priority Dispatch)',
-        unitRate: Number((baseRate * 1.15).toFixed(2)), // 15% premium
-        currency: 'LKR',
-        leadTimeDays: 1,
-        paymentTerms: 'Net 15 / Direct Debit',
-        badge: 'Fast-Track 24/7 Priority (+15%)',
-        notes: 'Dedicated chartered escort vehicles, priority terminal passage, and 24/7 dispatch.'
-      },
-      {
-        id: 'quote-4',
-        providerName: 'State Regulatory Escrow & Infrastructure Agency',
-        location: 'National Infrastructure Registry',
-        rating: 4.8,
-        slaLevel: 'Regulatory Certified Compliance',
-        unitRate: Number((baseRate * 0.94).toFixed(2)), // 6% discount
-        currency: 'LKR',
-        leadTimeDays: 10,
-        paymentTerms: 'Government Escrow Net 60',
-        badge: 'Government Escrow (-6%)',
-        notes: 'Official state agency accredited certification, certified test bench report included.'
+        leadTimeDays: 2,
+        paymentTerms: 'Net 30',
+        badge: 'Primary Provider'
       }
     ];
 
+    // Other services from database
+    const others = outsourcedServices.filter(s => s.id !== selectedService.id && s.name !== selectedService.name);
+    others.slice(0, 3).forEach((srv, idx) => {
+      const varianceFactor = [0.90, 1.15, 0.94][idx % 3];
+      const otherRate = srv.rate ?? Number((baseRate * varianceFactor).toFixed(2));
+      list.push({
+        id: `quote-${srv.id || idx + 2}`,
+        providerName: srv.providerName || srv.name,
+        location: 'Sri Lanka',
+        rating: 4.7,
+        slaLevel: srv.slaLevel || 'Standard SLA',
+        unitRate: otherRate,
+        currency: 'LKR',
+        leadTimeDays: 3,
+        paymentTerms: 'Net 30',
+        badge: varianceFactor < 1 ? 'Savings' : 'Express'
+      });
+    });
+
     return [...list, ...customQuotesList];
-  }, [selectedService, customQuotesList]);
+  }, [selectedService, outsourcedServices, customQuotesList]);
 
   const selectedQuote = useMemo(() => {
     return quotes.find(q => q.id === selectedQuoteId) || quotes[0];
@@ -209,10 +188,10 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
 
   // Volume Presets
   const volumeTierOptions = [
-    { id: 'low', label: 'Pilot / Batch', range: '25 - 50 units', defaultVolume: 25, discountPct: 0, desc: 'Initial trial or spot requirement' },
-    { id: 'mid', label: 'Standard Run', range: '100 units', defaultVolume: 100, discountPct: 5, desc: 'Standard project milestone run' },
-    { id: 'high', label: 'Volume Fleet', range: '500 units', defaultVolume: 500, discountPct: 10, desc: 'Full batch transportation / utility load' },
-    { id: 'enterprise', label: 'Enterprise Contract', range: '1,500+ units', defaultVolume: 1500, discountPct: 18, desc: 'Annual multi-site infrastructure contract' }
+    { id: 'low', label: 'Tier 1', range: '25 - 50', defaultVolume: 25, discountPct: 0, desc: 'Base' },
+    { id: 'mid', label: 'Tier 2', range: '100', defaultVolume: 100, discountPct: 5, desc: '5% off' },
+    { id: 'high', label: 'Tier 3', range: '500', defaultVolume: 500, discountPct: 10, desc: '10% off' },
+    { id: 'enterprise', label: 'Tier 4', range: '1,500+', defaultVolume: 1500, discountPct: 15, desc: '15% off' }
   ];
 
   const handleSelectVolumeTier = (tier: typeof volumeTierOptions[0]) => {
@@ -836,10 +815,10 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 <button
                   type="button"
                   onClick={() => handleQuickInsertDirectly(selectedService)}
-                  className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
+                  className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>⚡ Quick Insert Service ({formatLKR(selectedService.rate)})</span>
+                  <span>Quick Add</span>
                 </button>
                 <button
                   type="button"
@@ -847,7 +826,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                   className="px-3 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1.5 shadow-sm cursor-pointer"
                 >
                   <Columns className="w-3.5 h-3.5" />
-                  <span>Open Multi-Provider &amp; Profit Engine &rarr;</span>
+                  <span>Configure &rarr;</span>
                 </button>
               </div>
             </div>
@@ -874,9 +853,9 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 </div>
                 <button
                   onClick={() => setSelectedService(null)}
-                  className="text-xs text-slate-600 hover:text-slate-900 underline whitespace-nowrap"
+                  className="text-xs text-slate-600 hover:text-slate-900 underline whitespace-nowrap cursor-pointer"
                 >
-                  Change Service
+                  Change
                 </button>
               </div>
             </div>
@@ -887,15 +866,15 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 <div className="flex items-center space-x-1.5">
                   <Building2 className="w-3.5 h-3.5 text-[#003049]" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    1. Choose Certified Provider Tariff
+                    Provider
                   </span>
                 </div>
                 <button
                   onClick={() => setIsAddingCustomQuote(true)}
-                  className="text-[11px] text-[#003049] hover:underline flex items-center space-x-1 font-medium"
+                  className="text-[11px] text-[#003049] hover:underline flex items-center space-x-1 font-medium cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-[#c1121f]" />
-                  <span>+ Custom Carrier</span>
+                  <span>+ Provider</span>
                 </button>
               </div>
 
@@ -1030,7 +1009,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
               <div className="flex items-center space-x-1.5 border-b border-slate-100 pb-1.5">
                 <Clock className="w-3.5 h-3.5 text-[#003049]" />
                 <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                  2. Choose Volume ({selectedService.baseUnitType.replace('per_', '')}) &amp; Bulk Discount
+                  Volume
                 </span>
               </div>
 
@@ -1043,7 +1022,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                       key={tier.id}
                       type="button"
                       onClick={() => handleSelectVolumeTier(tier)}
-                      className={`p-2 rounded-lg border text-left transition-all ${
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
                         isSelected
                           ? 'border-[#003049] bg-[#003049]/5 ring-1 ring-[#003049]'
                           : 'border-slate-200 bg-white hover:border-slate-300'
@@ -1067,20 +1046,20 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-slate-700 font-medium text-xs mb-1">
-                    Project Volume Quantity ({selectedService.baseUnitType.replace('per_', '')})
+                    Volume ({selectedService.baseUnitType.replace('per_', '')})
                   </label>
                   <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
                     <button
                       type="button"
                       onClick={() => setVolume(Math.max(1, volume - 25))}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-r border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-r border-slate-300 cursor-pointer"
                     >
                       -25
                     </button>
                     <button
                       type="button"
                       onClick={() => setVolume(Math.max(1, volume - 5))}
-                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-r border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-r border-slate-300 cursor-pointer"
                     >
                       <Minus className="w-3 h-3" />
                     </button>
@@ -1094,14 +1073,14 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                     <button
                       type="button"
                       onClick={() => setVolume(volume + 5)}
-                      className="px-2 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-l border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border-l border-slate-300 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
                     <button
                       type="button"
                       onClick={() => setVolume(volume + 25)}
-                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-l border-slate-300"
+                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 border-l border-slate-300 cursor-pointer"
                     >
                       +25
                     </button>
@@ -1110,7 +1089,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-700 font-medium text-xs">Volume Discount</label>
+                    <label className="text-slate-700 font-medium text-xs">Discount</label>
                     <span className="text-xs font-semibold text-emerald-700">{customDiscountPct}%</span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -1121,7 +1100,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                       step="1"
                       value={customDiscountPct}
                       onChange={e => setCustomDiscountPct(Number(e.target.value))}
-                      className="w-full accent-[#003049]"
+                      className="w-full accent-[#003049] cursor-pointer"
                     />
                     <span className="text-xs text-slate-500 w-10 text-right">{customDiscountPct}%</span>
                   </div>
@@ -1135,15 +1114,14 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 <div className="flex items-center space-x-1.5">
                   <TrendingUp className="w-3.5 h-3.5 text-[#003049]" />
                   <span className="text-xs font-semibold text-[#003049] uppercase tracking-wide">
-                    3. Project Phase &amp; Profit Margin Engine
+                    Markup
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-500">Live Bid Calculation</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="block text-slate-700 font-medium mb-1">Assign to Project Phase</label>
+                  <label className="block text-slate-700 font-medium mb-1">Phase</label>
                   <select
                     value={selectedPhaseId}
                     onChange={e => setSelectedPhaseId(e.target.value)}
@@ -1151,7 +1129,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                   >
                     {phases.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.status})
+                        {p.name}
                       </option>
                     ))}
                   </select>
@@ -1159,7 +1137,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-700 font-medium">Target Markup %</label>
+                    <label className="text-slate-700 font-medium">Markup %</label>
                     <span className="font-semibold text-[#003049]">{markupPct}%</span>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -1170,7 +1148,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                       step="1"
                       value={markupPct}
                       onChange={e => handleMarkupChange(Number(e.target.value))}
-                      className="w-full accent-[#003049]"
+                      className="w-full accent-[#003049] cursor-pointer"
                     />
                     <input
                       type="number"
@@ -1184,7 +1162,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 <div className="sm:col-span-2 pt-1 border-t border-slate-100 grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-700 font-medium mb-1">
-                      Direct Provider Tariff Cost
+                      Rate Cost
                     </label>
                     <div className="bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 font-bold text-slate-800 text-sm">
                       ${netUnitCost.toFixed(2)}
@@ -1194,8 +1172,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-700 font-medium">Client Billable Rate</label>
-                      <span className="text-[10px] text-[#003049] font-medium">Quoted To Client</span>
+                      <label className="text-slate-700 font-medium">Client Rate</label>
                     </div>
                     <div className="relative">
                       <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
@@ -1218,7 +1195,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                       onChange={e => setSyncRevenueWithProject(e.target.checked)}
                       className="rounded border-slate-300 text-[#003049] focus:ring-[#003049]"
                     />
-                    <span>Sync Client Billable Total with Project Plan Revenue</span>
+                    <span>Sync Revenue</span>
                   </label>
                 </div>
               </div>
@@ -1228,7 +1205,7 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
             <div className="bg-[#003049] text-white rounded-xl p-3.5 shadow-md space-y-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
                 <span className="text-xs font-semibold text-[#fdf0d5] uppercase tracking-wider">
-                  Live Project Financial Impact
+                  Profit
                 </span>
                 <span className="text-[11px] text-slate-300 font-mono">
                   {volume} {selectedService.baseUnitType.replace('per_', '')} × ${netUnitCost.toFixed(2)}
@@ -1237,28 +1214,28 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-slate-300">Total Service Cost</div>
+                  <div className="text-[10px] text-slate-300">Cost</div>
                   <div className="text-sm font-bold text-white mt-0.5">
                     ${totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-slate-300">Client Revenue</div>
+                  <div className="text-[10px] text-slate-300">Revenue</div>
                   <div className="text-sm font-bold text-[#fdf0d5] mt-0.5">
                     ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-emerald-300">Projected Profit</div>
+                  <div className="text-[10px] text-emerald-300">Profit</div>
                   <div className="text-sm font-bold text-emerald-400 mt-0.5">
                     +${grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                 </div>
 
                 <div className="bg-white/5 rounded-lg p-2 border border-white/10">
-                  <div className="text-[10px] text-emerald-300">Margin %</div>
+                  <div className="text-[10px] text-emerald-300">Margin</div>
                   <div className="text-sm font-bold text-emerald-400 mt-0.5">
                     {grossMarginPct}%
                   </div>
@@ -1269,19 +1246,17 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs rounded-lg font-medium transition-colors"
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs rounded-lg font-medium transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmAndAdd}
-                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-[#c1121f] hover:bg-[#a10e19] text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-[#fdf0d5]" />
-                  <span>
-                    Insert into Project Plan (${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })} Cost / +${grossProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })} Profit)
-                  </span>
+                  <span>Add to Plan</span>
                 </button>
               </div>
             </div>
@@ -1292,9 +1267,9 @@ export const QuickInsertOutsourcedModal: React.FC<QuickInsertOutsourcedModalProp
             <div className="w-14 h-14 rounded-2xl bg-[#003049]/5 flex items-center justify-center text-[#003049] mb-3">
               <Truck className="w-7 h-7" />
             </div>
-            <h4 className="text-sm font-semibold text-slate-800">Select an Outsourced Service from the Catalog</h4>
+            <h4 className="text-sm font-semibold text-slate-800">Select Provider</h4>
             <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-              Choose any logistics or outsourced utility service on the left in either <strong>FXTT Table View</strong> or <strong>Grid View</strong> to compare provider tariffs, configure volume runs, and calculate live profit margins in real time.
+              Choose a provider to configure volume and add to plan.
             </p>
           </div>
         ) : null}

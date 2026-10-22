@@ -13,6 +13,8 @@ import { ProjectHomeView } from './components/ProjectHomeView';
 import { PlanDetailsPage } from './components/project/PlanDetailsPage';
 import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
 import { RevenueCataloguePortal } from './components/revenue/RevenueCataloguePortal';
+import { ProjectMarginsLandingView } from './components/project/ProjectMarginsLandingView';
+import { ProjectTimelinesLandingView } from './components/project/ProjectTimelinesLandingView';
 import { TariffManagementPortal } from './components/tariffs/TariffManagementPortal';
 import { ProcurementPriceHistoryModal } from './components/pricing/ProcurementPriceHistoryModal';
 import { SettingsView } from './components/SettingsView';
@@ -173,6 +175,8 @@ export default function App() {
   }, []);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('directory-hub');
+  const [marginsViewMode, setMarginsViewMode] = useState<'landing' | 'detail'>('landing');
+  const [timelinesViewMode, setTimelinesViewMode] = useState<'landing' | 'detail'>('landing');
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectPickerTarget, setProjectPickerTarget] = useState<'margins' | 'timelines' | 'resources' | 'cost-analysis' | 'general'>('general');
   
@@ -1253,6 +1257,14 @@ export default function App() {
         showNotification={showToast}
         sessionRemainingSeconds={sessionRemainingSeconds}
         onExtendSession={handleExtendSession}
+        onOpenMarginsLanding={() => {
+          setMarginsViewMode('landing');
+          setActiveTab('cost-analysis');
+        }}
+        onOpenTimelinesLanding={() => {
+          setTimelinesViewMode('landing');
+          setActiveTab('project-timelines');
+        }}
       />
 
       {/* Main Content Viewport - Full Width without unnecessary blank side margins */}
@@ -1384,25 +1396,36 @@ export default function App() {
         )}
 
         {activeTab === 'cost-analysis' && (
-          <CostAnalysisView
-            project={selectedProject}
-            projects={projects}
-            onSelectProject={(p) => setSelectedProjectId(p.id)}
-            onOpenProjectPicker={() => {
-              setProjectPickerTarget('margins');
-              setIsProjectPickerOpen(true);
-            }}
-            materials={materials}
-            produceItems={produceItems}
-            suppliers={suppliers}
-            subcontractors={subcontractors}
-            outsourcedServices={outsourcedServices}
-            onUpdateProject={handleUpdateProject}
-            onRefreshAnalytics={handleRefreshAnalytics}
-            onExportPDF={() => handleExportPDF(selectedProject || undefined)}
-            onNavigateToProjects={() => setActiveTab('projects')}
-            initialTab="margins"
-          />
+          marginsViewMode === 'landing' ? (
+            <ProjectMarginsLandingView
+              projects={projects}
+              onSelectProject={(p) => {
+                setSelectedProjectId(p.id);
+                setMarginsViewMode('detail');
+              }}
+              onOpenCreateProject={() => setActiveTab('projects')}
+            />
+          ) : (
+            <CostAnalysisView
+              project={selectedProject}
+              projects={projects}
+              onSelectProject={(p) => setSelectedProjectId(p.id)}
+              onOpenProjectPicker={() => {
+                setMarginsViewMode('landing');
+              }}
+              onNavigateToLanding={() => setMarginsViewMode('landing')}
+              materials={materials}
+              produceItems={produceItems}
+              suppliers={suppliers}
+              subcontractors={subcontractors}
+              outsourcedServices={outsourcedServices}
+              onUpdateProject={handleUpdateProject}
+              onRefreshAnalytics={handleRefreshAnalytics}
+              onExportPDF={() => handleExportPDF(selectedProject || undefined)}
+              onNavigateToProjects={() => setActiveTab('projects')}
+              initialTab="margins"
+            />
+          )
         )}
 
         {activeTab === 'project-home' && (
@@ -1448,19 +1471,31 @@ export default function App() {
         )}
 
         {activeTab === 'project-timelines' && (
-          <ProjectTimelinesView
-            project={selectedProject}
-            projects={projects}
-            onSelectProject={(p) => setSelectedProjectId(p.id)}
-            onOpenProjectPicker={() => {
-              setProjectPickerTarget('timelines');
-              setIsProjectPickerOpen(true);
-            }}
-            onUpdateProject={handleUpdateProject}
-            onExportPDF={() => handleExportPDF(selectedProject || undefined)}
-            users={users}
-            subcontractors={subcontractors}
-          />
+          timelinesViewMode === 'landing' ? (
+            <ProjectTimelinesLandingView
+              projects={projects}
+              onSelectProject={(p) => {
+                setSelectedProjectId(p.id);
+                setTimelinesViewMode('detail');
+              }}
+              users={users}
+              subcontractors={subcontractors}
+            />
+          ) : (
+            <ProjectTimelinesView
+              project={selectedProject}
+              projects={projects}
+              onSelectProject={(p) => setSelectedProjectId(p.id)}
+              onOpenProjectPicker={() => {
+                setTimelinesViewMode('landing');
+              }}
+              onNavigateToLanding={() => setTimelinesViewMode('landing')}
+              onUpdateProject={handleUpdateProject}
+              onExportPDF={() => handleExportPDF(selectedProject || undefined)}
+              users={users}
+              subcontractors={subcontractors}
+            />
+          )
         )}
 
         {activeTab === 'produce' && (
@@ -1801,6 +1836,7 @@ export default function App() {
             onExportPDF={handleExportPDF}
             onViewCostAnalysis={(p) => {
               setSelectedProjectId(p.id);
+              setMarginsViewMode('detail');
               setActiveTab('cost-analysis');
             }}
             onNavigateToProjectHome={(p) => {
@@ -1809,6 +1845,7 @@ export default function App() {
             }}
             onViewTimelines={(p) => {
               setSelectedProjectId(p.id);
+              setTimelinesViewMode('detail');
               setActiveTab('project-timelines');
             }}
             onViewResources={(p) => {
