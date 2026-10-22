@@ -12672,6 +12672,61 @@ export class PostgresService {
     };
   }
 
+  public async updateCompetitor(id: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await db.query('SELECT * FROM competitors WHERE id = $1', [id]);
+    if (existing.rows.length === 0) return null;
+
+    const res = await db.query(
+      `UPDATE competitors SET
+        name = COALESCE($1, name),
+        code = COALESCE($2, code),
+        country = COALESCE($3, country),
+        market_tier = COALESCE($4, market_tier),
+        contact_person = COALESCE($5, contact_person),
+        email = COALESCE($6, email),
+        website = COALESCE($7, website),
+        notes = COALESCE($8, notes),
+        is_active = COALESCE($9, is_active),
+        updated_at = NOW()
+       WHERE id = $10
+       RETURNING *`,
+      [
+        data.name,
+        data.code,
+        data.country,
+        data.marketTier,
+        data.contactPerson,
+        data.email,
+        data.website,
+        data.notes,
+        data.isActive,
+        id
+      ]
+    );
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      name: r.name,
+      code: r.code,
+      country: r.country,
+      marketTier: r.market_tier,
+      contactPerson: r.contact_person,
+      email: r.email,
+      website: r.website,
+      notes: r.notes,
+      isActive: r.is_active,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    };
+  }
+
+  public async deleteCompetitor(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM competitors WHERE id = $1', [id]);
+    return true;
+  }
+
   // --- Competitor Table (Tracking competitor name, product/service association, pricing, timestamps) ---
   public async getCompetitorEntries(opts?: { itemId?: string; itemType?: string; search?: string }): Promise<any[]> {
     const db = await this.getDb();

@@ -105,7 +105,28 @@ async function run() {
   assert.strictEqual(history[0].reason, 'Raw Materials Surcharge Adjustment', 'History record reason should match');
 
   // 5. Test Project Deliverables Relational API
-  const testProjectId = 'prj-01';
+  let testProjectId = 'prj-01';
+  const projsRes = await req('GET', '/api/projects');
+  if (Array.isArray(projsRes.data) && projsRes.data.length > 0) {
+    testProjectId = projsRes.data[0].id;
+  } else {
+    // Create a seed project in PostgreSQL so foreign key constraint passes
+    const createProj = await req('POST', '/api/projects', {
+      id: 'prj-01',
+      code: 'PRJ-2026-001',
+      name: 'Turnkey CNC Automation Facility',
+      client: 'Apex Industrial Dynamics',
+      status: 'In Progress',
+      budget: 150000,
+      currency: 'USD',
+      startDate: '2026-01-01',
+      endDate: '2026-12-31'
+    });
+    if (createProj.data?.id) {
+      testProjectId = createProj.data.id;
+    }
+  }
+
   const delivsRes = await req('GET', `/api/projects/${testProjectId}/deliverables`);
   console.log('   delivsRes status:', delivsRes.status, 'data:', delivsRes.data);
   assert.strictEqual(delivsRes.status, 200, 'Project deliverables endpoint should return 200');

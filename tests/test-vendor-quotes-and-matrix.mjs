@@ -163,7 +163,7 @@ async function run() {
       id: 'USR-ADMIN',
       name: 'System Administrator',
       role: 'ADMIN',
-      email: adminEmail
+      email: 'admin@innovative.com'
     },
     notes: 'Regulatory price archive verified and downloaded prior to vendor deletion'
   };

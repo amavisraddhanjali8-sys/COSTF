@@ -69,8 +69,10 @@ import {
   OutsourcedService,
   SubcontractorRateItem,
   ProduceItem,
+  Competitor,
   AppUser
 } from '../types';
+import { ProductCompetitorPriceMatrixModal } from './pricing/ProductCompetitorPriceMatrixModal';
 import {
   CreateCategoryModal,
   CreateSubCategoryModal,
@@ -91,7 +93,8 @@ export type DirectoryTab =
   | 'clients'
   | 'suppliers'
   | 'service-providers'
-  | 'subcontractors';
+  | 'subcontractors'
+  | 'competitors';
 
 export type RevenueStreamSubTab = 'all_records' | 'products' | 'services' | 'hierarchy';
 export type ServiceCategorySubTab = 'subcontractor' | 'outsourced';
@@ -143,6 +146,10 @@ interface DirectoryCardsHubViewProps {
   categories?: CategoryNode[];
   onUpdateCategories?: (cats: CategoryNode[]) => void;
   currentUser?: AppUser | null;
+  competitors?: Competitor[];
+  onAddCompetitor?: (c: Partial<Competitor>) => void;
+  onUpdateCompetitor?: (id: string, c: Partial<Competitor>) => void;
+  onDeleteCompetitor?: (id: string) => void;
 }
 
 export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
@@ -191,7 +198,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   onAddRevenueItem,
   onUpdateRevenueItem,
   onDeleteRevenueItem,
-  currentUser
+  currentUser,
+  competitors: competitorsProp,
+  onAddCompetitor,
+  onUpdateCompetitor,
+  onDeleteCompetitor
 }) => {
   const [activeTab, setActiveTab] = useState<DirectoryTab>(initialTab || 'projects');
   const [revenueSubTab, setRevenueSubTab] = useState<RevenueStreamSubTab>('all_records');
@@ -263,6 +274,54 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }).catch((err) => console.warn('Could not load revenue items & services in directory:', err));
   }, []);
 
+  // Competitor Intelligence & Market Benchmark Directory States
+  const [competitorsList, setCompetitorsList] = useState<Competitor[]>(competitorsProp || []);
+  const [competitorFilterTier, setCompetitorFilterTier] = useState<string>('all');
+  const [isCompetitorModalOpen, setIsCompetitorModalOpen] = useState(false);
+  const [editingCompetitor, setEditingCompetitor] = useState<Competitor | null>(null);
+  const [competitorForm, setCompetitorForm] = useState({
+    name: '',
+    code: '',
+    country: 'United States',
+    marketTier: 'Primary Competitor',
+    contactPerson: '',
+    email: '',
+    website: '',
+    notes: ''
+  });
+  const [activeCompetitorMatrixItem, setActiveCompetitorMatrixItem] = useState<{
+    item: {
+      id: string;
+      code: string;
+      name: string;
+      category?: string;
+      unit?: string;
+      ourPrice: number;
+      ourCost?: number;
+      currency?: string;
+      type?: 'product' | 'service';
+    };
+    itemType?: 'product' | 'service' | 'produce' | 'revenue_item';
+  } | null>(null);
+
+  // Sync competitors when prop changes
+  useEffect(() => {
+    if (competitorsProp && competitorsProp.length > 0) {
+      setCompetitorsList(competitorsProp);
+    }
+  }, [competitorsProp]);
+
+  // Load competitors directly from PostgreSQL database
+  useEffect(() => {
+    api.getCompetitors()
+      .then((comps) => {
+        if (Array.isArray(comps) && comps.length > 0) {
+          setCompetitorsList(comps);
+        }
+      })
+      .catch((err) => console.warn('Could not load competitors from PostgreSQL:', err));
+  }, []);
+
   // Dedicated states for Revenue Portal all-records view
   const [revenueTableTypeFilter, setRevenueTableTypeFilter] = useState<'all' | 'product' | 'service'>('all');
   const [revenueTableCategoryFilter, setRevenueTableCategoryFilter] = useState<string>('all');
@@ -270,31 +329,37 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   // Combined Authoritative List of All Revenue Portal Records (Products & Services)
   const combinedAllRevenueRecords = useMemo(() => {
     const map = new Map<string, any>();
+    const seenNames = new Set<string>();
 
     // 1. All revenue items from database
     revenueItems.forEach((r) => {
-      const key = (r.code || r.id || '').toLowerCase();
-      map.set(key, {
-        id: r.id,
-        code: r.code || `REV-${r.id.slice(0, 5)}`,
-        name: r.name,
-        type: (r.type || 'product') as 'product' | 'service',
-        category: r.category || 'Commercial Deliverables',
-        subCategory: r.subCategory || 'General Scope',
-        unit: r.unit || 'pcs',
-        costPrice: Number(r.costPrice) || 0,
-        retailPrice: Number(r.defaultRate) || 0,
-        taxTreatment: r.taxTreatment || 'Standard (0%)',
-        status: r.status || 'Active',
-        source: 'Revenue Catalogue'
-      });
+      const baseCodeKey = (r.code || r.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
+      const nameKey = (r.name || '').trim().toLowerCase();
+      if (!map.has(baseCodeKey) && !seenNames.has(nameKey)) {
+        map.set(baseCodeKey, {
+          id: r.id,
+          code: r.code || `REV-${r.id.slice(0, 5)}`,
+          name: r.name,
+          type: (r.type || 'product') as 'product' | 'service',
+          category: r.category || 'Commercial Deliverables',
+          subCategory: r.subCategory || 'General Scope',
+          unit: r.unit || 'pcs',
+          costPrice: Number(r.costPrice) || 0,
+          retailPrice: Number(r.defaultRate) || 0,
+          taxTreatment: r.taxTreatment || 'Standard (0%)',
+          status: r.status || 'Active',
+          source: 'Revenue Catalogue'
+        });
+        seenNames.add(nameKey);
+      }
     });
 
-    // 2. Also ensure produceItems are represented (products supplied to customers)
+    // 2. Also ensure produceItems are represented without duplicating base codes or names
     produceItems.forEach((p) => {
-      const key = (p.code || p.id || '').toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, {
+      const baseCodeKey = (p.code || p.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
+      const nameKey = (p.name || '').trim().toLowerCase();
+      if (!map.has(baseCodeKey) && !seenNames.has(nameKey)) {
+        map.set(baseCodeKey, {
           id: p.id,
           code: p.code || `PRD-${p.id.slice(0, 5)}`,
           name: p.name,
@@ -308,6 +373,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           status: p.status || 'Active',
           source: 'Manufactured Product'
         });
+        seenNames.add(nameKey);
       }
     });
 
@@ -720,29 +786,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       if (onAddProduceItem) onAddProduceItem(itemData);
       else api.createProduce(itemData).catch(console.error);
       persistentDatabase.addProduceItem(itemData);
-
-      // Concurrently synchronize with Revenue Catalogue (product deliverables represent revenue)
-      const revPayload = {
-        code: itemData.code,
-        name: itemData.name,
-        type: 'product' as const,
-        category: itemData.category || 'Manufactured Assemblies',
-        subCategory: itemData.subCategory || 'General Product',
-        unit: itemData.unit || 'pcs',
-        defaultRate: itemData.retailPrice || 100,
-        costPrice: itemData.costPrice || 70,
-        status: 'Active' as const
-      };
-      if (onAddRevenueItem) {
-        onAddRevenueItem(revPayload);
-      } else {
-        api.createRevenueItem(revPayload).catch(console.error);
-      }
-      persistentDatabase.addRevenueItem(revPayload as any);
-      api.getRevenueItems({ limit: 100 }).then((res) => {
-        setRevenueItems(Array.isArray(res) ? res : (res as any)?.data || []);
-      }).catch(console.error);
-      showToast(`Product "${itemData.name}" created and synced to Revenue catalogue`);
+      showToast(`Product "${itemData.name}" created and stored in database.`);
     } else if (entityType === 'revenue') {
       const revPayload = {
         code: itemData.code || `REV-${Math.floor(Math.random() * 9000 + 1000)}`,
@@ -1347,7 +1391,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     { id: 'clients', label: 'Clients', icon: <Users className="w-3.5 h-3.5" />, count: clientProfiles.length },
     { id: 'suppliers', label: 'Suppliers', icon: <Building2 className="w-3.5 h-3.5" />, count: suppliers.length },
     { id: 'service-providers', label: 'Providers', icon: <ShieldCheck className="w-3.5 h-3.5" />, count: outsourcedProvidersList.length },
-    { id: 'subcontractors', label: 'Subcontractors', icon: <FolderTree className="w-3.5 h-3.5" />, count: subcontractorsList.length }
+    { id: 'subcontractors', label: 'Subcontractors', icon: <FolderTree className="w-3.5 h-3.5" />, count: subcontractorsList.length },
+    { id: 'competitors', label: 'Competitors', icon: <Scale className="w-3.5 h-3.5 text-rose-500" />, count: competitorsList.length }
   ];
 
   // Handler to submit generic new tile
@@ -1857,6 +1902,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             {activeTab === 'service-providers' && 'Providers'}
             {activeTab === 'subcontractors' && 'Subcontractors'}
             {activeTab === 'overheads-hierarchy' && 'Overhead Costs'}
+            {activeTab === 'competitors' && 'Competitor Intelligence & Market Benchmarks'}
           </h2>
 
           {/* Portal Scope Indicator Pill */}
@@ -1882,6 +1928,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             {activeTab === 'suppliers' && `${suppliers.length} Total`}
             {activeTab === 'service-providers' && `${outsourcedServices.length} Total`}
             {activeTab === 'subcontractors' && `${subcontractors.length} Total`}
+            {activeTab === 'competitors' && `${competitorsList.length} Registered`}
           </span>
         </div>
 
@@ -2083,6 +2130,30 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             >
               <Plus className="w-3.5 h-3.5 text-white" />
               <span>+ Overhead Item</span>
+            </button>
+          )}
+
+          {activeTab === 'competitors' && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingCompetitor(null);
+                setCompetitorForm({
+                  name: '',
+                  code: `COMP-${Date.now().toString().slice(-4)}`,
+                  country: 'United States',
+                  marketTier: 'Primary Competitor',
+                  contactPerson: '',
+                  email: '',
+                  website: '',
+                  notes: ''
+                });
+                setIsCompetitorModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-all shadow-2xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              <span>+ Competitor</span>
             </button>
           )}
 
@@ -2596,139 +2667,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
       {/* 4. MAIN CONTENT GRIDS */}
 
-      {/* TAB: PROJECTS CARDS / TILES */}
-      {activeTab === 'projects' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {projects
-              .filter((p) => {
-                if (!searchQuery) return true;
-                const q = searchQuery.toLowerCase();
-                return p.name.toLowerCase().includes(q) || p.clientName.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
-              })
-              .map((proj, idx) => {
-                const defaultTheme = getRandomThemeIndex(idx);
-                const style = getTileStyle(proj.id, defaultTheme.id);
-                return (
-                  <ModernTileCard
-                    key={proj.id}
-                    id={proj.id}
-                    tag={`PROJECT • ${proj.code}`}
-                    title={proj.name}
-                    brief={`Client: ${proj.clientName} • Quoted: $${(Number(proj.quotedPrice) || 0).toLocaleString()}`}
-                    actionLabel="OPEN PROJECT HOME & PLANS"
-                    actionVariant="link"
-                    themeId={style.themeId}
-                    customGradient={style.customGradient}
-                    selected={selectedProject?.id === proj.id}
-                    onChangeTheme={(tId, grad) => handleUpdateTileTheme(proj.id, tId, grad)}
-                    onClick={() => {
-                      onSelectProject(proj);
-                      if (onNavigateToProjectHome) {
-                        onNavigateToProjectHome(proj);
-                      } else {
-                        onNavigateToCostAnalysis(proj);
-                      }
-                    }}
-                    onEdit={() =>
-                      handleOpenEdit('project', proj.id, {
-                        title: proj.name,
-                        name: proj.name,
-                        clientName: proj.clientName,
-                        code: proj.code,
-                        targetProduct: proj.targetProduct,
-                        quotedPrice: proj.quotedPrice,
-                        targetMarginPct: proj.targetMarginPct,
-                        overheadPct: proj.overheadPct,
-                        contingencyPct: proj.contingencyPct,
-                        startDate: proj.startDate,
-                        deliveryDeadline: proj.deliveryDeadline,
-                        notes: proj.notes,
-                        status: proj.status,
-                        themeId: style.themeId || proj.themeId,
-                        customGradient: style.customGradient || proj.customGradient
-                      })
-                    }
-                    onDelete={() => handleOpenDelete('Project', proj.id, proj.name, 'projects')}
-                    onDuplicate={() => handleDuplicate('project', proj.id)}
-                    onAction={() => {
-                      onSelectProject(proj);
-                      if (onNavigateToProjectHome) {
-                        onNavigateToProjectHome(proj);
-                      } else {
-                        onNavigateToCostAnalysis(proj);
-                      }
-                    }}
-                    onViewListView={() => {
-                      setActiveFXTTCard({
-                        cardType: 'project',
-                        cardId: proj.id,
-                        cardTitle: proj.name,
-                        cardSubtitle: `Client: ${proj.clientName} • Quoted $${(Number(proj.quotedPrice) || 0).toLocaleString()}`,
-                        cardTag: `PROJECT • ${proj.code}`
-                      });
-                    }}
-                  />
-                );
-              })}
 
-            {/* User-created project tiles */}
-            {customTiles
-              .filter((t) => t.group === 'projects')
-              .map((t) => (
-                <ModernTileCard
-                  key={t.id}
-                  id={t.id}
-                  tag={t.tag}
-                  title={t.title}
-                  brief={t.brief}
-                  actionLabel={t.action}
-                  actionVariant="link"
-                  themeId={t.themeId}
-                  customGradient={t.customGradient}
-                  onChangeTheme={(tId, grad) => handleUpdateTileTheme(t.id, tId, grad)}
-                  onEdit={() =>
-                    handleOpenEdit('custom-tile', t.id, {
-                      title: t.title,
-                      brief: t.brief,
-                      tag: t.tag
-                    })
-                  }
-                  onDelete={() => handleOpenDelete('Custom Tile', t.id, t.title, 'projects')}
-                  onDuplicate={() => handleDuplicate('custom-tile', t.id)}
-                  onAction={() => {
-                    setActiveDetailItem({
-                      title: t.title,
-                      tag: t.tag,
-                      themeId: t.themeId,
-                      customGradient: t.customGradient,
-                      description: t.brief,
-                      attributes: [{ label: 'Custom Tile ID', value: t.id }],
-                      onOpenListView: () => {
-                        setActiveFXTTCard({
-                          cardType: 'project',
-                          cardId: t.id,
-                          cardTitle: t.title,
-                          cardSubtitle: t.brief,
-                          cardTag: t.tag
-                        });
-                      }
-                    });
-                  }}
-                  onViewListView={() => {
-                    setActiveFXTTCard({
-                      cardType: 'project',
-                      cardId: t.id,
-                      cardTitle: t.title,
-                      cardSubtitle: t.brief,
-                      cardTag: t.tag
-                    });
-                  }}
-                />
-              ))}
-          </div>
-        </div>
-      )}
 
       {/* TAB: MATERIAL CATEGORIES, SUB CATEGORIES, DEEP SPECS (3-TIER HIERARCHY) */}
       {activeTab === 'materials-hierarchy' && (
@@ -4965,52 +4904,62 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           {/* SUB-PORTAL: PRODUCTS (Manufactured Products Supplied to Customers) */}
           {revenueSubTab === 'products' && (() => {
             const map = new Map<string, any>();
-            produceItems
-              .filter((p) => !p.type || p.type === 'product')
-              .forEach((p) => {
-                const key = (p.code || p.id).toLowerCase();
-                map.set(key, {
-                  id: p.id,
-                  code: p.code,
-                  name: p.name,
-                  category: p.category || 'Manufactured Deliverables',
-                  subCategory: p.subCategory || 'General Product',
-                  unit: p.unit || 'pcs',
-                  costPrice: Number(p.costPrice) || 0,
-                  retailPrice: Number(p.retailPrice) || 0,
-                  leadTimeDays: p.leadTimeDays || 30,
-                  status: p.status || 'Active',
-                  specifications: p.specifications,
-                  brief: p.specifications || `${p.category || 'Product'} • Cost $${(Number(p.costPrice) || 0).toLocaleString()} • Quoted $${(Number(p.retailPrice) || 0).toLocaleString()}`,
-                  themeId: p.themeId || 'airbus-cobalt',
-                  customGradient: p.customGradient,
-                  source: 'produce'
-                });
-              });
-            revenueItems
-              .filter((r) => !r.type || r.type === 'product')
-              .forEach((r) => {
-                const key = (r.code || r.id).toLowerCase();
-                if (!map.has(key)) {
-                  map.set(key, {
-                    id: r.id,
-                    code: r.code || `PRD-${r.id.slice(0, 5)}`,
-                    name: r.name,
-                    category: r.category || 'Manufactured Deliverables',
-                    subCategory: r.subCategory || 'General Product',
-                    unit: r.unit || 'pcs',
-                    costPrice: Number(r.costPrice) || 0,
-                    retailPrice: Number(r.defaultRate) || 0,
-                    leadTimeDays: 30,
-                    status: r.status || 'Active',
-                    specifications: r.description,
-                    brief: r.description || `${r.category || 'Product'} • Cost $${(Number(r.costPrice) || 0).toLocaleString()} • Quoted $${(Number(r.defaultRate) || 0).toLocaleString()}`,
-                    themeId: r.themeId || 'pacific-sky',
-                    customGradient: r.customGradient,
-                    source: 'revenue'
-                  });
-                }
-              });
+            const seenNames = new Set<string>();
+
+            // Combine produceItems and product revenue items
+            const rawProducts = [
+              ...produceItems.filter((p) => !p.type || p.type === 'product').map((p) => ({
+                id: p.id,
+                code: p.code,
+                name: p.name,
+                category: p.category || 'Manufactured Deliverables',
+                subCategory: p.subCategory || 'General Product',
+                unit: p.unit || 'pcs',
+                costPrice: Number(p.costPrice) || 0,
+                retailPrice: Number(p.retailPrice) || 0,
+                leadTimeDays: p.leadTimeDays || 30,
+                status: p.status || 'Active',
+                specifications: p.specifications,
+                brief: p.specifications || `${p.category || 'Product'} • Cost $${(Number(p.costPrice) || 0).toLocaleString()} • Quoted $${(Number(p.retailPrice) || 0).toLocaleString()}`,
+                themeId: p.themeId || 'airbus-cobalt',
+                customGradient: p.customGradient,
+                source: 'produce'
+              })),
+              ...revenueItems.filter((r) => !r.type || r.type === 'product').map((r) => ({
+                id: r.id,
+                code: r.code || `PRD-${r.id.slice(0, 5)}`,
+                name: r.name,
+                category: r.category || 'Manufactured Deliverables',
+                subCategory: r.subCategory || 'General Product',
+                unit: r.unit || 'pcs',
+                costPrice: Number(r.costPrice) || 0,
+                retailPrice: Number(r.defaultRate) || 0,
+                leadTimeDays: 30,
+                status: r.status || 'Active',
+                specifications: r.description,
+                brief: r.description || `${r.category || 'Product'} • Cost $${(Number(r.costPrice) || 0).toLocaleString()} • Quoted $${(Number(r.defaultRate) || 0).toLocaleString()}`,
+                themeId: r.themeId || 'pacific-sky',
+                customGradient: r.customGradient,
+                source: 'revenue'
+              }))
+            ];
+
+            // Sort non-suffixed base codes first (e.g. PRD-SYS-7030 before PRD-SYS-7030-790)
+            rawProducts.sort((a, b) => {
+              const aSuff = /-\d{3}$/.test(a.code || '') ? 1 : 0;
+              const bSuff = /-\d{3}$/.test(b.code || '') ? 1 : 0;
+              return aSuff - bSuff;
+            });
+
+            rawProducts.forEach((p) => {
+              const baseCode = (p.code || p.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
+              const nameKey = (p.name || '').trim().toLowerCase();
+
+              if (!map.has(baseCode) && !seenNames.has(nameKey)) {
+                map.set(baseCode, p);
+                seenNames.add(nameKey);
+              }
+            });
             const allSuppliedProducts = Array.from(map.values());
             const productCategories = Array.from(new Set(allSuppliedProducts.map((p) => p.category).filter(Boolean)));
             const filteredProducts = allSuppliedProducts
@@ -6587,6 +6536,369 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         {renderCustomTilesForTab('subcontractors', 'Subcontractor Crew')}
       </div>
     )}
+
+      {/* TAB: COMPETITORS DIRECTORY PORTAL */}
+      {activeTab === 'competitors' && (
+        <div className="space-y-4">
+          {/* Executive Sub-Header & Tier Filter Pills */}
+          <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center flex-wrap gap-1.5">
+              <span className="font-bold text-slate-700 dark:text-slate-300 mr-2 flex items-center space-x-1">
+                <Scale className="w-3.5 h-3.5 text-[#003049]" />
+                <span>Market Tier:</span>
+              </span>
+              {[
+                { id: 'all', label: 'All Tiers' },
+                { id: 'Market Leader', label: 'Market Leaders' },
+                { id: 'Primary Competitor', label: 'Primary Competitors' },
+                { id: 'Market Benchmark', label: 'Benchmarks' },
+                { id: 'Low-Cost Challenger', label: 'Low-Cost Challengers' },
+                { id: 'Premium Rival', label: 'Premium Rivals' },
+                { id: 'Regional Specialist', label: 'Regional Specialists' }
+              ].map((tier) => (
+                <button
+                  key={tier.id}
+                  type="button"
+                  onClick={() => setCompetitorFilterTier(tier.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                    competitorFilterTier === tier.id
+                      ? 'bg-[#003049] text-white shadow-2xs font-semibold'
+                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {tier.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCompetitor(null);
+                  setCompetitorForm({
+                    name: '',
+                    code: `COMP-${Date.now().toString().slice(-4)}`,
+                    country: 'United States',
+                    marketTier: 'Primary Competitor',
+                    contactPerson: '',
+                    email: '',
+                    website: '',
+                    notes: ''
+                  });
+                  setIsCompetitorModalOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded-lg font-medium shadow-2xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                <span>+ Register Competitor</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Competitor Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {competitorsList
+              .filter((comp) => {
+                if (competitorFilterTier !== 'all' && comp.marketTier !== competitorFilterTier) return false;
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  comp.name.toLowerCase().includes(q) ||
+                  (comp.code && comp.code.toLowerCase().includes(q)) ||
+                  (comp.country && comp.country.toLowerCase().includes(q)) ||
+                  (comp.marketTier && comp.marketTier.toLowerCase().includes(q)) ||
+                  (comp.notes && comp.notes.toLowerCase().includes(q))
+                );
+              })
+              .map((comp, idx) => {
+                const defaultTheme = getRandomThemeIndex(idx + 9);
+                const style = getTileStyle(comp.id, defaultTheme.id);
+                return (
+                  <ModernTileCard
+                    key={comp.id}
+                    id={comp.id}
+                    tag={`COMPETITOR • ${(comp.marketTier || 'Primary Rival').toUpperCase()}`}
+                    title={comp.name}
+                    brief={`${comp.country || 'Global'} • Code: ${comp.code || 'COMP'} • Contact: ${comp.contactPerson || comp.email || 'Commercial Sales'}`}
+                    actionLabel="View Benchmark Rates / FXTT Matrix"
+                    actionVariant="button"
+                    listViewLabel="Open FXTT Price Matrix"
+                    themeId={style.themeId}
+                    customGradient={style.customGradient}
+                    onChangeTheme={(tId, grad) => handleUpdateTileTheme(comp.id, tId, grad)}
+                    onEdit={() => {
+                      setEditingCompetitor(comp);
+                      setCompetitorForm({
+                        name: comp.name,
+                        code: comp.code || '',
+                        country: comp.country || 'United States',
+                        marketTier: comp.marketTier || 'Primary Competitor',
+                        contactPerson: comp.contactPerson || '',
+                        email: comp.email || '',
+                        website: comp.website || '',
+                        notes: comp.notes || ''
+                      });
+                      setIsCompetitorModalOpen(true);
+                    }}
+                    onDelete={() => {
+                      setDeleteModalData({
+                        isOpen: true,
+                        title: comp.name,
+                        entityType: 'Competitor Profile',
+                        onConfirm: async () => {
+                          try {
+                            await api.deleteCompetitor(comp.id);
+                            setCompetitorsList((prev) => prev.filter((c) => c.id !== comp.id));
+                            showToast(`Competitor "${comp.name}" removed from PostgreSQL database.`);
+                          } catch (err: any) {
+                            showToast(`Failed to delete competitor: ${err?.message}`);
+                          }
+                          setDeleteModalData(null);
+                        }
+                      });
+                    }}
+                    onDuplicate={async () => {
+                      try {
+                        const copy = await api.createCompetitor({
+                          ...comp,
+                          id: undefined,
+                          name: `${comp.name} (Copy)`,
+                          code: `${comp.code || 'COMP'}-CPY`
+                        });
+                        setCompetitorsList((prev) => [copy, ...prev]);
+                        showToast(`Competitor "${comp.name}" duplicated.`);
+                      } catch (err: any) {
+                        showToast(`Failed to duplicate: ${err?.message}`);
+                      }
+                    }}
+                    onAction={() => {
+                      const defaultItem = combinedAllRevenueRecords[0] || {
+                        id: 'rev-srv-01',
+                        code: 'REV-SRV-001',
+                        name: 'FEA Structural Stress Analysis & Design Review',
+                        retailPrice: 185,
+                        costPrice: 95,
+                        type: 'service'
+                      };
+                      setActiveCompetitorMatrixItem({
+                        item: {
+                          id: defaultItem.id,
+                          code: defaultItem.code,
+                          name: defaultItem.name,
+                          ourPrice: defaultItem.retailPrice || 100,
+                          ourCost: defaultItem.costPrice || 60,
+                          type: defaultItem.type || 'product'
+                        },
+                        itemType: defaultItem.type || 'product'
+                      });
+                    }}
+                    onViewListView={() => {
+                      const defaultItem = combinedAllRevenueRecords[0] || {
+                        id: 'rev-srv-01',
+                        code: 'REV-SRV-001',
+                        name: 'FEA Structural Stress Analysis & Design Review',
+                        retailPrice: 185,
+                        costPrice: 95,
+                        type: 'service'
+                      };
+                      setActiveCompetitorMatrixItem({
+                        item: {
+                          id: defaultItem.id,
+                          code: defaultItem.code,
+                          name: defaultItem.name,
+                          ourPrice: defaultItem.retailPrice || 100,
+                          ourCost: defaultItem.costPrice || 60,
+                          type: defaultItem.type || 'product'
+                        },
+                        itemType: defaultItem.type || 'product'
+                      });
+                    }}
+                  />
+                );
+              })}
+          </div>
+          {renderCustomTilesForTab('competitors', 'Market Competitor')}
+        </div>
+      )}
+
+      {/* DEDICATED PRODUCT COMPETITOR FXTT PRICE MATRIX MODAL */}
+      {activeCompetitorMatrixItem && (
+        <ProductCompetitorPriceMatrixModal
+          item={activeCompetitorMatrixItem.item}
+          itemType={activeCompetitorMatrixItem.itemType}
+          currentUser={currentUser}
+          onClose={() => setActiveCompetitorMatrixItem(null)}
+          onUpdateOurPrice={(newPrice, newCost) => {
+            showToast(`Updated our rate to $${newPrice.toFixed(2)} in database.`);
+            setActiveCompetitorMatrixItem(null);
+          }}
+        />
+      )}
+
+      {/* DEDICATED REGISTER / EDIT COMPETITOR MODAL */}
+      {isCompetitorModalOpen && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Scale className="w-4 h-4 text-[#fdf0d5]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  {editingCompetitor ? `Edit Competitor: ${editingCompetitor.name}` : 'Register New Competitor Profile'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCompetitorModalOpen(false)}
+                className="text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!competitorForm.name.trim()) return;
+
+                if (editingCompetitor) {
+                  try {
+                    const updated = await api.updateCompetitor(editingCompetitor.id, competitorForm);
+                    setCompetitorsList((prev) =>
+                      prev.map((c) => (c.id === editingCompetitor.id ? { ...c, ...updated } : c))
+                    );
+                    showToast(`Competitor "${competitorForm.name}" updated in PostgreSQL.`);
+                  } catch (err: any) {
+                    showToast(`Error updating competitor: ${err?.message}`);
+                  }
+                } else {
+                  try {
+                    const created = await api.createCompetitor(competitorForm);
+                    setCompetitorsList((prev) => [...prev, created]);
+                    showToast(`Competitor "${competitorForm.name}" registered in PostgreSQL.`);
+                  } catch (err: any) {
+                    showToast(`Error creating competitor: ${err?.message}`);
+                  }
+                }
+                setIsCompetitorModalOpen(false);
+              }}
+              className="p-4 space-y-3.5 text-xs"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Company / Entity Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Apex Industrial Dynamics"
+                    value={competitorForm.name}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, name: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Competitor Code</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. COMP-APEX"
+                    value={competitorForm.code}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, code: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Country / Region</label>
+                  <input
+                    type="text"
+                    value={competitorForm.country}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, country: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Market Benchmark Tier</label>
+                  <select
+                    value={competitorForm.marketTier}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, marketTier: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  >
+                    <option value="Primary Competitor">Primary Competitor</option>
+                    <option value="Market Leader">Market Leader</option>
+                    <option value="Market Benchmark">Market Benchmark</option>
+                    <option value="Low-Cost Challenger">Low-Cost Challenger</option>
+                    <option value="Premium Rival">Premium Rival</option>
+                    <option value="Regional Specialist">Regional Specialist</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    placeholder="Sales / Account Lead"
+                    value={competitorForm.contactPerson}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, contactPerson: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Commercial Email</label>
+                  <input
+                    type="email"
+                    placeholder="sales@competitor.com"
+                    value={competitorForm.email}
+                    onChange={(e) => setCompetitorForm({ ...competitorForm, email: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Website URL</label>
+                <input
+                  type="text"
+                  placeholder="https://www.competitor.com"
+                  value={competitorForm.website}
+                  onChange={(e) => setCompetitorForm({ ...competitorForm, website: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Intelligence Notes & Market Positioning</label>
+                <textarea
+                  rows={2}
+                  placeholder="Key differentiators, pricing strategy, known clients, warranty terms..."
+                  value={competitorForm.notes}
+                  onChange={(e) => setCompetitorForm({ ...competitorForm, notes: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCompetitorModalOpen(false)}
+                  className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded font-medium cursor-pointer shadow-xs"
+                >
+                  {editingCompetitor ? 'Save Changes' : 'Register Competitor'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 5. MODAL: CREATE GENERIC NEW CARD / TILE */}
       {isCreateModalOpen && (

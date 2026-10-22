@@ -1032,24 +1032,6 @@ export default function App() {
       setRevenueItems(prev => [finalItem, ...prev.filter(r => r.id !== finalItem.id)]);
       persistentDatabase.addRevenueItem(finalItem);
 
-      // If product type, also ensure product assembly is present in produceItems
-      if (finalItem.type === 'product' && !produceItems.some(p => p.code === finalItem.code)) {
-        const prodPayload: Partial<ProduceItem> = {
-          code: finalItem.code,
-          name: finalItem.name,
-          category: finalItem.category || 'Manufactured Assemblies',
-          subCategory: finalItem.subCategory || 'General Product',
-          unit: finalItem.unit || 'pcs',
-          retailPrice: finalItem.defaultRate,
-          costPrice: finalItem.costPrice || finalItem.defaultRate * 0.7,
-          leadTimeDays: 7,
-          status: 'Active'
-        };
-        api.createProduce(prodPayload).catch(console.error);
-        persistentDatabase.addProduceItem(prodPayload as any);
-        setProduceItems(prev => [{ ...prodPayload, id: `prod-${Date.now()}` } as ProduceItem, ...prev]);
-      }
-
       logAuditEvent('REVENUE_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created revenue deliverable ${finalItem.name} (${finalItem.category}).`);
       showToast(`Revenue catalogue deliverable "${finalItem.name}" registered across all portals.`);
     } catch (e: any) {

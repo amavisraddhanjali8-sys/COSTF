@@ -1704,6 +1704,14 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
     // Strict addedRows filtering by active card
     const filteredAddedRows = addedRows.filter((r) => {
+      // Deduplicate: If an item with matching id or code already exists in list (from props), do not include it from addedRows!
+      const alreadyInList = list.some(
+        (existing) =>
+          existing.id === r.id ||
+          (r.code && existing.code && existing.code.trim().toLowerCase() === r.code.trim().toLowerCase())
+      );
+      if (alreadyInList) return false;
+
       // Must match itemType
       if (cardType === 'material_category' && r.itemType !== 'material') return false;
       if ((cardType === 'product_category' || cardType === 'produce') && r.itemType !== 'final_product' && r.itemType !== 'produce') return false;
@@ -2004,9 +2012,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddMaterial) {
           onAddMaterial(newMaterial);
+        } else {
+          api.createMaterial(newMaterial).catch((err) => console.warn('API create material error:', err));
         }
         persistentDatabase.addMaterial(newMaterial);
-        api.createMaterial(newMaterial).catch((err) => console.warn('API create material error:', err));
         showNotification(`Added new material ${newMaterial.code} (${newMaterial.name}) to database.`);
       }
 
@@ -2049,9 +2058,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddSubcontractor) {
           onAddSubcontractor(newSub);
+        } else {
+          api.createSubcontractor(newSub).catch((err) => console.warn('API create subcontractor error:', err));
         }
         persistentDatabase.addSubcontractor(newSub);
-        api.createSubcontractor(newSub).catch((err) => console.warn('API create subcontractor error:', err));
         showNotification(`Added new subcontractor labour item ${newSub.code} (${newSub.name}) to database.`);
       }
 
@@ -2092,9 +2102,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddOutsourcedService) {
           onAddOutsourcedService(newOut);
+        } else {
+          api.createOutsourcedService(newOut).catch((err) => console.warn('API create outsourced error:', err));
         }
         persistentDatabase.addOutsourcedService(newOut);
-        api.createOutsourcedService(newOut).catch((err) => console.warn('API create outsourced error:', err));
         showNotification(`Added new outsourced tariff ${newOut.code} (${newOut.name}) to database.`);
       }
 
@@ -2136,28 +2147,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddProduceItem) {
           onAddProduceItem(newProd);
+        } else {
+          api.createProduce(newProd).catch((err) => console.warn('API create produce error:', err));
         }
         persistentDatabase.addProduceItem(newProd);
-        api.createProduce(newProd).catch((err) => console.warn('API create produce error:', err));
-
-        // Auto-sync product to Revenue Catalogue
-        const revPayload: RevenueItem = {
-          id: `rev-${Date.now()}`,
-          code: newProd.code,
-          name: newProd.name,
-          type: 'product',
-          category: newProd.category,
-          subCategory: newProd.subCategory,
-          unit: newProd.unit,
-          defaultRate: finalRetail,
-          costPrice: finalCostRate,
-          description: `${newProd.name} - Commercial scope`,
-          effectiveDate: new Date().toISOString().slice(0, 10),
-          status: 'Active'
-        };
-        if (onAddRevenueItem) onAddRevenueItem(revPayload);
-        persistentDatabase.addRevenueItem(revPayload);
-        api.createRevenueItem(revPayload).catch(console.error);
 
         showNotification(`Added new product variant ${newProd.code} (${newProd.name}) to database.`);
       }
@@ -2181,9 +2174,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddOverheadItem) {
           onAddOverheadItem(newOvh);
+        } else {
+          api.createOverheadItem(newOvh).catch((err) => console.warn('API create overhead error:', err));
         }
         persistentDatabase.addOverhead(newOvh);
-        api.createOverheadItem(newOvh).catch((err) => console.warn('API create overhead error:', err));
         showNotification(`Added new overhead cost item ${newOvh.code} (${newOvh.name}) to database.`);
       }
 
@@ -2206,9 +2200,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddRevenueItem) {
           onAddRevenueItem(newRev);
+        } else {
+          api.createRevenueItem(newRev).catch((err) => console.warn('API create revenue error:', err));
         }
         persistentDatabase.addRevenueItem(newRev);
-        api.createRevenueItem(newRev).catch((err) => console.warn('API create revenue error:', err));
         showNotification(`Added new revenue deliverable ${newRev.code} (${newRev.name}) to database.`);
       }
 
@@ -2249,9 +2244,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
         if (onAddProject) {
           onAddProject(newProj);
+        } else {
+          api.createProject(newProj).catch((err) => console.warn('API create project error:', err));
         }
         persistentDatabase.addProject(newProj);
-        api.createProject(newProj).catch((err) => console.warn('API create project error:', err));
         showNotification(`Added new capital project ${newProj.code} (${newProj.name}) to database.`);
       }
 

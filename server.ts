@@ -3215,6 +3215,27 @@ async function startServer() {
     }
   });
 
+  app.put('/api/competitors/:id', async (req, res) => {
+    try {
+      const updated = await postgresService.updateCompetitor(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Competitor not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update competitor:', e);
+      res.status(500).json({ error: 'Failed to update competitor', details: e?.message });
+    }
+  });
+
+  app.delete('/api/competitors/:id', async (req, res) => {
+    try {
+      await postgresService.deleteCompetitor(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete competitor:', e);
+      res.status(500).json({ error: 'Failed to delete competitor', details: e?.message });
+    }
+  });
+
   // --- Dedicated Competitor Table Endpoints (name, product/service association, pricing, timestamps) ---
   app.get(['/api/competitor', '/api/competitor-entries'], async (req, res) => {
     try {

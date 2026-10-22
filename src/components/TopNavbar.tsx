@@ -1210,9 +1210,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </button>
         </nav>
 
-        {/* Current Active Project & Active Section Breadcrumb pill on far right */}
-        <div className="hidden lg:flex items-center space-x-2 text-xs py-1">
-          {selectedProject && (
+        {/* Current Active Project pill on project-centric views (hidden on Home tab) */}
+        {activeTab !== 'home' && selectedProject && (
+          <div className="hidden lg:flex items-center space-x-2 text-xs py-1">
             <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-md bg-[#fdf0d5] dark:bg-amber-950/50 text-[#003049] dark:text-amber-200 border border-[#ecd5a8] dark:border-amber-800 text-[11px] font-semibold">
               <span className="font-mono text-[#003049] dark:text-sky-300">{selectedProject.code}</span>
               <span className="truncate max-w-[130px]">{selectedProject.name}</span>
@@ -1240,12 +1240,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                 </button>
               )}
             </div>
-          )}
-          <span className="text-slate-400 text-[11px]">Active View:</span>
-          <span className="px-2.5 py-0.5 rounded-md bg-[#003049]/10 dark:bg-sky-950/60 text-[#003049] dark:text-sky-300 border border-[#003049]/20 font-bold text-[11px]">
-            {getActiveTabTitle()}
-          </span>
-        </div>
+          </div>
+        )}
       </div>
     </header>
   );

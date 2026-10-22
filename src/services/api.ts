@@ -1748,6 +1748,23 @@ export const api = {
     return await res.json();
   },
 
+  async updateCompetitor(id: string, data: Partial<Competitor>): Promise<Competitor> {
+    const res = await fetch(`/api/competitors/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update competitor');
+    return await res.json();
+  },
+
+  async deleteCompetitor(id: string): Promise<void> {
+    const res = await fetch(`/api/competitors/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete competitor');
+  },
+
   // --- Dedicated Competitor Table API (name, product/service association, pricing, timestamps) ---
   async getCompetitorEntries(params?: { itemId?: string; itemType?: string; search?: string }): Promise<CompetitorRecord[]> {
     const q = new URLSearchParams();

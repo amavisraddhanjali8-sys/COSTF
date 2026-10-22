@@ -641,6 +641,8 @@ export interface ProductCompetitorQuote {
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
+  quoteRef?: string;
+  reason?: string;
   volumePricing: VolumePriceTier[];
   priceHistory?: ProductCompetitorPriceHistoryRecord[];
   createdAt?: string;

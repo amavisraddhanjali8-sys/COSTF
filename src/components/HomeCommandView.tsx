@@ -484,7 +484,6 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
     { name: 'Inventory & Stock', action: () => onNavigateTab('inventory') },
     { name: 'Suppliers Directory', action: () => onNavigateTab('suppliers') },
     { name: 'Barcode Scanner Hub', action: () => setIsScannerModalOpen(true) },
-    { name: 'PostgreSQL Engine', action: () => setCreationPortalType('postgres') },
     { name: 'Audit Trail', action: () => onNavigateTab('audit-log') },
     { name: 'Settings', action: () => onNavigateTab('settings') }
   ];
@@ -802,21 +801,6 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
             )}
           </div>
         </div>
-
-        {/* Database Status Pill / Button */}
-        <button
-          type="button"
-          onClick={() => setCreationPortalType('postgres')}
-          className="flex items-center space-x-2 text-xs bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer transition-colors shadow-2xs"
-          title="Inspect PostgreSQL Database Engine"
-        >
-          <Database className="w-3.5 h-3.5 text-indigo-600 dark:text-sky-400" />
-          <span className="font-semibold text-slate-800 dark:text-slate-200">PostgreSQL</span>
-          <span className="flex items-center gap-1 font-mono text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            {postgresStatus?.latencyMs !== undefined ? `${postgresStatus.latencyMs}ms` : 'Active'}
-          </span>
-        </button>
       </div>
 
       {/* =========================================================================
@@ -995,7 +979,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                     setNewTxProject(projects[0]?.name || '');
                     setCreationPortalType('inventory');
                   }}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
+                  className="col-span-1 sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
                 >
                   <Boxes className="w-3.5 h-3.5 text-teal-600" />
                   <span>Stock</span>
@@ -1005,20 +989,10 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   type="button"
                   id="btn-create-event"
                   onClick={() => setIsAddEventModalOpen(true)}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
+                  className="col-span-1 sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
                 >
                   <Calendar className="w-3.5 h-3.5 text-[#0078d4]" />
                   <span>Event</span>
-                </button>
-
-                <button
-                  type="button"
-                  id="btn-inspect-postgres"
-                  onClick={() => setCreationPortalType('postgres')}
-                  className="col-span-2 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-sky-300 text-xs font-semibold flex items-center justify-center space-x-1.5 cursor-pointer border border-indigo-200 dark:border-indigo-800 transition-colors"
-                >
-                  <Database className="w-3.5 h-3.5 text-indigo-600 dark:text-sky-400" />
-                  <span>PostgreSQL Health</span>
                 </button>
               </div>
             </div>
@@ -1070,8 +1044,8 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5 text-amber-300" />
-                <span>PostgreSQL Records</span>
+                <Boxes className="w-3.5 h-3.5 text-amber-300" />
+                <span>Master Records</span>
               </div>
               <div className="text-lg sm:text-xl font-black text-white uppercase tracking-tight mt-0.5">
                 Cost &amp; Planning Engine
@@ -1083,7 +1057,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                 onClick={fetchPostgresStatus}
                 disabled={isTestingPostgres}
                 className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
-                title="Sync & Test PostgreSQL Connection"
+                title="Sync Records"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isTestingPostgres ? 'animate-spin' : ''}`} />
                 <span>Sync</span>
@@ -1154,12 +1128,12 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               </div>
             </div>
             <div
-              onClick={() => setCreationPortalType('postgres')}
+              onClick={() => onNavigateTab('inventory')}
               className="p-2.5 bg-white/10 hover:bg-white/15 rounded-lg border border-white/15 cursor-pointer text-center transition-colors"
             >
-              <div className="text-[11px] text-blue-200 font-medium">PostgreSQL</div>
-              <div className="text-lg font-bold text-emerald-400 mt-0.5">
-                {postgresStatus?.latencyMs !== undefined ? `${postgresStatus.latencyMs}ms` : '1ms'}
+              <div className="text-[11px] text-blue-200 font-medium">Inventory</div>
+              <div className="text-lg font-bold text-teal-300 mt-0.5">
+                {inventory.length}
               </div>
             </div>
           </div>

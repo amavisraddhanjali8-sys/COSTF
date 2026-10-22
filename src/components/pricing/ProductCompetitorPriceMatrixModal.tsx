@@ -31,11 +31,10 @@ import {
   AlertTriangle,
   Scale,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Package
 } from 'lucide-react';
 import {
-  RevenueItem,
-  ProduceItem,
   Competitor,
   ProductCompetitorQuote,
   ProductCompetitorPriceHistoryRecord,
@@ -65,49 +64,147 @@ export interface ProductCompetitorPriceMatrixModalProps {
   onClose: () => void;
   onUpdateOurPrice?: (newPrice: number, newCost?: number) => void;
   currentUser?: AppUser | null;
+  onLogAudit?: (action: string, module: any, recordId?: string, recordName?: string, details?: string) => void;
 }
 
 export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceMatrixModalProps> = ({
   item,
-  itemType = 'revenue_item',
+  itemType = 'product',
   onClose,
   onUpdateOurPrice,
-  currentUser
+  currentUser,
+  onLogAudit
 }) => {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [quotes, setQuotes] = useState<ProductCompetitorQuote[]>([]);
   const [history, setHistory] = useState<ProductCompetitorPriceHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'matrix' | 'history'>('matrix');
+  const [searchFilter, setSearchFilter] = useState('');
 
-  // Our Offering Rate States
-  const [ourPrice, setOurPrice] = useState<number>(item.ourPrice || 100);
-  const [ourCost, setOurCost] = useState<number>(item.ourCost || 65);
-  const [isEditingOurRates, setIsEditingOurRates] = useState(false);
-  const [ourPriceInput, setOurPriceInput] = useState(String(item.ourPrice || 100));
-  const [ourCostInput, setOurCostInput] = useState(String(item.ourCost || 65));
+  // Our Offering Rates state
+  const [ourPrice, setOurPrice] = useState<number>(Number(item.ourPrice || 100));
+  const [ourCost, setOurCost] = useState<number>(Number(item.ourCost || 65));
+  const [ourVolumePricing, setOurVolumePricing] = useState<VolumePriceTier[]>(() => {
+    if (item.volumePricing && item.volumePricing.length > 0) return item.volumePricing;
+    const p = Number(item.ourPrice || 100);
+    return [
+      { minQty: 1, maxQty: 10, unitPrice: p, discountPct: 0, label: '1–10 (Base Rate)' },
+      { minQty: 11, maxQty: 50, unitPrice: Number((p * 0.94).toFixed(2)), discountPct: 6.0, label: '11–50 (Volume Tier)' },
+      { minQty: 51, unitPrice: Number((p * 0.88).toFixed(2)), discountPct: 12.0, label: '51+ (Enterprise Tier)' }
+    ];
+  });
 
-  // Edit Competitor Price & Ranges Modal State
-  const [editingQuote, setEditingQuote] = useState<ProductCompetitorQuote | null>(null);
-  const [editPrice, setEditPrice] = useState<number>(100);
-  const [editEffectiveDate, setEditEffectiveDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [editQuoteRef, setEditQuoteRef] = useState<string>('');
-  const [editReason, setEditReason] = useState<string>('Market Price Alignment');
-  const [editTiers, setEditTiers] = useState<VolumePriceTier[]>([]);
-  const [isSubmittingRevision, setIsSubmittingRevision] = useState(false);
+  // History for our price changes
+  const [ourPriceHistory, setOurPriceHistory] = useState<Array<{
+    id: string;
+    date: string;
+    price: number;
+    cost?: number;
+    changePct?: number;
+    reason: string;
+    quoteRef?: string;
+    updatedBy: string;
+    volumePricing?: VolumePriceTier[];
+  }>>([
+    {
+      id: `our-hist-init-${item.id}`,
+      date: new Date().toISOString().slice(0, 10),
+      price: Number(item.ourPrice || 100),
+      cost: Number(item.ourCost || 65),
+      changePct: 0,
+      reason: 'Active baseline offering rate in PostgreSQL database',
+      quoteRef: `STD-${item.code || 'PRD'}`,
+      updatedBy: 'Lead Cost Estimator',
+      volumePricing: ourVolumePricing
+    }
+  ]);
 
-  // Add Competitor Quote Modal State
-  const [isAddCompetitorOpen, setIsAddCompetitorOpen] = useState(false);
+  // Dropdown menu state for column headers
+  const [openColumnMenuId, setOpenColumnMenuId] = useState<string | null>(null);
+
+  // Active Revision Audit Diff Modal State (triggered by View Changes)
+  const [activeAuditModal, setActiveAuditModal] = useState<{
+    date: string;
+    targetQuoteId: string | 'our' | null;
+  } | null>(null);
+
+  // View latest volume tiers modal (triggered by View button)
+  const [viewingRangesEntity, setViewingRangesEntity] = useState<{
+    isOur: boolean;
+    name: string;
+    basePrice: number;
+    moq: number;
+    tiers: VolumePriceTier[];
+  } | null>(null);
+
+  // Commit Price dialog state (+ Change button)
+  const [selectedQuoteForCommit, setSelectedQuoteForCommit] = useState<{
+    isOur: boolean;
+    quote?: ProductCompetitorQuote;
+  } | null>(null);
+
+  const [commitForm, setCommitForm] = useState<{
+    changeBasePrice: boolean;
+    newBasePrice: number;
+    newCost: number;
+    effectiveDate: string;
+    reason: string;
+    quoteRef: string;
+    moq: number;
+    leadTimeDays: number;
+    updatedBy: string;
+    selectedRanges: Array<{
+      rangeIndex: number;
+      label: string;
+      minQty: number;
+      currentMinQty: number;
+      maxQty?: number;
+      currentMaxQty?: number;
+      currentPrice: number;
+      newPrice: number;
+      currentDiscountPct: number;
+      discountPct: number;
+      selected: boolean;
+    }>;
+  }>({
+    changeBasePrice: true,
+    newBasePrice: 100,
+    newCost: 65,
+    effectiveDate: new Date().toISOString().slice(0, 10),
+    reason: 'Market Rate Calibration',
+    quoteRef: `QT-${item.code || 'PRD'}-${Date.now().toString().slice(-4)}`,
+    moq: 1,
+    leadTimeDays: 7,
+    updatedBy: currentUser?.name || 'Lead Estimator',
+    selectedRanges: []
+  });
+
+  // Add Competitor Column Dialog State
+  const [isAddCompetitorModalOpen, setIsAddCompetitorModalOpen] = useState(false);
+  const [addCompetitorMode, setAddCompetitorMode] = useState<'existing' | 'create_new'>('existing');
   const [selectedCompetitorId, setSelectedCompetitorId] = useState<string>('');
-  const [newCompetitorName, setNewCompetitorName] = useState<string>('');
-  const [newQuotePrice, setNewQuotePrice] = useState<number>(100);
-  const [newQuoteNotes, setNewQuoteNotes] = useState<string>('');
+  const [newCompetitorForm, setNewCompetitorForm] = useState({
+    name: '',
+    country: 'United States',
+    marketTier: 'Primary Competitor',
+    contactPerson: '',
+    email: '',
+    website: '',
+    notes: 'Direct market rival tracked for product quotation benchmarking.',
+    startingPrice: ourPrice > 0 ? Number((ourPrice * 1.05).toFixed(2)) : 5000,
+    moq: 1,
+    leadTimeDays: 14,
+    quoteRef: `QT-COMP-${Date.now().toString().slice(-4)}`,
+    quoteReason: 'Market competitor rate benchmark onboarding',
+    volumeTiers: [
+      { minQty: 1, maxQty: 10, unitPrice: ourPrice > 0 ? Number((ourPrice * 1.05).toFixed(2)) : 5000, discountPct: 0, label: '1–10 (Base Rate)' },
+      { minQty: 11, maxQty: 50, unitPrice: ourPrice > 0 ? Number((ourPrice * 0.98).toFixed(2)) : 4700, discountPct: 6.0, label: '11–50 (Volume Tier)' },
+      { minQty: 51, unitPrice: ourPrice > 0 ? Number((ourPrice * 0.92).toFixed(2)) : 4400, discountPct: 12.0, label: '51+ (Enterprise Tier)' }
+    ] as VolumePriceTier[]
+  });
 
-  // Selected history record for audit diff inspection
-  const [selectedHistoryRecord, setSelectedHistoryRecord] = useState<ProductCompetitorPriceHistoryRecord | null>(null);
-
-  // Fetch data on mount
-  const loadData = async () => {
+  // Load from PostgreSQL database on mount
+  const loadDatabaseData = async () => {
     setLoading(true);
     try {
       const [comps, qts, hist] = await Promise.all([
@@ -119,1003 +216,1447 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
       setCompetitors(comps);
       setQuotes(qts);
       setHistory(hist);
-    } catch (err) {
-      console.error('Failed to load competitor matrix data:', err);
+    } catch (e: any) {
+      console.warn('[PriceMatrix] Error loading competitor matrix data from PostgreSQL:', e?.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadDatabaseData();
   }, [item.id]);
 
-  // Our Offering Margin
-  const ourMarginPct = useMemo(() => {
-    if (ourPrice <= 0) return 0;
-    return Number((((ourPrice - ourCost) / ourPrice) * 100).toFixed(1));
-  }, [ourPrice, ourCost]);
+  // Market Metrics (Lowest, Highest, Active, Spread)
+  const metrics = useMemo(() => {
+    const compPrices = quotes.map((q) => Number(q.currentPrice)).filter((p) => p > 0);
+    const allPrices = [ourPrice, ...compPrices].filter((p) => p > 0);
+    const min = allPrices.length > 0 ? Math.min(...allPrices) : ourPrice;
+    const max = allPrices.length > 0 ? Math.max(...allPrices) : ourPrice;
 
-  // Handle Save Our Rates
-  const handleSaveOurRates = () => {
-    const p = parseFloat(ourPriceInput) || 0;
-    const c = parseFloat(ourCostInput) || 0;
-    setOurPrice(p);
-    setOurCost(c);
-    setIsEditingOurRates(false);
-    if (onUpdateOurPrice) {
-      onUpdateOurPrice(p, c);
+    // Lowest entity
+    let lowestName = 'Our Offering';
+    if (min < ourPrice) {
+      const match = quotes.find((q) => Number(q.currentPrice) === min);
+      if (match) lowestName = match.competitorName;
     }
-  };
 
-  // Open Edit Price / Ranges Modal for a competitor
-  const handleOpenEditPrice = (quote: ProductCompetitorQuote) => {
-    const p = quote.competitorPrice ?? quote.currentPrice ?? 0;
-    setEditingQuote(quote);
-    setEditPrice(p);
-    setEditEffectiveDate(new Date().toISOString().slice(0, 10));
-    setEditQuoteRef(`COMP-${item.code}-${Date.now().toString().slice(-4)}`);
-    setEditReason('Quarterly Benchmark Update');
+    const spread = min > 0 ? ourPrice - min : 0;
+    const spreadPct = min > 0 ? ((ourPrice - min) / min) * 100 : 0;
 
-    // Clone or generate default volume tiers
-    if (quote.volumePricing && quote.volumePricing.length > 0) {
-      setEditTiers(JSON.parse(JSON.stringify(quote.volumePricing)));
-    } else {
-      setEditTiers([
-        { minQty: 1, maxQty: 100, unitPrice: p, discountPct: 0, label: '1 - 100 (Standard)' },
-        { minQty: 101, maxQty: 500, unitPrice: Number((p * 0.95).toFixed(2)), discountPct: 5, label: '101 - 500 (Mid Tier)' },
-        { minQty: 501, maxQty: 2000, unitPrice: Number((p * 0.90).toFixed(2)), discountPct: 10, label: '501 - 2000 (Bulk Order)' }
-      ]);
-    }
-  };
+    return {
+      activeOurPrice: ourPrice,
+      lowestPrice: min,
+      lowestName,
+      highestPrice: max,
+      spread,
+      spreadPct
+    };
+  }, [quotes, ourPrice]);
 
-  // Add range row to editing tiers
-  const handleAddRangeRow = () => {
-    const lastTier = editTiers[editTiers.length - 1];
-    const nextStart = lastTier ? (lastTier.maxQty || lastTier.minQty) + 1 : 1;
-    const nextEnd = nextStart + 500;
-    const nextDiscount = lastTier ? Math.min(30, (lastTier.discountPct || 0) + 5) : 5;
-    const calcPrice = Number((editPrice * (1 - nextDiscount / 100)).toFixed(2));
+  // Timeline Records (Distinct Revision Dates grouped across our price & competitor quotes)
+  const timelineRecords = useMemo(() => {
+    const dateMap = new Map<string, {
+      date: string;
+      latestReason: string;
+      entitiesChanged: string[];
+    }>();
 
-    setEditTiers([
-      ...editTiers,
-      {
-        minQty: nextStart,
-        maxQty: nextEnd,
-        unitPrice: calcPrice,
-        discountPct: nextDiscount,
-        label: `${nextStart} - ${nextEnd} (Tier ${editTiers.length + 1})`
+    // 1. Add our price history dates
+    ourPriceHistory.forEach((h) => {
+      if (!dateMap.has(h.date)) {
+        dateMap.set(h.date, {
+          date: h.date,
+          latestReason: h.reason || 'Our quoted rate adjustment',
+          entitiesChanged: ['Our Quoted Selling Rate']
+        });
+      } else {
+        const r = dateMap.get(h.date)!;
+        if (!r.entitiesChanged.includes('Our Quoted Selling Rate')) {
+          r.entitiesChanged.push('Our Quoted Selling Rate');
+        }
       }
-    ]);
-  };
-
-  // Update a tier row
-  const handleUpdateTierRow = (index: number, field: keyof VolumePriceTier, value: any) => {
-    const updated = [...editTiers];
-    const current = { ...updated[index], [field]: value };
-
-    // Recompute unitPrice if discountPct changes
-    if (field === 'discountPct') {
-      const disc = parseFloat(value) || 0;
-      current.unitPrice = Number((editPrice * (1 - disc / 100)).toFixed(2));
-    }
-    // Recompute discountPct if unitPrice changes
-    if (field === 'unitPrice') {
-      const up = parseFloat(value) || 0;
-      current.discountPct = editPrice > 0 ? Number((((editPrice - up) / editPrice) * 100).toFixed(1)) : 0;
-    }
-
-    current.label = `${current.minQty} - ${current.maxQty || '+'} pcs (${current.discountPct}% off)`;
-    updated[index] = current;
-    setEditTiers(updated);
-  };
-
-  // Remove a tier row
-  const handleRemoveTierRow = (index: number) => {
-    setEditTiers(editTiers.filter((_, i) => i !== index));
-  };
-
-  // Commit Competitor Price Change to PostgreSQL
-  const handleCommitPriceChange = async () => {
-    if (!editingQuote) return;
-    setIsSubmittingRevision(true);
-
-    try {
-      const commitPayload = {
-        newPrice: Number(editPrice),
-        effectiveDate: editEffectiveDate,
-        reason: editReason,
-        quoteRef: editQuoteRef,
-        volumePricing: editTiers,
-        updatedBy: currentUser?.name || 'Commercial Analyst'
-      };
-
-      const updated = await api.commitProductCompetitorPrice(item.id, editingQuote.id, commitPayload);
-
-      // Refresh list
-      await loadData();
-      setEditingQuote(null);
-    } catch (err: any) {
-      alert(`Failed to commit price change: ${err?.message || 'Server error'}`);
-    } finally {
-      setIsSubmittingRevision(false);
-    }
-  };
-
-  // Add a new competitor quote
-  const handleCreateCompetitorQuote = async () => {
-    let compName = newCompetitorName.trim();
-    if (selectedCompetitorId && selectedCompetitorId !== 'new') {
-      const matched = competitors.find((c) => c.id === selectedCompetitorId);
-      if (matched) compName = matched.name;
-    }
-
-    if (!compName) {
-      alert('Please select or enter a competitor name');
-      return;
-    }
-
-    try {
-      const baseP = Number(newQuotePrice) || ourPrice;
-      const initialTiers: VolumePriceTier[] = [
-        { minQty: 1, maxQty: 100, unitPrice: baseP, discountPct: 0, label: '1 - 100 (Standard)' },
-        { minQty: 101, maxQty: 500, unitPrice: Number((baseP * 0.95).toFixed(2)), discountPct: 5, label: '101 - 500 (Volume)' }
-      ];
-
-      await api.createProductCompetitorQuote(item.id, {
-        itemType: (itemType as 'product' | 'service' | 'produce' | 'revenue_item') || 'revenue_item',
-        competitorId: selectedCompetitorId !== 'new' ? selectedCompetitorId : undefined,
-        competitorName: compName,
-        competitorPrice: baseP,
-        volumePricing: initialTiers,
-        notes: newQuoteNotes
-      });
-
-      await loadData();
-      setIsAddCompetitorOpen(false);
-      setNewCompetitorName('');
-      setSelectedCompetitorId('');
-      setNewQuoteNotes('');
-    } catch (err: any) {
-      alert(`Failed to add competitor quote: ${err?.message || 'Server error'}`);
-    }
-  };
-
-  // Delete a competitor quote
-  const handleDeleteQuote = async (quote: ProductCompetitorQuote) => {
-    if (!confirm(`Are you sure you want to remove competitor benchmark "${quote.competitorName}"?`)) return;
-    try {
-      await api.deleteProductCompetitorQuote(item.id, quote.id);
-      await loadData();
-    } catch (err: any) {
-      alert(`Failed to delete competitor quote: ${err?.message || 'Server error'}`);
-    }
-  };
-
-  // Export full competitor comparison CSV
-  const handleExportCSV = () => {
-    const headers = [
-      'Product / Service Code',
-      'Item Name',
-      'Category',
-      'Unit',
-      'Our Selling Price',
-      'Our Direct Cost',
-      'Our Target Margin %',
-      'Competitor Name',
-      'Competitor Quoted Rate',
-      'Price Spread ($)',
-      'Spread vs Our Rate (%)',
-      'Position',
-      'Active Tiers Count',
-      'Tier 1 (1-100)',
-      'Tier 2 (101-500)',
-      'Tier 3 (501+)',
-      'Last Revision Date'
-    ];
-
-    const rows = quotes.map((q) => {
-      const p = q.competitorPrice ?? q.currentPrice ?? 0;
-      return [
-        item.code,
-        item.name,
-        item.category || 'Direct Offering',
-        item.unit || 'pcs',
-        `$${Number(ourPrice || 0).toFixed(2)}`,
-        `$${Number(ourCost || 0).toFixed(2)}`,
-        `${ourMarginPct}%`,
-        q.competitorName,
-        `$${Number(p ?? 0).toFixed(2)}`,
-        `$${Number(q.priceDelta ?? 0).toFixed(2)}`,
-        `${Number(q.spreadPct ?? 0)}%`,
-        p < ourPrice ? 'Competitor Cheaper' : 'Our Price Cheaper',
-        q.volumePricing?.length || 0,
-        q.volumePricing?.[0]?.unitPrice != null ? `$${Number(q.volumePricing[0].unitPrice).toFixed(2)}` : 'N/A',
-        q.volumePricing?.[1]?.unitPrice != null ? `$${Number(q.volumePricing[1].unitPrice).toFixed(2)}` : 'N/A',
-        q.volumePricing?.[2]?.unitPrice != null ? `$${Number(q.volumePricing[2].unitPrice).toFixed(2)}` : 'N/A',
-        q.lastUpdatedDate || q.effectiveDate || q.lastQuotedDate || 'N/A'
-      ];
     });
 
-    downloadCSV(
-      `${item.code}_Competitor_Rate_Comparison_${new Date().toISOString().slice(0, 10)}.csv`,
-      headers,
-      rows
-    );
+    // 2. Add competitor price history dates
+    quotes.forEach((q) => {
+      (q.priceHistory || []).forEach((hist) => {
+        const d = (hist.revisionDate || (hist as any).date || '').slice(0, 10);
+        if (!d) return;
+        if (!dateMap.has(d)) {
+          dateMap.set(d, {
+            date: d,
+            latestReason: hist.reason || 'Competitor rate adjustment',
+            entitiesChanged: [q.competitorName]
+          });
+        } else {
+          const r = dateMap.get(d)!;
+          if (!r.entitiesChanged.includes(q.competitorName)) {
+            r.entitiesChanged.push(q.competitorName);
+          }
+        }
+      });
+    });
+
+    let list = Array.from(dateMap.values());
+    if (searchFilter.trim()) {
+      const q = searchFilter.toLowerCase().trim();
+      list = list.filter((r) => r.date.toLowerCase().includes(q) || r.latestReason.toLowerCase().includes(q));
+    }
+
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [ourPriceHistory, quotes, searchFilter]);
+
+  // Handle open commit price revision dialog (+ Change button)
+  const handleOpenCommitPrice = (isOur: boolean, quote?: ProductCompetitorQuote) => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (isOur) {
+      const ranges = ourVolumePricing.map((t, idx) => ({
+        rangeIndex: idx,
+        label: t.label,
+        minQty: t.minQty,
+        currentMinQty: t.minQty,
+        maxQty: t.maxQty,
+        currentMaxQty: t.maxQty,
+        currentPrice: t.unitPrice,
+        newPrice: t.unitPrice,
+        currentDiscountPct: t.discountPct,
+        discountPct: t.discountPct,
+        selected: false
+      }));
+
+      setSelectedQuoteForCommit({ isOur: true });
+      setCommitForm({
+        changeBasePrice: true,
+        newBasePrice: ourPrice,
+        newCost: ourCost,
+        effectiveDate: today,
+        reason: 'Offering price calibration aligned with competitor benchmarks',
+        quoteRef: `QT-${item.code || 'PRD'}-${Date.now().toString().slice(-4)}`,
+        moq: 1,
+        leadTimeDays: 7,
+        updatedBy: currentUser?.name || 'Lead Estimator',
+        selectedRanges: ranges
+      });
+    } else if (quote) {
+      const tiers = quote.volumePricing || [];
+      const ranges = tiers.map((t, idx) => ({
+        rangeIndex: idx,
+        label: t.label,
+        minQty: t.minQty,
+        currentMinQty: t.minQty,
+        maxQty: t.maxQty,
+        currentMaxQty: t.maxQty,
+        currentPrice: t.unitPrice,
+        newPrice: t.unitPrice,
+        currentDiscountPct: t.discountPct,
+        discountPct: t.discountPct,
+        selected: false
+      }));
+
+      setSelectedQuoteForCommit({ isOur: false, quote });
+      setCommitForm({
+        changeBasePrice: true,
+        newBasePrice: Number(quote.currentPrice),
+        newCost: 0,
+        effectiveDate: today,
+        reason: 'Market competitor rate revision and volume restructuring',
+        quoteRef: `QT-${quote.competitorName.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`,
+        moq: quote.moq || 1,
+        leadTimeDays: quote.leadTimeDays || 14,
+        updatedBy: currentUser?.name || 'Market Intelligence Lead',
+        selectedRanges: ranges
+      });
+    }
   };
 
+  // Submit commit price revision
+  const handleSubmitPriceCommit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedQuoteForCommit) return;
+
+    const today = commitForm.effectiveDate || new Date().toISOString().slice(0, 10);
+    const newPrice = Number(commitForm.newBasePrice);
+
+    if (selectedQuoteForCommit.isOur) {
+      // 1. Revision for Our Offering Rate
+      const oldPrice = ourPrice;
+      const changePct = oldPrice > 0 ? Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2)) : 0;
+
+      // Update changed tiers if any selected
+      const updatedTiers = ourVolumePricing.map((tier, idx) => {
+        const found = commitForm.selectedRanges.find((r) => r.rangeIndex === idx && r.selected);
+        if (found) {
+          return {
+            ...tier,
+            minQty: found.minQty,
+            maxQty: found.maxQty,
+            unitPrice: Number(found.newPrice),
+            discountPct: Number(found.discountPct)
+          };
+        }
+        // If base price changed, recalculate proportional discount
+        if (commitForm.changeBasePrice) {
+          const disc = tier.discountPct || 0;
+          return {
+            ...tier,
+            unitPrice: Number((newPrice * (1 - disc / 100)).toFixed(2))
+          };
+        }
+        return tier;
+      });
+
+      setOurPrice(newPrice);
+      setOurCost(Number(commitForm.newCost));
+      setOurVolumePricing(updatedTiers);
+
+      const newHist = {
+        id: `our-hist-${Date.now()}`,
+        date: today,
+        price: newPrice,
+        cost: Number(commitForm.newCost),
+        changePct,
+        reason: commitForm.reason || 'Offering rate update',
+        quoteRef: commitForm.quoteRef,
+        updatedBy: commitForm.updatedBy || 'Pricing Lead',
+        volumePricing: updatedTiers
+      };
+      setOurPriceHistory([newHist, ...ourPriceHistory]);
+
+      // Call parent callback if provided
+      if (onUpdateOurPrice) {
+        onUpdateOurPrice(newPrice, Number(commitForm.newCost));
+      }
+
+      // Persist to PostgreSQL database directly
+      try {
+        if (itemType === 'revenue_item' || item.id.startsWith('rev-')) {
+          await api.commitRevenueItemPrice(item.id, {
+            rate: newPrice,
+            costPrice: Number(commitForm.newCost),
+            effectiveDate: today,
+            reason: commitForm.reason,
+            quoteRef: commitForm.quoteRef,
+            updatedBy: commitForm.updatedBy
+          });
+        } else {
+          await api.updateProduceItem(item.id, {
+            retailPrice: newPrice,
+            costPrice: Number(commitForm.newCost)
+          });
+        }
+      } catch (err: any) {
+        console.warn('[PriceMatrix] PostgreSQL database price sync notice:', err?.message);
+      }
+
+      setSelectedQuoteForCommit(null);
+    } else if (selectedQuoteForCommit.quote) {
+      // 2. Revision for Competitor Quote
+      const q = selectedQuoteForCommit.quote;
+      const oldPrice = Number(q.currentPrice);
+      const changePct = oldPrice > 0 ? Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2)) : 0;
+
+      const updatedTiers = (q.volumePricing || []).map((tier, idx) => {
+        const found = commitForm.selectedRanges.find((r) => r.rangeIndex === idx && r.selected);
+        if (found) {
+          return {
+            ...tier,
+            minQty: found.minQty,
+            maxQty: found.maxQty,
+            unitPrice: Number(found.newPrice),
+            discountPct: Number(found.discountPct)
+          };
+        }
+        if (commitForm.changeBasePrice) {
+          const disc = tier.discountPct || 0;
+          return {
+            ...tier,
+            unitPrice: Number((newPrice * (1 - disc / 100)).toFixed(2))
+          };
+        }
+        return tier;
+      });
+
+      const appliedSummary: string[] = [
+        `Competitor base rate revised: $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct}%)`
+      ];
+
+      try {
+        await api.commitProductCompetitorPrice(item.id, q.id, {
+          price: newPrice,
+          ourPrice: ourPrice,
+          revisionDate: today,
+          reason: commitForm.reason || 'Competitor market quote update',
+          quoteRef: commitForm.quoteRef,
+          moq: Number(commitForm.moq),
+          leadTimeDays: Number(commitForm.leadTimeDays),
+          updatedBy: commitForm.updatedBy || 'Pricing Estimator',
+          volumePricing: updatedTiers,
+          appliedChangesSummary: appliedSummary
+        });
+
+        // Reload fresh data from PostgreSQL database
+        await loadDatabaseData();
+      } catch (err: any) {
+        console.error('Failed to commit competitor price revision:', err);
+        // Fallback local update
+        setQuotes((prev) =>
+          prev.map((quote) =>
+            quote.id === q.id
+              ? {
+                  ...quote,
+                  currentPrice: newPrice,
+                  volumePricing: updatedTiers,
+                  priceHistory: [
+                    {
+                      id: `hist-${Date.now()}`,
+                      quoteId: q.id,
+                      itemId: item.id,
+                      itemType: itemType,
+                      competitorName: q.competitorName,
+                      revisionDate: today,
+                      price: newPrice,
+                      previousPrice: oldPrice,
+                      ourPrice: ourPrice,
+                      changePct,
+                      reason: commitForm.reason,
+                      quoteRef: commitForm.quoteRef,
+                      updatedBy: commitForm.updatedBy,
+                      appliedChangesSummary: appliedSummary
+                    },
+                    ...(quote.priceHistory || [])
+                  ]
+                }
+              : quote
+          )
+        );
+      }
+
+      setSelectedQuoteForCommit(null);
+    }
+  };
+
+  // Add Competitor Column Submit
+  const handleAddCompetitorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let compId = selectedCompetitorId;
+    let compName = '';
+
+    if (addCompetitorMode === 'create_new' || !compId) {
+      if (!newCompetitorForm.name.trim()) return;
+      try {
+        const created = await api.createCompetitor({
+          name: newCompetitorForm.name.trim(),
+          country: newCompetitorForm.country,
+          marketTier: newCompetitorForm.marketTier,
+          contactPerson: newCompetitorForm.contactPerson,
+          email: newCompetitorForm.email,
+          website: newCompetitorForm.website,
+          notes: newCompetitorForm.notes
+        });
+        compId = created.id;
+        compName = created.name;
+        setCompetitors((prev) => [...prev, created]);
+      } catch (err) {
+        console.error('Failed to create competitor profile:', err);
+        compId = `comp-${Date.now()}`;
+        compName = newCompetitorForm.name.trim();
+      }
+    } else {
+      const match = competitors.find((c) => c.id === compId);
+      compName = match ? match.name : 'Industry Competitor';
+    }
+
+    const price = Number(newCompetitorForm.startingPrice);
+
+    try {
+      const validItemType: 'product' | 'service' | 'produce' | 'revenue_item' =
+        itemType === 'service' || itemType === 'produce' || itemType === 'revenue_item' ? itemType : 'product';
+
+      await api.createProductCompetitorQuote(item.id, {
+        itemType: validItemType,
+        itemCode: item.code,
+        itemName: item.name,
+        competitorId: compId,
+        competitorName: compName,
+        currentPrice: price,
+        ourPrice: ourPrice,
+        moq: Number(newCompetitorForm.moq),
+        leadTimeDays: Number(newCompetitorForm.leadTimeDays),
+        currency: 'USD',
+        notes: newCompetitorForm.notes,
+        reason: newCompetitorForm.quoteReason,
+        quoteRef: newCompetitorForm.quoteRef,
+        volumePricing: newCompetitorForm.volumeTiers
+      });
+
+      // Reload fresh matrix from PostgreSQL database
+      await loadDatabaseData();
+    } catch (err: any) {
+      console.error('Failed to create competitor quote:', err);
+    }
+
+    setIsAddCompetitorModalOpen(false);
+  };
+
+  // Delete Competitor Quote
+  const handleDeleteCompetitorQuote = async (quote: ProductCompetitorQuote) => {
+    if (!window.confirm(`Are you sure you want to delete the quote column for "${quote.competitorName}"?`)) return;
+    try {
+      await api.deleteProductCompetitorQuote(item.id, quote.id);
+      await loadDatabaseData();
+    } catch (err: any) {
+      console.error('Failed to delete competitor quote:', err);
+      setQuotes((prev) => prev.filter((q) => q.id !== quote.id));
+    }
+  };
+
+  // Gross Margin Calculation for Our Rate
+  const grossMarginPct = ourPrice > 0 ? Number((((ourPrice - ourCost) / ourPrice) * 100).toFixed(1)) : 0;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-7xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden font-sans">
-        {/* Top Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700/80 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
-              <Scale className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
-                  {item.code}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 uppercase tracking-wider">
-                  {item.type === 'service' ? 'Revenue Service' : 'Direct Product'}
-                </span>
-                <h2 className="text-lg font-bold text-white tracking-tight">{item.name}</h2>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Competitor Benchmark Matrix &amp; Multi-Tier Volume Pricing ({item.category || 'General'}) • Category Base Unit: <span className="text-cyan-400 font-semibold">{item.unit || 'pcs'}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            {/* View Tabs */}
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-              <button
-                onClick={() => setActiveTab('matrix')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
-                  activeTab === 'matrix'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md font-semibold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                Comparison Matrix
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
-                  activeTab === 'history'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md font-semibold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <History className="w-3.5 h-3.5" />
-                Revision History ({history.length})
-              </button>
-            </div>
-
-            <button
-              onClick={handleExportCSV}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-colors flex items-center gap-1.5"
-              title="Export Comparison to CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Export CSV
-            </button>
-
-            <button
-              onClick={onClose}
-              className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeTab === 'matrix' ? (
-            <>
-              {/* Context Summary Bar */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Our Quoted Selling Rate</span>
-                    <span className="text-xl font-bold text-emerald-400">${Number(ourPrice || 0).toFixed(2)}</span>
-                    <span className="text-[11px] text-slate-500 block">per {item.unit || 'unit'}</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <DollarSign className="w-5 h-5" />
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Our Internal Cost</span>
-                    <span className="text-xl font-bold text-amber-400">${Number(ourCost || 0).toFixed(2)}</span>
-                    <span className="text-[11px] text-slate-500 block">COGS / direct service cost</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    <Layers className="w-5 h-5" />
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Target Gross Margin</span>
-                    <span className={`text-xl font-bold ${ourMarginPct >= 25 ? 'text-cyan-400' : 'text-rose-400'}`}>
-                      {ourMarginPct}%
-                    </span>
-                    <span className="text-[11px] text-slate-500 block">${(Number(ourPrice || 0) - Number(ourCost || 0)).toFixed(2)} gross profit</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                    <Percent className="w-5 h-5" />
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Competitor Benchmarks</span>
-                    <span className="text-xl font-bold text-white">{quotes.length} Quotes</span>
-                    <span className="text-[11px] text-slate-500 block">PostgreSQL active records</span>
-                  </div>
-                  <button
-                    onClick={() => setIsAddCompetitorOpen(true)}
-                    className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Benchmark
-                  </button>
-                </div>
-              </div>
-
-              {/* Main Matrix: Our Rate vs Competitor Benchmarks (FXTT Multi-Column View) */}
-              <div className="bg-slate-950/40 rounded-2xl border border-slate-800 overflow-hidden shadow-lg">
-                <div className="px-5 py-3.5 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-cyan-400" />
-                    <h3 className="text-sm font-semibold text-white tracking-wide uppercase">
-                      Commercial Competitor Comparison Matrix (FXTT Protocol)
-                    </h3>
-                  </div>
-                  <span className="text-xs text-slate-400">
-                    Products &amp; Revenue Services have no vendors — only our offering rates and market competitor benchmarks.
-                  </span>
-                </div>
-
-                {loading ? (
-                  <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
-                    <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
-                    <span>Loading PostgreSQL competitor rates and volume tiers...</span>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[900px]">
-                      <thead>
-                        <tr className="border-b border-slate-800 bg-slate-900/90 text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                          <th className="py-3 px-4 w-48 sticky left-0 bg-slate-900/95 z-10 border-r border-slate-800">
-                            Comparison Dimension
-                          </th>
-                          {/* Our Rates Column (Highlighted) */}
-                          <th className="py-3 px-5 w-64 bg-cyan-950/30 border-r border-cyan-800/40 text-cyan-300">
-                            <div className="flex items-center justify-between">
-                              <span className="flex items-center gap-1.5">
-                                <Star className="w-3.5 h-3.5 fill-cyan-400 text-cyan-400" />
-                                OUR OFFERING RATE
-                              </span>
-                              <button
-                                onClick={() => setIsEditingOurRates(true)}
-                                className="text-[10px] text-cyan-400 hover:text-cyan-300 underline font-normal"
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          </th>
-                          {/* Competitor Columns */}
-                          {quotes.map((q) => (
-                            <th key={q.id} className="py-3 px-5 w-64 border-r border-slate-800 text-slate-200">
-                              <div className="flex items-center justify-between">
-                                <span className="font-semibold text-white truncate max-w-[150px]" title={q.competitorName}>
-                                  {q.competitorName}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleOpenEditPrice(q)}
-                                    className="p-1 hover:bg-slate-800 text-cyan-400 rounded"
-                                    title="Edit Competitor Rate & Volume Ranges"
-                                  >
-                                    <Edit className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteQuote(q)}
-                                    className="p-1 hover:bg-rose-950/50 text-rose-400 rounded"
-                                    title="Remove Competitor"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-800 text-xs text-slate-300">
-                        {/* Row: Base Rate */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3.5 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Base Quoted Price
-                          </td>
-                          <td className="py-3.5 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="text-base font-bold text-emerald-400">${Number(ourPrice || 0).toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 block">Our Active Standard Rate</span>
-                          </td>
-                          {quotes.map((q) => {
-                            const compPrice = Number(q.competitorPrice ?? q.currentPrice ?? 0);
-                            const isCheaper = compPrice < ourPrice;
-                            return (
-                              <td key={q.id} className="py-3.5 px-5 border-r border-slate-800">
-                                <div className="flex items-baseline gap-2">
-                                  <span className="text-base font-bold text-white">${compPrice.toFixed(2)}</span>
-                                  <span
-                                    className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                                      isCheaper
-                                        ? 'bg-rose-950/80 text-rose-300 border border-rose-800/50'
-                                        : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/50'
-                                    }`}
-                                  >
-                                    {isCheaper ? 'Comp Lower' : 'Our Price Lower'}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-slate-400 block mt-0.5">
-                                  Ref: {q.quoteRef || 'Benchmark'}
-                                </span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* Row: Price Spread vs Our Rate */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3.5 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Price Spread ($ / %)
-                          </td>
-                          <td className="py-3.5 px-5 bg-cyan-950/20 border-r border-cyan-800/30 text-slate-400 italic">
-                            Baseline Offering (0.0%)
-                          </td>
-                          {quotes.map((q) => {
-                            const diff = Number(q.priceDelta ?? 0);
-                            const spread = Number(q.spreadPct ?? 0);
-                            const isPositive = diff > 0;
-                            return (
-                              <td key={q.id} className="py-3.5 px-5 border-r border-slate-800">
-                                <div className="flex items-center gap-1.5">
-                                  {isPositive ? (
-                                    <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
-                                  ) : (
-                                    <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
-                                  )}
-                                  <span className={`font-semibold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {isPositive ? '+' : ''}${diff.toFixed(2)} ({isPositive ? '+' : ''}{spread}%)
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-slate-400 block mt-0.5">
-                                  {isPositive ? 'Competitor charges premium' : 'Competitor discounts price'}
-                                </span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* Row: Volume Tier 1 */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Range 1: 1 - 100 pcs
-                          </td>
-                          <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-white">${Number(ourPrice || 0).toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 ml-1.5">(0% off)</span>
-                          </td>
-                          {quotes.map((q) => {
-                            const t1 = q.volumePricing?.[0];
-                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? 0);
-                            const price = Number(t1?.unitPrice != null ? t1.unitPrice : compBase);
-                            const disc = Number(t1 ? t1.discountPct : 0);
-                            return (
-                              <td key={q.id} className="py-3 px-5 border-r border-slate-800">
-                                <span className="font-semibold text-white">${price.toFixed(2)}</span>
-                                <span className="text-[10px] text-slate-400 ml-1.5">({disc}% off)</span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* Row: Volume Tier 2 */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Range 2: 101 - 500 pcs
-                          </td>
-                          <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-emerald-400">${(Number(ourPrice || 0) * 0.95).toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 ml-1.5">(5% discount)</span>
-                          </td>
-                          {quotes.map((q) => {
-                            const t2 = q.volumePricing?.[1];
-                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? ourPrice);
-                            const price = Number(t2?.unitPrice != null ? t2.unitPrice : compBase * 0.95);
-                            const disc = Number(t2 ? t2.discountPct : 5);
-                            return (
-                              <td key={q.id} className="py-3 px-5 border-r border-slate-800">
-                                <span className="font-semibold text-cyan-300">${price.toFixed(2)}</span>
-                                <span className="text-[10px] text-slate-400 ml-1.5">({disc}% off)</span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* Row: Volume Tier 3 */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Range 3: 501+ pcs (Bulk)
-                          </td>
-                          <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <span className="font-semibold text-emerald-400">${(Number(ourPrice || 0) * 0.90).toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 ml-1.5">(10% bulk discount)</span>
-                          </td>
-                          {quotes.map((q) => {
-                            const t3 = q.volumePricing?.[2];
-                            const compBase = Number(q.competitorPrice ?? q.currentPrice ?? ourPrice);
-                            const price = Number(t3?.unitPrice != null ? t3.unitPrice : compBase * 0.90);
-                            const disc = Number(t3 ? t3.discountPct : 10);
-                            return (
-                              <td key={q.id} className="py-3 px-5 border-r border-slate-800">
-                                <span className="font-semibold text-cyan-300">${price.toFixed(2)}</span>
-                                <span className="text-[10px] text-slate-400 ml-1.5">({disc}% off)</span>
-                              </td>
-                            );
-                          })}
-                        </tr>
-
-                        {/* Row: Minimum Order Qty & Lead Time */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            MOQ &amp; Delivery SLA
-                          </td>
-                          <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30 text-slate-300">
-                            MOQ: 1 unit • SLA: 7 days
-                          </td>
-                          {quotes.map((q) => (
-                            <td key={q.id} className="py-3 px-5 border-r border-slate-800 text-slate-300">
-                              MOQ: {q.moq || 1} • SLA: {q.leadTimeDays || 14} days
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* Row: Last Revision & Effective Date */}
-                        <tr className="hover:bg-slate-900/40 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Last Price Revision
-                          </td>
-                          <td className="py-3 px-5 bg-cyan-950/20 border-r border-cyan-800/30 text-slate-400">
-                            Active in Catalogue
-                          </td>
-                          {quotes.map((q) => (
-                            <td key={q.id} className="py-3 px-5 border-r border-slate-800 text-slate-400">
-                              {q.effectiveDate || q.lastUpdatedDate || 'Current'}
-                              <span className="text-[10px] block text-cyan-400/80">Ref: {q.quoteRef || 'REV-INIT'}</span>
-                            </td>
-                          ))}
-                        </tr>
-
-                        {/* Row: Actions */}
-                        <tr className="bg-slate-900/80">
-                          <td className="py-3.5 px-4 font-semibold text-slate-400 bg-slate-950/50 sticky left-0 border-r border-slate-800">
-                            Operational Actions
-                          </td>
-                          <td className="py-3.5 px-5 bg-cyan-950/20 border-r border-cyan-800/30">
-                            <button
-                              onClick={() => setIsEditingOurRates(true)}
-                              className="w-full py-1.5 px-3 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-300 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                              Update Our Price
-                            </button>
-                          </td>
-                          {quotes.map((q) => (
-                            <td key={q.id} className="py-3.5 px-5 border-r border-slate-800">
-                              <button
-                                onClick={() => handleOpenEditPrice(q)}
-                                className="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium text-xs transition-colors flex items-center justify-center gap-1.5"
-                              >
-                                <Edit className="w-3.5 h-3.5 text-cyan-400" />
-                                Edit Price &amp; Ranges
-                              </button>
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* Revision History Tab */
-            <div className="bg-slate-950/40 rounded-2xl border border-slate-800 overflow-hidden shadow-lg">
-              <div className="px-5 py-3.5 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="w-4 h-4 text-cyan-400" />
-                  <h3 className="text-sm font-semibold text-white tracking-wide uppercase">
-                    Competitor Price Revisions &amp; Tier Change Log
-                  </h3>
-                </div>
-                <span className="text-xs text-slate-400">
-                  Recorded in PostgreSQL table: <code className="text-cyan-400">product_competitor_price_history</code>
-                </span>
-              </div>
-
-              {history.length === 0 ? (
-                <div className="p-12 text-center text-slate-400">
-                  <p>No historical revisions recorded for this item yet.</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    When you edit competitor rates and click "Commit Price Change", the audit record will be logged here.
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-800 bg-slate-900/90 text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                        <th className="py-3 px-4">Date</th>
-                        <th className="py-3 px-4">Competitor</th>
-                        <th className="py-3 px-4">Quote Ref</th>
-                        <th className="py-3 px-4 text-right">Previous Price</th>
-                        <th className="py-3 px-4 text-right">New Price</th>
-                        <th className="py-3 px-4 text-right">Change %</th>
-                        <th className="py-3 px-4">Reason / Driver</th>
-                        <th className="py-3 px-4">Updated By</th>
-                        <th className="py-3 px-4 text-center">Audit Diffs</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-xs text-slate-300">
-                      {history.map((h) => {
-                        const changePctNum = Number(h.changePct || 0);
-                        const isUp = changePctNum > 0;
-                        const prevPriceNum = h.previousPrice != null ? Number(h.previousPrice) : null;
-                        const currentPriceNum = Number(h.price ?? (h as any).newPrice ?? 0);
-                        return (
-                          <tr key={h.id} className="hover:bg-slate-900/40 transition-colors">
-                            <td className="py-3 px-4 font-mono text-slate-400">{h.revisionDate}</td>
-                            <td className="py-3 px-4 font-semibold text-white">{h.competitorName}</td>
-                            <td className="py-3 px-4 text-cyan-400 font-mono text-[11px]">{h.quoteRef || '—'}</td>
-                            <td className="py-3 px-4 text-right font-mono text-slate-400">
-                              {prevPriceNum != null && !isNaN(prevPriceNum) ? `$${prevPriceNum.toFixed(2)}` : '—'}
-                            </td>
-                            <td className="py-3 px-4 text-right font-mono font-bold text-white">
-                              ${currentPriceNum.toFixed(2)}
-                            </td>
-                            <td className="py-3 px-4 text-right font-mono">
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                  isUp
-                                    ? 'bg-rose-950/60 text-rose-300 border border-rose-800/40'
-                                    : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40'
-                                }`}
-                              >
-                                {isUp ? '+' : ''}{changePctNum}%
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-slate-300 max-w-xs truncate" title={h.reason}>
-                              {h.reason || 'Benchmark calibration'}
-                            </td>
-                            <td className="py-3 px-4 text-slate-400">{h.updatedBy || 'Analyst'}</td>
-                            <td className="py-3 px-4 text-center">
-                              <button
-                                onClick={() => setSelectedHistoryRecord(h)}
-                                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 text-xs font-medium border border-slate-700"
-                              >
-                                View Diff
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Bottom Footer */}
-        <div className="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Persisted in PostgreSQL database <code className="text-cyan-400">inno_cost</code> (schema v3.2.0)</span>
-          </div>
+    <div className="fixed inset-0 z-50 w-full h-full bg-white flex flex-col overflow-hidden select-none">
+      {/* 1. TOP HEADER BAR (EXACT FXTT TEMPLATE) */}
+      <header className="h-11 px-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+        <div className="flex items-center space-x-2.5 min-w-0">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-colors"
+            className="flex items-center space-x-1 px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded text-xs transition-colors cursor-pointer"
+            title="Close Matrix View"
           >
-            Close Window
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span className="font-medium">Close</span>
+          </button>
+
+          <div className="h-4 w-px bg-slate-200" />
+
+          {/* Item Identification Badge */}
+          <span className="font-mono text-xs font-semibold text-[#003049] bg-slate-100 px-2 py-0.5 rounded border border-slate-200 shrink-0">
+            {item.code || 'PRD-001'}
+          </span>
+
+          <span className="text-xs font-medium text-slate-800 truncate max-w-xs md:max-w-md" title={item.name}>
+            {item.name}
+          </span>
+
+          <span className="text-[11px] text-slate-400 shrink-0">
+            ({item.unit || 'unit'})
+          </span>
+
+          {/* Market Summary Badges */}
+          <div className="hidden lg:flex items-center space-x-2 text-[11px] pl-2 border-l border-slate-200">
+            <span className="text-slate-600">
+              Active: <strong className="text-slate-900 font-medium">${ourPrice.toFixed(2)}</strong>
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-medium">
+              Lowest: ${metrics.lowestPrice.toFixed(2)} ({metrics.lowestName.split(' ')[0]})
+            </span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500">
+              Spread: {metrics.spread >= 0 ? `+$${metrics.spread.toFixed(2)}` : `-$${Math.abs(metrics.spread).toFixed(2)}`} ({metrics.spreadPct.toFixed(1)}%)
+            </span>
+          </div>
+        </div>
+
+        {/* Right Actions */}
+        <div className="flex items-center space-x-2 shrink-0">
+          {/* Revision dates search input */}
+          <div className="relative">
+            <Search className="w-3 h-3 text-slate-400 absolute left-2 top-2" />
+            <input
+              type="text"
+              placeholder="Filter revision dates..."
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className="pl-6 pr-2 py-1 text-xs border border-slate-200 rounded bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#003049] focus:bg-white w-36 sm:w-44 transition-all"
+            />
+            {searchFilter && (
+              <button
+                type="button"
+                onClick={() => setSearchFilter('')}
+                className="absolute right-1.5 top-1.5 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          {/* VIEW CHANGES (ALL ROWS) BUTTON */}
+          <button
+            type="button"
+            onClick={() => setActiveAuditModal({ date: 'all', targetQuoteId: null })}
+            className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 hover:bg-[#003049] text-[#003049] hover:text-white border border-blue-200 rounded text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+            title="View all price revision changes, audit diffs, and reasons across all rows"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>View Changes (All Rows)</span>
+          </button>
+
+          {/* ADD COMPETITOR COLUMN BUTTON */}
+          <button
+            type="button"
+            onClick={() => setIsAddCompetitorModalOpen(true)}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-[#003049] hover:bg-[#002235] text-white rounded text-xs font-medium transition-colors cursor-pointer"
+            title="Add a new market competitor or benchmark quote column"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Competitor Column</span>
+          </button>
+
+          {/* Close X */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
+      </header>
+
+      {/* 2. MAIN TABLE MATRIX (EXACT FXTT PROTOCOL TEMPLATE) */}
+      <div className="flex-1 overflow-auto bg-white min-h-[380px] max-h-[calc(100vh-80px)] border-b border-slate-200">
+        <table className="w-full text-left border-collapse min-w-[860px]">
+          {/* COLUMN HEADERS */}
+          <thead className="bg-[#f8fafc] sticky top-0 z-20 border-b border-slate-300 shadow-2xs">
+            <tr>
+              {/* Left Column: Revision Timeline Date Header */}
+              <th className="py-2.5 px-3 border-r border-slate-200 w-60 min-w-[230px] max-w-[250px] bg-[#eef3f7] sticky left-0 z-30 align-bottom">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] font-bold text-[#003049] uppercase tracking-wider">
+                      Revision Date
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-normal">
+                      Full Audit Events
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[10px] text-slate-600 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                      {timelineRecords.length} Rows
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAuditModal({ date: 'all', targetQuoteId: null })}
+                      className="text-[10px] text-[#0077b6] hover:underline font-semibold cursor-pointer"
+                      title="Inspect full revision audit log"
+                    >
+                      Audit
+                    </button>
+                  </div>
+                </div>
+              </th>
+
+              {/* PRIMARY COLUMN: OUR QUOTED SELLING RATE (INTERNAL ACTIVE STANDARD RATE) */}
+              <th className="py-2 px-3 border-r border-slate-200 min-w-[240px] align-top bg-[#f0f7fa]">
+                <div>
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="truncate pr-1">
+                      <span className="text-xs font-bold text-slate-900 truncate block hover:text-[#003049]">
+                        Our Quoted Selling Rate
+                      </span>
+                      <span className="text-[10px] text-slate-500 block truncate">
+                        Internal Cost: ${ourCost.toFixed(2)} • Margin: {grossMarginPct}%
+                      </span>
+                    </div>
+
+                    <div className="shrink-0 flex items-center space-x-1">
+                      <span className="text-[9px] uppercase font-bold bg-[#003049] text-white px-1.5 py-0.5 rounded">
+                        Primary
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Fine Line Divider */}
+                  <div className="border-t border-slate-200/80 my-1.5" />
+
+                  {/* Active Rate & Action Buttons */}
+                  <div className="flex items-center justify-between gap-1 relative">
+                    <div className="text-xs font-bold font-mono text-[#003049] whitespace-nowrap">
+                      ${ourPrice.toFixed(2)}{' '}
+                      <span className="text-[10px] font-normal text-slate-400">/ {item.unit || 'unit'}</span>
+                    </div>
+
+                    {/* Fine UI Button Group */}
+                    <div className="inline-flex items-center rounded border border-slate-200 bg-white shadow-2xs divide-x divide-slate-200 shrink-0">
+                      {/* View Button */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setViewingRangesEntity({
+                            isOur: true,
+                            name: 'Our Quoted Selling Rate',
+                            basePrice: ourPrice,
+                            moq: 1,
+                            tiers: ourVolumePricing
+                          })
+                        }
+                        className="px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:text-sky-800 hover:bg-sky-50 transition-colors flex items-center space-x-1 cursor-pointer"
+                        title="View volume pricing breaks for our quoted rate"
+                      >
+                        <Eye className="w-3 h-3 text-sky-600" />
+                        <span>View</span>
+                      </button>
+
+                      {/* + Change Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCommitPrice(true)}
+                        className="px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors flex items-center space-x-0.5 cursor-pointer"
+                        title="Commit price revision for our offering rate"
+                      >
+                        <span>+ Change</span>
+                      </button>
+
+                      {/* Edit Rate Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCommitPrice(true)}
+                        className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-blue-800 hover:bg-blue-50 transition-colors flex items-center cursor-pointer"
+                        title="Edit internal rate & COGS"
+                      >
+                        <Edit className="w-3 h-3 text-blue-600" />
+                      </button>
+
+                      {/* Menu Button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenColumnMenuId(openColumnMenuId === 'our' ? null : 'our')}
+                          className="px-1.5 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer flex items-center justify-center"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+
+                        {openColumnMenuId === 'our' && (
+                          <>
+                            <div className="fixed inset-0 z-30" onClick={() => setOpenColumnMenuId(null)} />
+                            <div className="absolute right-0 top-full mt-1.5 z-40 w-52 bg-white rounded-lg shadow-xl border border-slate-200 py-1 text-left text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95">
+                              <div className="px-3 py-1.5 bg-slate-50 font-bold uppercase tracking-wider text-[10px] text-slate-500">
+                                Internal Rate Commands
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenColumnMenuId(null);
+                                  handleOpenCommitPrice(true);
+                                }}
+                                className="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-slate-50 text-slate-800 text-left cursor-pointer"
+                              >
+                                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Commit Price Revision</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenColumnMenuId(null);
+                                  setActiveAuditModal({ date: 'all', targetQuoteId: 'our' });
+                                }}
+                                className="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-slate-50 text-slate-800 text-left cursor-pointer"
+                              >
+                                <History className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Revision History Diff</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </th>
+
+              {/* COMPETITOR COLUMNS */}
+              {quotes.map((quote) => {
+                const compPrice = Number(quote.currentPrice);
+                const isLowerThanOur = compPrice < ourPrice;
+                const spreadDiff = compPrice - ourPrice;
+                const spreadPct = ourPrice > 0 ? ((compPrice - ourPrice) / ourPrice) * 100 : 0;
+                const isMenuOpen = openColumnMenuId === quote.id;
+
+                return (
+                  <th
+                    key={quote.id}
+                    className="py-2 px-3 border-r border-slate-200 min-w-[240px] align-top bg-[#f8fafc]"
+                  >
+                    <div>
+                      {/* Competitor Name & Badge */}
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="truncate pr-1">
+                          <span
+                            className="text-xs font-bold text-slate-900 truncate block hover:text-[#003049]"
+                            title={quote.competitorName}
+                          >
+                            {quote.competitorName}
+                          </span>
+                          <span className="text-[10px] text-slate-500 block truncate">
+                            {quote.leadTimeDays ? `${quote.leadTimeDays}d SLA` : '14d SLA'} • MOQ {quote.moq || 1}
+                          </span>
+                        </div>
+
+                        <div className="shrink-0 flex items-center space-x-1">
+                          <span className={`text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded border ${
+                            quote.isBenchmark
+                              ? 'bg-blue-50 text-blue-800 border-blue-200'
+                              : isLowerThanOur
+                              ? 'bg-amber-50 text-amber-800 border-amber-200'
+                              : 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}>
+                            {quote.isBenchmark ? 'Benchmark' : 'Competitor'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Fine Line Divider */}
+                      <div className="border-t border-slate-200/80 my-1.5" />
+
+                      {/* Quoted Price & Action Buttons */}
+                      <div className="flex items-center justify-between gap-1 relative">
+                        <div>
+                          <div className="text-xs font-bold font-mono text-[#003049] whitespace-nowrap">
+                            ${compPrice.toFixed(2)}{' '}
+                            <span className="text-[10px] font-normal text-slate-400">/ {item.unit || 'unit'}</span>
+                          </div>
+                          {/* Comparison delta pill */}
+                          <div className="text-[10px] font-medium mt-0.5 flex items-center space-x-1">
+                            {isLowerThanOur ? (
+                              <span className="text-rose-600 bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
+                                {spreadPct.toFixed(1)}% (Comp Lower)
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                                +{spreadPct.toFixed(1)}% (Our Price Lower)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fine UI Button Group */}
+                        <div className="inline-flex items-center rounded border border-slate-200 bg-white shadow-2xs divide-x divide-slate-200 shrink-0">
+                          {/* View Button */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewingRangesEntity({
+                                isOur: false,
+                                name: quote.competitorName,
+                                basePrice: compPrice,
+                                moq: quote.moq || 1,
+                                tiers: quote.volumePricing || []
+                              })
+                            }
+                            className="px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:text-sky-800 hover:bg-sky-50 transition-colors flex items-center space-x-1 cursor-pointer"
+                            title={`View volume pricing breaks for ${quote.competitorName}`}
+                          >
+                            <Eye className="w-3 h-3 text-sky-600" />
+                            <span>View</span>
+                          </button>
+
+                          {/* + Change Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCommitPrice(false, quote)}
+                            className="px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors flex items-center space-x-0.5 cursor-pointer"
+                            title={`Commit price revision for ${quote.competitorName}`}
+                          >
+                            <span>+ Change</span>
+                          </button>
+
+                          {/* Edit Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCommitPrice(false, quote)}
+                            className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-blue-800 hover:bg-blue-50 transition-colors flex items-center cursor-pointer"
+                            title="Edit competitor quote"
+                          >
+                            <Edit className="w-3 h-3 text-blue-600" />
+                          </button>
+
+                          {/* Delete Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCompetitorQuote(quote)}
+                            className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-rose-800 hover:bg-rose-50 transition-colors flex items-center cursor-pointer"
+                            title="Delete competitor quote"
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-500" />
+                          </button>
+
+                          {/* Menu Button */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setOpenColumnMenuId(isMenuOpen ? null : quote.id)}
+                              className="px-1.5 py-0.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer flex items-center justify-center"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+
+                            {isMenuOpen && (
+                              <>
+                                <div className="fixed inset-0 z-30" onClick={() => setOpenColumnMenuId(null)} />
+                                <div className="absolute right-0 top-full mt-1.5 z-40 w-52 bg-white rounded-lg shadow-xl border border-slate-200 py-1 text-left text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95">
+                                  <div className="px-3 py-1.5 bg-slate-50 font-bold uppercase tracking-wider text-[10px] text-slate-500">
+                                    Competitor Commands
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenColumnMenuId(null);
+                                      handleOpenCommitPrice(false, quote);
+                                    }}
+                                    className="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-slate-50 text-slate-800 text-left cursor-pointer"
+                                  >
+                                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Commit Price Revision</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenColumnMenuId(null);
+                                      setActiveAuditModal({ date: 'all', targetQuoteId: quote.id });
+                                    }}
+                                    className="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-slate-50 text-slate-800 text-left cursor-pointer"
+                                  >
+                                    <History className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Revision History Diff</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenColumnMenuId(null);
+                                      handleDeleteCompetitorQuote(quote);
+                                    }}
+                                    className="w-full px-3 py-1.5 flex items-center space-x-2 hover:bg-rose-50 text-rose-700 text-left cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Delete Competitor Quote</span>
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </th>
+                );
+              })}
+
+              {/* Quick Add Competitor Column Header */}
+              <th className="py-2 px-3 min-w-[130px] bg-slate-50 border-r border-slate-200 text-center align-middle">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCompetitorModalOpen(true)}
+                  className="w-full py-2 px-2 bg-white hover:bg-slate-100 border border-dashed border-slate-300 hover:border-[#003049] text-slate-600 hover:text-[#003049] rounded text-[11px] font-medium transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                  title="Add competitor column to compare quotes, ranges & benchmarks"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Competitor</span>
+                </button>
+              </th>
+            </tr>
+          </thead>
+
+          {/* TABLE ROWS - ONE ROW PER REVISION DATE */}
+          <tbody className="divide-y divide-slate-200 text-xs">
+            {timelineRecords.length === 0 ? (
+              <tr>
+                <td colSpan={quotes.length + 3} className="py-12 text-center text-slate-500 bg-slate-50">
+                  <Scale className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <div className="font-semibold text-slate-800 text-xs">No Historical Revision Events Recorded</div>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                    Click "+ Change" on any rate column or "+ Add Competitor Column" to start tracking market price revisions.
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              timelineRecords.map((timeline) => {
+                // Find our price record on this date if any
+                const ourRec = ourPriceHistory.find((h) => h.date === timeline.date);
+
+                return (
+                  <tr
+                    key={timeline.date}
+                    className="h-9 min-h-[36px] max-h-[36px] hover:bg-blue-50/40 transition-colors border-b border-slate-200 whitespace-nowrap"
+                  >
+                    {/* Date Cell with [View Changes] button */}
+                    <td className="py-1 px-3 border-r border-slate-200 bg-white sticky left-0 z-10 whitespace-nowrap text-xs font-mono text-slate-700">
+                      <div className="flex items-center justify-between space-x-2">
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="font-semibold text-slate-900">{timeline.date}</span>
+                        </div>
+
+                        {/* BUTTON: VIEW CHANGES FOR THIS ROW */}
+                        <button
+                          type="button"
+                          onClick={() => setActiveAuditModal({ date: timeline.date, targetQuoteId: null })}
+                          className="px-2 py-0.5 text-[10px] bg-blue-50 hover:bg-[#003049] text-[#003049] hover:text-white rounded border border-blue-200 transition-colors font-semibold flex items-center space-x-1 cursor-pointer ml-auto shrink-0 shadow-2xs"
+                          title={`View changes and reasons for ${timeline.date}`}
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>View Changes</span>
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* Cell under Our Quoted Selling Rate */}
+                    <td
+                      onClick={() => setActiveAuditModal({ date: timeline.date, targetQuoteId: 'our' })}
+                      className="py-1 px-3 border-r border-slate-200 whitespace-nowrap text-xs bg-amber-50/20 hover:bg-amber-100/40 transition-colors cursor-pointer"
+                      title="Inspect our offering rate on this date"
+                    >
+                      {ourRec ? (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-1.5 truncate">
+                            <span className="text-slate-900 font-bold font-mono">
+                              ${ourRec.price.toFixed(2)}
+                            </span>
+                            {ourRec.cost !== undefined && ourRec.cost > 0 && (
+                              <span className="text-[10px] text-slate-400">
+                                (c: ${ourRec.cost.toFixed(0)})
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-semibold px-1 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                            {ourRec.changePct !== undefined && ourRec.changePct !== 0
+                              ? `${ourRec.changePct > 0 ? '+' : ''}${ourRec.changePct}%`
+                              : 'Active'}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 text-center block">—</span>
+                      )}
+                    </td>
+
+                    {/* Cells under Competitor Columns */}
+                    {quotes.map((quote) => {
+                      const exactRecord = (quote.priceHistory || []).find((h) => {
+                        const d = (h.revisionDate || (h as any).date || '').slice(0, 10);
+                        return d === timeline.date;
+                      });
+
+                      if (!exactRecord) {
+                        return (
+                          <td
+                            key={quote.id}
+                            className="py-1 px-3 border-r border-slate-200 whitespace-nowrap text-slate-300 text-center text-xs bg-white"
+                          >
+                            —
+                          </td>
+                        );
+                      }
+
+                      const price = Number(exactRecord.price);
+                      const changePct = exactRecord.changePct;
+                      const isLowerThanOur = price < ourPrice;
+
+                      return (
+                        <td
+                          key={quote.id}
+                          onClick={() => setActiveAuditModal({ date: timeline.date, targetQuoteId: quote.id })}
+                          className="py-1 px-3 border-r border-slate-200 whitespace-nowrap text-xs bg-amber-50/30 hover:bg-amber-100/50 transition-colors cursor-pointer"
+                          title={`Click to view audit diff for ${quote.competitorName} on ${timeline.date}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-1.5 truncate">
+                              <span className="text-slate-900 font-bold font-mono">
+                                ${price.toFixed(2)}
+                              </span>
+                              {isLowerThanOur ? (
+                                <span className="text-[9px] px-1 rounded bg-rose-50 text-rose-700 border border-rose-200">
+                                  Comp Lower
+                                </span>
+                              ) : (
+                                <span className="text-[9px] px-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Our Lower
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="text-[10px] font-semibold px-1 rounded bg-slate-100 text-slate-600">
+                              {changePct !== undefined && changePct !== 0
+                                ? `${changePct > 0 ? '+' : ''}${changePct}%`
+                                : 'New'}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    })}
+
+                    {/* Empty placeholder column cell */}
+                    <td className="py-1 px-3 border-r border-slate-200 whitespace-nowrap text-slate-300 text-center text-xs bg-slate-50/50">
+                      —
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* MODAL 1: Edit Our Price / Cost Modal */}
-      {isEditingOurRates && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Edit className="w-4 h-4 text-cyan-400" />
-                Update Our Offering Rates
-              </h3>
-              <button onClick={() => setIsEditingOurRates(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Our Quoted Selling Price ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={ourPriceInput}
-                  onChange={(e) => setOurPriceInput(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Our Internal Cost ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={ourCostInput}
-                  onChange={(e) => setOurCostInput(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
-                <span className="text-slate-400">Calculated Margin:</span>
-                <span className="text-sm font-bold text-cyan-400">
-                  {ourPriceInput && ourCostInput && parseFloat(ourPriceInput) > 0
-                    ? `${(((parseFloat(ourPriceInput) - parseFloat(ourCostInput)) / parseFloat(ourPriceInput)) * 100).toFixed(1)}%`
-                    : '0%'}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setIsEditingOurRates(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOurRates}
-                className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs"
-              >
-                Apply Rates
-              </button>
-            </div>
-          </div>
+      {/* 3. FOOTER STATUS BAR */}
+      <footer className="h-8 px-4 bg-slate-50 border-t border-slate-200 text-slate-500 text-[11px] flex items-center justify-between shrink-0">
+        <div className="flex items-center space-x-2">
+          <span className="font-mono font-medium text-slate-700">{item.code || 'PRD-001'}</span>
+          <span>•</span>
+          <span>{quotes.length} Competitors Tracked</span>
+          <span>•</span>
+          <span>{timelineRecords.length} Revision Events Logged</span>
+          <span>•</span>
+          <span className="text-emerald-700 font-medium">PostgreSQL inno_cost Active</span>
         </div>
-      )}
 
-      {/* MODAL 2: Edit Competitor Price & Ranges Modal (Matches Screenshot_20261022-124641.png) */}
-      {editingQuote && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans">
-            {/* Header */}
-            <div className="px-6 py-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-cyan-400" />
-                  Edit Competitor Rate: {editingQuote.competitorName}
+        <div className="text-slate-400 hidden sm:block">
+          Scroll down to browse all historical price events • Click "View Changes" on any row or field to inspect full reasons and audit diffs.
+        </div>
+      </footer>
+
+      {/* ========================================================================= */}
+      {/* 4. MODALS & SUB-DIALOGS                                                   */}
+      {/* ========================================================================= */}
+
+      {/* MODAL 1: COMMIT PRICE REVISION DIALOG (+ Change button) */}
+      {selectedQuoteForCommit && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <DollarSign className="w-4 h-4 text-[#fdf0d5]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Commit Price Revision: {selectedQuoteForCommit.isOur ? 'Our Quoted Selling Rate' : selectedQuoteForCommit.quote?.competitorName}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Update base quote, bulk range tiers, quote reference, and commit price change to PostgreSQL.
-                </p>
               </div>
-              <button onClick={() => setEditingQuote(null)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => setSelectedQuoteForCommit(null)}
+                className="text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Scrollable Form Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
-              {/* Base Price & Reference */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmitPriceCommit} className="p-4 space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">
-                    Change Base Quoted Price ($)
+                  <label className="block text-slate-600 font-medium mb-1">
+                    New Selling Rate ({item.unit || 'unit'})
                   </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-slate-500">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={commitForm.newBasePrice}
+                    onChange={(e) => setCommitForm({ ...commitForm, newBasePrice: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+
+                {selectedQuoteForCommit.isOur ? (
+                  <div>
+                    <label className="block text-slate-600 font-medium mb-1">
+                      Direct Unit Cost / COGS
+                    </label>
                     <input
                       type="number"
                       step="0.01"
-                      value={editPrice}
-                      onChange={(e) => {
-                        const newP = parseFloat(e.target.value) || 0;
-                        setEditPrice(newP);
-                        // Recompute tier prices based on their discount percentages
-                        setEditTiers(
-                          editTiers.map((t) => ({
-                            ...t,
-                            unitPrice: Number((newP * (1 - (t.discountPct || 0) / 100)).toFixed(2))
-                          }))
-                        );
-                      }}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-7 pr-3 py-2 text-white font-mono text-sm focus:border-cyan-500 focus:outline-none"
+                      required
+                      value={commitForm.newCost}
+                      onChange={(e) => setCommitForm({ ...commitForm, newCost: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
                     />
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Quote Ref #</label>
-                  <input
-                    type="text"
-                    value={editQuoteRef}
-                    onChange={(e) => setEditQuoteRef(e.target.value)}
-                    placeholder="e.g. QT-COMP-2026-09"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
+                ) : (
+                  <div>
+                    <label className="block text-slate-600 font-medium mb-1">
+                      Lead Time (Days SLA)
+                    </label>
+                    <input
+                      type="number"
+                      value={commitForm.leadTimeDays}
+                      onChange={(e) => setCommitForm({ ...commitForm, leadTimeDays: parseInt(e.target.value, 10) || 7 })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Effective Date & Driver / Reason */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Effective Date</label>
+                  <label className="block text-slate-600 font-medium mb-1">
+                    Effective Revision Date
+                  </label>
                   <input
                     type="date"
-                    value={editEffectiveDate}
-                    onChange={(e) => setEditEffectiveDate(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
+                    required
+                    value={commitForm.effectiveDate}
+                    onChange={(e) => setCommitForm({ ...commitForm, effectiveDate: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">
-                    Price Change Driver / Reason
+                  <label className="block text-slate-600 font-medium mb-1">
+                    Quote / Tariff Ref #
                   </label>
-                  <select
-                    value={editReason}
-                    onChange={(e) => setEditReason(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
-                  >
-                    <option value="Market Price Alignment">Market Price Alignment</option>
-                    <option value="Quarterly Benchmark Calibration">Quarterly Benchmark Calibration</option>
-                    <option value="Supplier/Vendor Price Fluctuation">Supplier/Vendor Price Fluctuation</option>
-                    <option value="Raw Materials Surcharge">Raw Materials Surcharge</option>
-                    <option value="Contract Renegotiation">Contract Renegotiation</option>
-                    <option value="Promotional Volume Rate">Promotional Volume Rate</option>
-                  </select>
+                  <input
+                    type="text"
+                    required
+                    value={commitForm.quoteRef}
+                    onChange={(e) => setCommitForm({ ...commitForm, quoteRef: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
                 </div>
               </div>
 
-              {/* Bulk Price Ranges, Range Sizes & Discount Rates */}
-              <div className="space-y-2 pt-2 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <label className="block text-slate-200 font-semibold">
-                    Bulk Price Ranges, Range Sizes &amp; Discount Rates
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddRangeRow}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-400 font-medium text-xs flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Range
-                  </button>
-                </div>
-
-                <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/60">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-semibold">
-                        <th className="py-2.5 px-3">Start Qty</th>
-                        <th className="py-2.5 px-3">End Qty</th>
-                        <th className="py-2.5 px-3">Discount %</th>
-                        <th className="py-2.5 px-3">Unit Price ($)</th>
-                        <th className="py-2.5 px-2 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {editTiers.map((tier, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3">
-                            <input
-                              type="number"
-                              value={tier.minQty}
-                              onChange={(e) => handleUpdateTierRow(idx, 'minQty', parseInt(e.target.value) || 1)}
-                              className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs"
-                            />
-                          </td>
-                          <td className="py-2 px-3">
-                            <input
-                              type="number"
-                              value={tier.maxQty || ''}
-                              placeholder="+"
-                              onChange={(e) =>
-                                handleUpdateTierRow(idx, 'maxQty', e.target.value ? parseInt(e.target.value) : undefined)
-                              }
-                              className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs"
-                            />
-                          </td>
-                          <td className="py-2 px-3">
-                            <div className="relative w-24">
-                              <input
-                                type="number"
-                                step="0.5"
-                                value={tier.discountPct || 0}
-                                onChange={(e) => handleUpdateTierRow(idx, 'discountPct', parseFloat(e.target.value) || 0)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-cyan-300 font-mono text-xs pr-6"
-                              />
-                              <span className="absolute right-2 top-1 text-slate-500">%</span>
-                            </div>
-                          </td>
-                          <td className="py-2 px-3 font-mono font-bold text-emerald-400">
-                            ${Number(tier.unitPrice ?? 0).toFixed(2)}
-                          </td>
-                          <td className="py-2 px-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTierRow(idx)}
-                              className="p-1 text-slate-500 hover:text-rose-400 rounded"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">
+                  Revision Reason & Market Context
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={commitForm.reason}
+                  onChange={(e) => setCommitForm({ ...commitForm, reason: e.target.value })}
+                  placeholder="Explain reason for price modification, benchmark adjustment or inflationary update..."
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                />
               </div>
-            </div>
 
-            {/* Footer Actions */}
-            <div className="px-6 py-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
-              <span className="text-xs text-slate-400">
-                Change will be recorded in PostgreSQL audit history
-              </span>
-              <div className="flex gap-2">
+              {/* Volume Ranges / Quantity Breaks selection */}
+              {commitForm.selectedRanges.length > 0 && (
+                <div className="border border-slate-200 rounded-lg p-2.5 bg-slate-50 space-y-2">
+                  <div className="font-semibold text-slate-700 flex items-center justify-between">
+                    <span>Volume Pricing & Quantity Breaks ({commitForm.selectedRanges.length})</span>
+                    <span className="text-[10px] text-slate-400">Select to update tiers</span>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                    {commitForm.selectedRanges.map((rng, idx) => (
+                      <div key={idx} className="flex items-center space-x-2 text-[11px] bg-white p-1.5 rounded border border-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={rng.selected}
+                          onChange={(e) => {
+                            const updated = [...commitForm.selectedRanges];
+                            updated[idx].selected = e.target.checked;
+                            setCommitForm({ ...commitForm, selectedRanges: updated });
+                          }}
+                          className="rounded text-[#003049]"
+                        />
+                        <span className="font-mono text-slate-700 w-28 truncate">{rng.label}</span>
+                        <span className="text-slate-400">Price:</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          disabled={!rng.selected}
+                          value={rng.newPrice}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            const updated = [...commitForm.selectedRanges];
+                            updated[idx].newPrice = val;
+                            if (commitForm.newBasePrice > 0) {
+                              updated[idx].discountPct = Number((((commitForm.newBasePrice - val) / commitForm.newBasePrice) * 100).toFixed(1));
+                            }
+                            setCommitForm({ ...commitForm, selectedRanges: updated });
+                          }}
+                          className="w-20 px-1 py-0.5 border border-slate-300 rounded font-mono text-xs disabled:bg-slate-100"
+                        />
+                        <span className="text-slate-400">Disc:</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          disabled={!rng.selected}
+                          value={rng.discountPct}
+                          onChange={(e) => {
+                            const disc = parseFloat(e.target.value) || 0;
+                            const updated = [...commitForm.selectedRanges];
+                            updated[idx].discountPct = disc;
+                            updated[idx].newPrice = Number((commitForm.newBasePrice * (1 - disc / 100)).toFixed(2));
+                            setCommitForm({ ...commitForm, selectedRanges: updated });
+                          }}
+                          className="w-14 px-1 py-0.5 border border-slate-300 rounded font-mono text-xs disabled:bg-slate-100"
+                        />
+                        <span className="text-slate-400">%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setEditingQuote(null)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-medium"
+                  onClick={() => setSelectedQuoteForCommit(null)}
+                  className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
-                  type="button"
-                  disabled={isSubmittingRevision}
-                  onClick={handleCommitPriceChange}
-                  className="px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md disabled:opacity-50"
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded font-medium cursor-pointer shadow-xs"
                 >
-                  {isSubmittingRevision ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Committing...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      Commit Price Change
-                    </>
-                  )}
+                  Save & Commit Revision
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: ADD COMPETITOR COLUMN DIALOG */}
+      {isAddCompetitorModalOpen && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Plus className="w-4 h-4 text-[#fdf0d5]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Add Competitor Column to Comparison Matrix
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddCompetitorModalOpen(false)}
+                className="text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddCompetitorSubmit} className="p-4 space-y-3.5 text-xs">
+              {/* Mode Toggle */}
+              <div className="flex rounded border border-slate-200 p-0.5 bg-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setAddCompetitorMode('existing')}
+                  className={`flex-1 py-1 text-center font-medium rounded ${
+                    addCompetitorMode === 'existing' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  Select from Registry ({competitors.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddCompetitorMode('create_new')}
+                  className={`flex-1 py-1 text-center font-medium rounded ${
+                    addCompetitorMode === 'create_new' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                  }`}
+                >
+                  + Create New Competitor
+                </button>
+              </div>
+
+              {addCompetitorMode === 'existing' ? (
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">
+                    Select Registered Competitor / Benchmark
+                  </label>
+                  <select
+                    required
+                    value={selectedCompetitorId}
+                    onChange={(e) => {
+                      setSelectedCompetitorId(e.target.value);
+                      const c = competitors.find((comp) => comp.id === e.target.value);
+                      if (c) {
+                        setNewCompetitorForm({
+                          ...newCompetitorForm,
+                          name: c.name,
+                          country: c.country || 'United States',
+                          marketTier: c.marketTier || 'Primary Competitor'
+                        });
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  >
+                    <option value="">-- Choose Competitor --</option>
+                    {competitors.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.marketTier || 'Competitor'} • {c.country || 'Global'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Competitor Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Apex Industrial Dynamics"
+                        value={newCompetitorForm.name}
+                        onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, name: e.target.value })}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-600 font-medium mb-1">Country</label>
+                      <input
+                        type="text"
+                        value={newCompetitorForm.country}
+                        onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, country: e.target.value })}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-medium mb-1">Market Tier</label>
+                    <select
+                      value={newCompetitorForm.marketTier}
+                      onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, marketTier: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                    >
+                      <option value="Primary Competitor">Primary Competitor</option>
+                      <option value="Market Leader">Market Leader</option>
+                      <option value="Market Benchmark">Market Benchmark</option>
+                      <option value="Low-Cost Challenger">Low-Cost Challenger</option>
+                      <option value="Premium Rival">Premium Rival</option>
+                      <option value="Regional Specialist">Regional Specialist</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Price & Parameters */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">
+                    Quoted Price ({item.unit || 'unit'})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={newCompetitorForm.startingPrice}
+                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, startingPrice: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">MOQ</label>
+                  <input
+                    type="number"
+                    value={newCompetitorForm.moq}
+                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, moq: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Lead Time (Days)</label>
+                  <input
+                    type="number"
+                    value={newCompetitorForm.leadTimeDays}
+                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, leadTimeDays: parseInt(e.target.value, 10) || 7 })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-600 font-medium mb-1">Quote Reference #</label>
+                <input
+                  type="text"
+                  required
+                  value={newCompetitorForm.quoteRef}
+                  onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, quoteRef: e.target.value })}
+                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCompetitorModalOpen(false)}
+                  className="px-3 py-1.5 border border-slate-300 text-slate-700 rounded hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded font-medium cursor-pointer shadow-xs"
+                >
+                  Add Competitor Column
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: VIEW VOLUME PRICING BREAKS & RANGES (View button) */}
+      {viewingRangesEntity && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Layers className="w-4 h-4 text-[#fdf0d5]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Volume Price Ranges: {viewingRangesEntity.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingRangesEntity(null)}
+                className="text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 text-xs">
+              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                <div>
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold">Standard Base Rate</span>
+                  <span className="text-sm font-bold font-mono text-[#003049]">
+                    ${viewingRangesEntity.basePrice.toFixed(2)} / {item.unit || 'unit'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-500 block text-[10px] uppercase font-bold">Base MOQ</span>
+                  <span className="text-xs font-semibold text-slate-800 font-mono">
+                    {viewingRangesEntity.moq} {item.unit || 'unit'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Quantity Brackets & Discount Tiers
+                </h4>
+                <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+                  {viewingRangesEntity.tiers.map((t, idx) => (
+                    <div key={idx} className="p-2 flex items-center justify-between hover:bg-slate-50">
+                      <div>
+                        <div className="font-semibold text-slate-800">{t.label}</div>
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          Quantity: {t.minQty} {t.maxQty ? `– ${t.maxQty}` : '+'} {item.unit || 'units'}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold font-mono text-[#003049]">
+                          ${t.unitPrice.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-emerald-600 font-semibold">
+                          {t.discountPct > 0 ? `-${t.discountPct}% Discount` : 'Base Tier (0%)'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setViewingRangesEntity(null)}
+                  className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-medium cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </div>
@@ -1123,159 +1664,126 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         </div>
       )}
 
-      {/* MODAL 3: Add Competitor Benchmark Quote */}
-      {isAddCompetitorOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-cyan-400" />
-                Add Competitor Benchmark
-              </h3>
-              <button onClick={() => setIsAddCompetitorOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
+      {/* MODAL 4: VIEW CHANGES / AUDIT DIFF MODAL */}
+      {activeAuditModal && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2">
+                <Eye className="w-4 h-4 text-[#fdf0d5]" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                  Audit Diff Inspection: {activeAuditModal.date === 'all' ? 'All Revision Dates' : `Date: ${activeAuditModal.date}`}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveAuditModal(null)}
+                className="text-white/70 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Select Competitor</label>
-                <select
-                  value={selectedCompetitorId}
-                  onChange={(e) => setSelectedCompetitorId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
-                >
-                  <option value="">-- Choose Existing Competitor --</option>
-                  {competitors.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.country ? `(${c.country})` : ''}
-                    </option>
-                  ))}
-                  <option value="new">+ Register New Competitor</option>
-                </select>
+            <div className="p-4 overflow-y-auto flex-1 space-y-3 text-xs">
+              <div className="text-[11px] text-slate-500 pb-1 border-b border-slate-100 flex items-center justify-between">
+                <span>Item: <strong className="text-slate-800">{item.code} - {item.name}</strong></span>
+                <span>Unit: <strong className="text-slate-800">{item.unit || 'unit'}</strong></span>
               </div>
 
-              {selectedCompetitorId === 'new' && (
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Competitor Legal Name</label>
-                  <input
-                    type="text"
-                    value={newCompetitorName}
-                    onChange={(e) => setNewCompetitorName(e.target.value)}
-                    placeholder="e.g. Apex Industrial Dynamics"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
-                  />
+              {/* Show Our Price Revision Diff if relevant */}
+              {(activeAuditModal.targetQuoteId === null || activeAuditModal.targetQuoteId === 'our') && (
+                <div className="border border-blue-200 rounded-lg p-3 bg-blue-50/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#003049] uppercase tracking-wider text-[11px] flex items-center space-x-1.5">
+                      <Star className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Our Quoted Selling Rate</span>
+                    </span>
+                    <span className="text-[10px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-blue-200 font-mono">
+                      Current: ${ourPrice.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {ourPriceHistory
+                      .filter((h) => activeAuditModal.date === 'all' || h.date === activeAuditModal.date)
+                      .map((h, idx) => (
+                        <div key={idx} className="bg-white p-2 rounded border border-slate-200 text-xs">
+                          <div className="flex items-center justify-between text-slate-800 font-medium">
+                            <span className="font-mono text-slate-500">{h.date} • Ref: {h.quoteRef || 'STD'}</span>
+                            <span className="font-bold font-mono text-[#003049]">
+                              ${h.price.toFixed(2)} ({h.changePct !== undefined && h.changePct !== 0 ? `${h.changePct > 0 ? '+' : ''}${h.changePct}%` : 'Baseline'})
+                            </span>
+                          </div>
+                          <div className="text-slate-600 mt-1">{h.reason}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">Updated by: {h.updatedBy}</div>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               )}
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Quoted Competitor Price ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newQuotePrice}
-                  onChange={(e) => setNewQuotePrice(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
+              {/* Show Competitor Revision Diffs */}
+              {quotes
+                .filter((q) => activeAuditModal.targetQuoteId === null || activeAuditModal.targetQuoteId === q.id)
+                .map((q) => {
+                  const matchingHist = (q.priceHistory || []).filter(
+                    (h) => activeAuditModal.date === 'all' || ((h.revisionDate || (h as any).date || '').slice(0, 10) === activeAuditModal.date)
+                  );
 
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Benchmark Notes / Specification</label>
-                <textarea
-                  rows={2}
-                  value={newQuoteNotes}
-                  onChange={(e) => setNewQuoteNotes(e.target.value)}
-                  placeholder="e.g. Sourced from Q3 public catalog; includes delivery."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
+                  if (matchingHist.length === 0) return null;
+
+                  return (
+                    <div key={q.id} className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 uppercase tracking-wider text-[11px] flex items-center space-x-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{q.competitorName}</span>
+                        </span>
+                        <span className="text-[10px] bg-white text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 font-mono">
+                          Current: ${Number(q.currentPrice).toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {matchingHist.map((h, idx) => (
+                          <div key={idx} className="bg-white p-2 rounded border border-slate-200 text-xs">
+                            <div className="flex items-center justify-between text-slate-800 font-medium">
+                              <span className="font-mono text-slate-500">
+                                {(h.revisionDate || (h as any).date || '').slice(0, 10)} • Ref: {h.quoteRef || 'QT'}
+                              </span>
+                              <span className="font-bold font-mono text-slate-900">
+                                ${Number(h.price).toFixed(2)}{' '}
+                                {h.previousPrice !== undefined && (
+                                  <span className="text-slate-400 font-normal line-through ml-1">
+                                    ${Number(h.previousPrice).toFixed(2)}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            <div className="text-slate-600 mt-1">{h.reason}</div>
+                            {h.appliedChangesSummary && h.appliedChangesSummary.length > 0 && (
+                              <ul className="mt-1 list-disc list-inside text-[11px] text-slate-500">
+                                {h.appliedChangesSummary.map((sum, sIdx) => (
+                                  <li key={sIdx}>{sum}</li>
+                                ))}
+                              </ul>
+                            )}
+                            <div className="text-[10px] text-slate-400 mt-0.5">Recorded by: {h.updatedBy || 'Pricing Analyst'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
               <button
                 type="button"
-                onClick={() => setIsAddCompetitorOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-medium"
+                onClick={() => setActiveAuditModal(null)}
+                className="px-4 py-1.5 bg-[#003049] text-white rounded text-xs font-medium hover:bg-[#002235] cursor-pointer"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateCompetitorQuote}
-                className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs"
-              >
-                Save Benchmark
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: View History Record Diff Details */}
-      {selectedHistoryRecord && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <FileText className="w-4 h-4 text-cyan-400" />
-                Revision Diff Details
-              </h3>
-              <button onClick={() => setSelectedHistoryRecord(null)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800">
-                <div>
-                  <span className="text-slate-400 block">Competitor:</span>
-                  <span className="font-semibold text-white">{selectedHistoryRecord.competitorName}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Revision Date:</span>
-                  <span className="font-semibold text-white">{selectedHistoryRecord.revisionDate}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Price Change:</span>
-                  <span className="font-mono text-slate-300">
-                    {selectedHistoryRecord.previousPrice != null ? `$${Number(selectedHistoryRecord.previousPrice).toFixed(2)}` : '—'} → ${Number(selectedHistoryRecord.price ?? (selectedHistoryRecord as any).newPrice ?? 0).toFixed(2)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Change %:</span>
-                  <span className="font-semibold text-cyan-400">{Number(selectedHistoryRecord.changePct || 0)}%</span>
-                </div>
-              </div>
-
-              <div>
-                <span className="text-slate-400 font-semibold block mb-1">Reason / Driver:</span>
-                <p className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
-                  {selectedHistoryRecord.reason || 'Benchmark calibration'}
-                </p>
-              </div>
-
-              {selectedHistoryRecord.appliedChangesSummary && selectedHistoryRecord.appliedChangesSummary.length > 0 && (
-                <div>
-                  <span className="text-slate-400 font-semibold block mb-1">Applied Changes:</span>
-                  <ul className="space-y-1 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
-                    {selectedHistoryRecord.appliedChangesSummary.map((s, idx) => (
-                      <li key={idx} className="flex items-center gap-1.5">
-                        <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                        <span>{s}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setSelectedHistoryRecord(null)}
-                className="px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 text-xs font-medium"
-              >
-                Close
+                Close Audit View
               </button>
             </div>
           </div>
