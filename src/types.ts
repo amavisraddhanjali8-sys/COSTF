@@ -158,10 +158,14 @@ export interface ProduceItem {
   specSheetUrl?: string;
   imageUrl?: string;
   barcode?: string;
+  themeId?: string;
+  customGradient?: string;
   priceHistory: PriceHistoryRecord[];
   lastUpdated: string;
   currency?: string;
 }
+
+export type { CategoryNode } from './data/categoriesAndProfiles';
 
 export interface MeasurementUnit {
   id: string;
@@ -282,6 +286,7 @@ export interface SubcontractorRateItem {
   moreServiceSubCategory?: string;
   category?: string;
   subCategory?: string;
+  moreSubCategory?: string;
   nicheServiceName?: string;
   rateModel?: 'hourly_labour' | 'daily_rate' | 'bulk_volume' | 'retail_rate' | 'full_contract_lump_sum';
   baseRate: number;
@@ -714,6 +719,8 @@ export interface OverheadCategory {
   sortOrder?: number;
   defaultAllocationMethod?: string;
   isActive?: boolean;
+  themeId?: string;
+  customGradient?: string;
   createdAt?: string;
 }
 
@@ -734,6 +741,8 @@ export interface OverheadItem {
   unitType?: string;
   effectiveDate: string;
   status: 'Active' | 'Inactive' | 'Archived' | 'Under Review';
+  themeId?: string;
+  customGradient?: string;
   createdBy?: string;
   updatedBy?: string;
   createdAt?: string;
@@ -1097,6 +1106,8 @@ export interface RevenueItem {
   taxTreatment?: string;
   taxRatePct?: number;
   status: 'Active' | 'Inactive' | 'Archived';
+  themeId?: string;
+  customGradient?: string;
   effectiveDate?: string;
   createdBy?: string;
   updatedBy?: string;

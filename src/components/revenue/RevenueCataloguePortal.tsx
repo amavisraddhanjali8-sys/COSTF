@@ -19,7 +19,9 @@ import {
   Info,
   CheckCircle2,
   Barcode as BarcodeIcon,
-  Tag
+  Tag,
+  LayoutGrid,
+  ListFilter
 } from 'lucide-react';
 import { RevenueItem, RevenueCategory, Project, ProjectPlan } from '../../types';
 import { api } from '../../services/api';
@@ -27,6 +29,8 @@ import { formatCurrency } from '../../utils/currency';
 import { CreateEditRevenueItemModal } from './CreateEditRevenueItemModal';
 import { RevenueItemRateHistoryModal } from './RevenueItemRateHistoryModal';
 import { AddRevenueItemToPlanModal } from './AddRevenueItemToPlanModal';
+import { ModernTileCard } from '../ModernTileCard';
+import { bizStore } from '../../services/bizStore';
 
 interface RevenueCataloguePortalProps {
   activeCurrency: string;
@@ -49,6 +53,19 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   const [categories, setCategories] = useState<RevenueCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+
+  // View Mode: 'table' | 'cards'
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('cards');
+
+  // Theme overrides
+  const [themeOverrides, setThemeOverrides] = useState<Record<string, { themeId: string; customGradient?: string }>>(() => {
+    try {
+      const saved = bizStore.getItem('revenue_tile_theme_overrides');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
 
   // Filters & Pagination
   const [search, setSearch] = useState('');
@@ -110,18 +127,51 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
+  const handleUpdateTileTheme = (id: string, newThemeId: string, customGrad?: string) => {
+    setThemeOverrides((prev) => {
+      const updated = { ...prev, [id]: { themeId: newThemeId, customGradient: customGrad } };
+      try {
+        bizStore.setItem('revenue_tile_theme_overrides', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    api.updateRevenueItem(id, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+    setItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, themeId: newThemeId, customGradient: customGrad } : i))
+    );
+  };
+
+  const getTileStyle = (item: RevenueItem) => {
+    const override = themeOverrides[item.id];
+    if (override && override.themeId) return override;
+    if (item.themeId || item.customGradient) {
+      return {
+        themeId: item.themeId || (item.type === 'service' ? 'napa-purple' : 'airbus-cobalt'),
+        customGradient: item.customGradient
+      };
+    }
+    return { themeId: item.type === 'service' ? 'napa-purple' : 'airbus-cobalt' };
+  };
+
   return (
     <div className="space-y-4">
       {/* 1. Header Banner */}
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              Revenue
+            <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
+              <span>Revenue Deliverables</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-mono font-semibold">
+                {totalCount} Total Items
+              </span>
             </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Client billing rates, profit margin spreads, and turnkey deliverable catalogue
+            </p>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-2.5 flex-wrap">
             <button
               type="button"
               onClick={() => {
@@ -130,9 +180,37 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               }}
               className="px-4 py-2 text-xs font-bold rounded-xl bg-[#003049] hover:bg-[#002235] text-white flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>New Item</span>
+              <Plus className="w-4 h-4 text-[#fdf0d5]" />
+              <span>New Deliverable</span>
             </button>
+
+            {/* View Mode Toggle: Cards vs Table */}
+            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-blue-500" />
+                <span>Cards View</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                <ListFilter className="w-3.5 h-3.5 text-slate-500" />
+                <span>Table View</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -265,7 +343,86 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
         </div>
       </div>
 
-      {/* 4. Revenue Items Table */}
+      {/* 4. Revenue Items View: Cards or Table */}
+      {viewMode === 'cards' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {loading ? (
+              <div className="col-span-full py-12 text-center text-slate-400">
+                Loading revenue deliverables...
+              </div>
+            ) : displayedItems.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-slate-400 bg-white dark:bg-[#0b101b] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                No revenue deliverables found. Click "+ New Deliverable" to add one.
+              </div>
+            ) : (
+              displayedItems.map((item) => {
+                const style = getTileStyle(item);
+                const margin =
+                  item.unitRate && item.unitCost && item.unitRate > 0
+                    ? Math.round(((item.unitRate - item.unitCost) / item.unitRate) * 100)
+                    : 0;
+
+                return (
+                  <ModernTileCard
+                    key={item.id}
+                    id={item.id}
+                    tag={item.type === 'service' ? 'CUSTOMER SERVICE REVENUE' : 'SUPPLIED PRODUCT REVENUE'}
+                    title={item.name}
+                    brief={`Code: ${item.code} • ${item.category}${item.subCategory ? ` / ${item.subCategory}` : ''}`}
+                    actionLabel="ADD TO PLAN"
+                    actionVariant="button"
+                    themeId={style.themeId}
+                    customGradient={style.customGradient}
+                    onChangeTheme={(tId, grad) => handleUpdateTileTheme(item.id, tId, grad)}
+                    onAction={() => {
+                      setAddToPlanTargetItem(item);
+                      setIsAddToPlanModalOpen(true);
+                    }}
+                    onEdit={() => {
+                      setItemToEdit(item);
+                      setIsCreateEditOpen(true);
+                    }}
+                    onDelete={async () => {
+                      if (window.confirm(`Delete deliverable "${item.name}"?`)) {
+                        await api.deleteRevenueItem(item.id);
+                        loadData();
+                        if (showNotification) showNotification(`Item "${item.name}" removed.`);
+                      }
+                    }}
+                    extraMeta={
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex items-center justify-between text-[11px] text-white/95">
+                          <span className="font-mono font-bold bg-black/35 px-2 py-0.5 rounded text-[11px]">
+                            {formatCurrency(item.unitRate, activeCurrency)} / {item.unit || 'unit'}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                              margin >= 30
+                                ? 'bg-emerald-500/80 text-white'
+                                : margin > 0
+                                ? 'bg-amber-500/80 text-white'
+                                : 'bg-rose-500/80 text-white'
+                            }`}
+                          >
+                            {margin >= 0 ? `+${margin}%` : `${margin}%`} Margin
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-white/80">
+                          <span>Cost: {formatCurrency(item.unitCost, activeCurrency)}</span>
+                          <span className="font-mono">{item.linkedPlansCount || 0} plans linked</span>
+                        </div>
+                      </div>
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'table' && (
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
@@ -465,6 +622,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* 5. Modals */}
       <CreateEditRevenueItemModal

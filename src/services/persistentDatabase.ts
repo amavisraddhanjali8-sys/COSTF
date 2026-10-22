@@ -258,6 +258,154 @@ export function buildDefaultCategories(): CategoryNode[] {
       group: 'outsourced',
       parentId: 'serv-cat-02',
       brief: 'Sub-micron coordinate dimensional verification'
+    },
+    // Overhead Categories & Sub-Categories
+    {
+      id: 'oh-cat-01',
+      name: 'Indirect Materials & Factory Consumables',
+      type: 'category',
+      group: 'overhead',
+      brief: 'Coolants, lubricants, tooling inserts, and PPE safety gear',
+      themeId: 'amber-forge',
+      metaBadge: 'OVERHEAD ROOT',
+      actionText: 'EXPLORE SUB-CATEGORIES'
+    },
+    {
+      id: 'oh-sub-01-01',
+      name: 'Cutting Fluids & Chemical Agents',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-01',
+      parentName: 'Indirect Materials & Factory Consumables',
+      brief: 'High-pressure CNC coolant and solvent cleaners',
+      themeId: 'sunset-amber',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'oh-sub-01-02',
+      name: 'PPE & Operational Safety',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-01',
+      parentName: 'Indirect Materials & Factory Consumables',
+      brief: 'Respirators, safety glasses, and cut-resistant gloves',
+      themeId: 'amber-forge',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'oh-cat-02',
+      name: 'Utilities & Plant Facilities',
+      type: 'category',
+      group: 'overhead',
+      brief: 'Electricity, industrial gas, facility lease, and environmental HVAC',
+      themeId: 'pacific-sky',
+      metaBadge: 'OVERHEAD ROOT',
+      actionText: 'EXPLORE SUB-CATEGORIES'
+    },
+    {
+      id: 'oh-sub-02-01',
+      name: 'Industrial Three-Phase Power',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-02',
+      parentName: 'Utilities & Plant Facilities',
+      brief: 'Machine peak electrical draw and substation fees',
+      themeId: 'pacific-sky',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'oh-sub-02-02',
+      name: 'Facility Leasing & Depreciation',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-02',
+      parentName: 'Utilities & Plant Facilities',
+      brief: 'Square footage lease and plant maintenance',
+      themeId: 'teal-deep',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'oh-cat-03',
+      name: 'Administrative & Quality Assurance',
+      type: 'category',
+      group: 'overhead',
+      brief: 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance',
+      themeId: 'airbus-cobalt',
+      metaBadge: 'OVERHEAD ROOT',
+      actionText: 'EXPLORE SUB-CATEGORIES'
+    },
+    {
+      id: 'oh-sub-03-01',
+      name: 'Quality Audits & Compliance Testing',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-03',
+      parentName: 'Administrative & Quality Assurance',
+      brief: 'CMM calibration, ultrasonic NDT tests, and standard audits',
+      themeId: 'airbus-cobalt',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'oh-sub-03-02',
+      name: 'ERP Software & Cloud Infrastructure',
+      type: 'sub_category',
+      group: 'overhead',
+      parentId: 'oh-cat-03',
+      parentName: 'Administrative & Quality Assurance',
+      brief: 'Compute licensing and enterprise database servers',
+      themeId: 'indigo-night',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    // Revenue Service Categories & Sub-Categories
+    {
+      id: 'rev-serv-cat-01',
+      name: 'Engineering & Design Consultancy',
+      type: 'category',
+      group: 'service',
+      brief: 'Structural PE engineering calculations, FEA analysis, and CAD detailing',
+      themeId: 'napa-purple',
+      metaBadge: 'SERVICE ROOT',
+      actionText: 'EXPLORE SUB-CATEGORIES'
+    },
+    {
+      id: 'rev-serv-sub-01-01',
+      name: 'FEA Stress Analysis & Simulation',
+      type: 'sub_category',
+      group: 'service',
+      parentId: 'rev-serv-cat-01',
+      parentName: 'Engineering & Design Consultancy',
+      brief: 'Non-linear finite element structural simulation',
+      themeId: 'napa-purple',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
+    },
+    {
+      id: 'rev-serv-cat-02',
+      name: 'Site Installation & Commissioning',
+      type: 'category',
+      group: 'service',
+      brief: 'Turnkey on-site mechanical erection, electrical wiring, and performance testing',
+      themeId: 'crimson-horizon',
+      metaBadge: 'SERVICE ROOT',
+      actionText: 'EXPLORE SUB-CATEGORIES'
+    },
+    {
+      id: 'rev-serv-sub-02-01',
+      name: 'On-Site Machine Calibration & Commissioning',
+      type: 'sub_category',
+      group: 'service',
+      parentId: 'rev-serv-cat-02',
+      parentName: 'Site Installation & Commissioning',
+      brief: 'Laser alignment, hydraulic pressure testing, and pilot handover',
+      themeId: 'crimson-horizon',
+      metaBadge: 'SUB-CATEGORY',
+      actionText: 'VIEW ITEMS'
     }
   ];
 }

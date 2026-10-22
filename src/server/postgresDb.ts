@@ -1254,6 +1254,12 @@ export class PostgresService {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS sub_category TEXT DEFAULT '';
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS category_id TEXT;
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS sub_category_id TEXT;
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS theme_id TEXT;
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS custom_gradient TEXT;
+
         CREATE TABLE IF NOT EXISTS plan_overhead_allocations (
           id TEXT PRIMARY KEY,
           plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
@@ -1336,6 +1342,11 @@ export class PostgresService {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        ALTER TABLE revenue_items ADD COLUMN IF NOT EXISTS theme_id TEXT;
+        ALTER TABLE revenue_items ADD COLUMN IF NOT EXISTS custom_gradient TEXT;
+        ALTER TABLE revenue_items ADD COLUMN IF NOT EXISTS category_id TEXT;
+        ALTER TABLE revenue_items ADD COLUMN IF NOT EXISTS sub_category_id TEXT;
+
         ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS revenue_item_id TEXT REFERENCES revenue_items(id) ON DELETE SET NULL;
         ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS rate NUMERIC(18, 4) DEFAULT 0;
         ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS tax_treatment TEXT DEFAULT 'Standard (0%)';
@@ -1370,7 +1381,7 @@ export class PostgresService {
         );
       `);
 
-      // Seed default categories if empty
+      // Seed default revenue categories if empty
       const catCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_categories');
       if (Number(catCountRes.rows[0]?.cnt || 0) === 0) {
         await db.exec(`
@@ -1381,6 +1392,72 @@ export class PostgresService {
             ('revcat-04', 'CAT-ENGR', 'Engineering & Design Consultancy', 'service', 'Structural PE engineering calculations, FEA analysis, and CAD detailing', 4),
             ('revcat-05', 'CAT-INST', 'Site Installation & Commissioning', 'service', 'Turnkey on-site mechanical erection, electrical wiring, and performance testing', 5),
             ('revcat-06', 'CAT-MAINT', 'Facility Integration & Maintenance', 'service', 'Scheduled preventive servicing, calibration, and 24/7 SLA operational response', 6)
+          ON CONFLICT (code) DO NOTHING;
+        `);
+      }
+
+      // Seed default revenue subcategories if empty
+      const subcatCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_subcategories');
+      if (Number(subcatCountRes.rows[0]?.cnt || 0) === 0) {
+        await db.exec(`
+          INSERT INTO revenue_subcategories (id, category_id, category_name, code, name, description, sort_order) VALUES
+            ('revsub-01', 'revcat-01', 'Architectural & Structural Aluminium', 'SUB-FAC', 'Curtain Wall Profiles & Facades', 'Thermally broken curtain walls', 1),
+            ('revsub-02', 'revcat-01', 'Architectural & Structural Aluminium', 'SUB-EXT', 'Heavy Structural Extrusions', 'Custom alloy structural profiles', 2),
+            ('revsub-03', 'revcat-02', 'Industrial Automation & Machinery', 'SUB-ROB', 'Custom Robotic End-Effectors', 'Grippers and servo actuators', 1),
+            ('revsub-04', 'revcat-02', 'Industrial Automation & Machinery', 'SUB-JIG', 'Inspection Jigs & Tooling', 'Precision nestings and fixtures', 2),
+            ('revsub-05', 'revcat-04', 'Engineering & Design Consultancy', 'SUB-FEA', 'FEA Analysis & Structural PE', 'Finite element structural simulation', 1),
+            ('revsub-06', 'revcat-05', 'Site Installation & Commissioning', 'SUB-CAL', 'Turnkey Laser Calibration', 'On-site installation and alignment', 1)
+          ON CONFLICT (id) DO NOTHING;
+        `);
+      }
+
+      // Seed default overhead categories if empty
+      const ovhCatCountRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_categories');
+      if (Number(ovhCatCountRes.rows[0]?.cnt || 0) === 0) {
+        await db.exec(`
+          INSERT INTO overhead_categories (id, code, name, description, is_default, sort_order) VALUES
+            ('ovh-cat-01', 'CAT-IND', 'Indirect Materials & Factory Consumables', 'Coolants, lubricants, tooling inserts, and PPE safety gear', true, 1),
+            ('ovh-cat-02', 'CAT-UTIL', 'Utilities & Plant Facilities', 'Electricity, industrial gas, facility lease, and environmental HVAC', false, 2),
+            ('ovh-cat-03', 'CAT-ADM', 'Administrative & Quality Assurance', 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance', false, 3)
+          ON CONFLICT (name) DO NOTHING;
+        `);
+      }
+
+      // Seed standard overhead and revenue nodes in categories table
+      const overheadInCats = await db.query("SELECT COUNT(*) as cnt FROM categories WHERE group_name = 'overhead'");
+      if (Number(overheadInCats.rows[0]?.cnt || 0) === 0) {
+        await db.exec(`
+          INSERT INTO categories (id, name, type, group_name, parent_id, parent_name, brief, theme_id, meta_badge, action_text, created_at) VALUES
+            ('oh-cat-01', 'Indirect Materials & Factory Consumables', 'category', 'overhead', NULL, NULL, 'Coolants, lubricants, tooling inserts, and PPE safety gear', 'amber-forge', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
+            ('oh-sub-01-01', 'Cutting Fluids & Chemical Agents', 'sub_category', 'overhead', 'oh-cat-01', 'Indirect Materials & Factory Consumables', 'High-pressure CNC coolant and solvent cleaners', 'sunset-amber', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('oh-sub-01-02', 'PPE & Operational Safety', 'sub_category', 'overhead', 'oh-cat-01', 'Indirect Materials & Factory Consumables', 'Respirators, safety glasses, and cut-resistant gloves', 'amber-forge', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('oh-cat-02', 'Utilities & Plant Facilities', 'category', 'overhead', NULL, NULL, 'Electricity, industrial gas, facility lease, and environmental HVAC', 'pacific-sky', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
+            ('oh-sub-02-01', 'Industrial Three-Phase Power', 'sub_category', 'overhead', 'oh-cat-02', 'Utilities & Plant Facilities', 'Machine peak electrical draw and substation fees', 'pacific-sky', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('oh-sub-02-02', 'Facility Leasing & Depreciation', 'sub_category', 'overhead', 'oh-cat-02', 'Utilities & Plant Facilities', 'Square footage lease and plant maintenance', 'teal-deep', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('oh-cat-03', 'Administrative & Quality Assurance', 'category', 'overhead', NULL, NULL, 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance', 'airbus-cobalt', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
+            ('oh-sub-03-01', 'Quality Audits & Compliance Testing', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'CMM calibration, ultrasonic NDT tests, and standard audits', 'airbus-cobalt', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('oh-sub-03-02', 'ERP Software & Cloud Infrastructure', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'Compute licensing and enterprise database servers', 'indigo-night', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('rev-serv-cat-01', 'Engineering & Design Consultancy', 'category', 'service', NULL, NULL, 'Structural PE engineering calculations, FEA analysis, and CAD detailing', 'napa-purple', 'SERVICE ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
+            ('rev-serv-sub-01-01', 'FEA Stress Analysis & Simulation', 'sub_category', 'service', 'rev-serv-cat-01', 'Engineering & Design Consultancy', 'Non-linear finite element structural simulation', 'napa-purple', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
+            ('rev-serv-cat-02', 'Site Installation & Commissioning', 'category', 'service', NULL, NULL, 'Turnkey on-site mechanical erection, electrical wiring, and performance testing', 'crimson-horizon', 'SERVICE ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
+            ('rev-serv-sub-02-01', 'On-Site Machine Calibration & Commissioning', 'sub_category', 'service', 'rev-serv-cat-02', 'Site Installation & Commissioning', 'Laser alignment, hydraulic pressure testing, and pilot handover', 'crimson-horizon', 'SUB-CATEGORY', 'VIEW ITEMS', NOW())
+          ON CONFLICT (id) DO NOTHING;
+        `);
+      }
+
+      // Seed initial overhead items if empty or only 1 item
+      const ovhItemCountRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_items');
+      if (Number(ovhItemCountRes.rows[0]?.cnt || 0) <= 1) {
+        await db.exec(`
+          INSERT INTO overhead_items (
+            id, code, barcode, name, category, sub_category, description, cost_type,
+            default_calculation_method, default_rate, default_cost_base, unit_type,
+            effective_date, status, created_by, updated_by, theme_id
+          ) VALUES
+            ('ovh-seed-01', 'OVH-IND-001', 'BC-OVH-IND-001', 'High-Pressure CNC Coolants & Chemical Solvents', 'Indirect Materials & Factory Consumables', 'Cutting Fluids & Chemical Agents', 'Semi-synthetic aerospace cutting coolant and ultrasonic bath detergents', 'Variable', 'fixed_amount', 4500.00, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'amber-forge'),
+            ('ovh-seed-02', 'OVH-IND-002', 'BC-OVH-IND-002', 'Plant Safety Equipment & PPE Re-issuance', 'Indirect Materials & Factory Consumables', 'PPE & Operational Safety', 'Respirators, safety goggles, welding shields, and cut-resistant Kevlar gloves', 'Variable', 'fixed_amount', 2200.00, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'sunset-amber'),
+            ('ovh-seed-03', 'OVH-UTL-001', 'BC-OVH-UTL-001', 'Industrial Three-Phase Electricity & Machine Draw', 'Utilities & Plant Facilities', 'Industrial Three-Phase Power', 'Substation electrical utility consumption for high-speed machining centers', 'Semi-Variable', 'percentage_of_cost_base', 4.50, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'pacific-sky'),
+            ('ovh-seed-04', 'OVH-ADM-001', 'BC-OVH-ADM-001', 'ISO 9001 / AS9100 Annual Quality Audits & NDT', 'Administrative & Quality Assurance', 'Quality Audits & Compliance Testing', 'Accredited third-party quality systems audit, ISO surveillance, and CMM laser calibration', 'Fixed', 'fixed_amount', 12500.00, 'total_direct_cost', 'year', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'airbus-cobalt')
           ON CONFLICT (code) DO NOTHING;
         `);
       }
@@ -7713,6 +7790,11 @@ export class PostgresService {
       barcode: r.barcode || `BC-${r.code}`,
       name: r.name,
       category: r.category,
+      subCategory: r.sub_category || '',
+      categoryId: r.category_id || null,
+      subCategoryId: r.sub_category_id || null,
+      themeId: r.theme_id || null,
+      customGradient: r.custom_gradient || null,
       description: r.description || '',
       costType: r.cost_type || 'Fixed',
       defaultCalculationMethod: r.default_calculation_method || 'fixed_amount',
@@ -7808,6 +7890,11 @@ export class PostgresService {
       barcode: r.barcode || `BC-${r.code}`,
       name: r.name,
       category: r.category,
+      subCategory: r.sub_category || '',
+      categoryId: r.category_id || null,
+      subCategoryId: r.sub_category_id || null,
+      themeId: r.theme_id || null,
+      customGradient: r.custom_gradient || null,
       description: r.description || '',
       costType: r.cost_type || 'Fixed',
       defaultCalculationMethod: r.default_calculation_method || 'fixed_amount',
@@ -7905,12 +7992,16 @@ export class PostgresService {
 
     await db.query(
       `INSERT INTO overhead_items (
-        id, code, barcode, name, category, description, cost_type, default_calculation_method,
+        id, code, barcode, name, category, sub_category, category_id, sub_category_id,
+        theme_id, custom_gradient, description, cost_type, default_calculation_method,
         default_rate, default_cost_base, unit_type, effective_date, status, created_by, updated_by,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, $14, $15, NOW(), NOW())`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::date, $18, $19, $20, NOW(), NOW())`,
       [
-        id, code, barcode, name, category, String(data.description || ''),
+        id, code, barcode, name, category, String(data.subCategory || ''),
+        data.categoryId || null, data.subCategoryId || null,
+        data.themeId || null, data.customGradient || null,
+        String(data.description || ''),
         costType, defaultCalculationMethod, defaultRate, defaultCostBase,
         unitType, effectiveDate, status, actorName, actorName
       ]
@@ -7966,6 +8057,11 @@ export class PostgresService {
 
     const barcode = data.barcode !== undefined ? String(data.barcode).trim().toUpperCase() : existing.barcode;
     const category = data.category !== undefined ? String(data.category).trim() : existing.category;
+    const subCategory = data.subCategory !== undefined ? String(data.subCategory) : (existing.subCategory || '');
+    const categoryId = data.categoryId !== undefined ? data.categoryId : (existing.categoryId || null);
+    const subCategoryId = data.subCategoryId !== undefined ? data.subCategoryId : (existing.subCategoryId || null);
+    const themeId = data.themeId !== undefined ? data.themeId : (existing.themeId || null);
+    const customGradient = data.customGradient !== undefined ? data.customGradient : (existing.customGradient || null);
     const description = data.description !== undefined ? String(data.description) : existing.description;
     const costType = data.costType !== undefined ? data.costType : existing.costType;
     const defaultCalculationMethod = data.defaultCalculationMethod !== undefined ? data.defaultCalculationMethod : existing.defaultCalculationMethod;
@@ -7978,14 +8074,16 @@ export class PostgresService {
 
     await db.query(
       `UPDATE overhead_items SET
-        code = $1, barcode = $2, name = $3, category = $4, description = $5,
-        cost_type = $6, default_calculation_method = $7, default_rate = $8,
-        default_cost_base = $9, unit_type = $10, effective_date = $11::date,
-        status = $12, updated_by = $13, updated_at = NOW()
-       WHERE id = $14`,
+        code = $1, barcode = $2, name = $3, category = $4, sub_category = $5,
+        category_id = $6, sub_category_id = $7, theme_id = $8, custom_gradient = $9,
+        description = $10, cost_type = $11, default_calculation_method = $12, default_rate = $13,
+        default_cost_base = $14, unit_type = $15, effective_date = $16::date,
+        status = $17, updated_by = $18, updated_at = NOW()
+       WHERE id = $19`,
       [
-        code, barcode, name, category, description,
-        costType, defaultCalculationMethod, defaultRate,
+        code, barcode, name, category, subCategory,
+        categoryId, subCategoryId, themeId, customGradient,
+        description, costType, defaultCalculationMethod, defaultRate,
         defaultCostBase, unitType, effectiveDate,
         status, actorName, id
       ]
@@ -8947,6 +9045,10 @@ export class PostgresService {
       type: r.type,
       category: r.category,
       subCategory: r.sub_category || '',
+      categoryId: r.category_id || null,
+      subCategoryId: r.sub_category_id || null,
+      themeId: r.theme_id || null,
+      customGradient: r.custom_gradient || null,
       description: r.description || '',
       unit: r.unit || 'unit',
       defaultRate: round4(Number(r.default_rate || 0)),
@@ -9022,6 +9124,10 @@ export class PostgresService {
       type: r.type,
       category: r.category,
       subCategory: r.sub_category || '',
+      categoryId: r.category_id || null,
+      subCategoryId: r.sub_category_id || null,
+      themeId: r.theme_id || null,
+      customGradient: r.custom_gradient || null,
       description: r.description || '',
       unit: r.unit || 'unit',
       defaultRate: round4(Number(r.default_rate || 0)),
@@ -9125,11 +9231,14 @@ export class PostgresService {
 
     await db.query(
       `INSERT INTO revenue_items (
-        id, code, barcode, name, type, category, sub_category, description, unit,
+        id, code, barcode, name, type, category, sub_category, category_id, sub_category_id,
+        theme_id, custom_gradient, description, unit,
         default_rate, cost_price, currency, tax_treatment, tax_rate_pct, status, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW())`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW())`,
       [
         id, code, barcode, name, type, category, String(data.subCategory || ''),
+        data.categoryId || null, data.subCategoryId || null,
+        data.themeId || null, data.customGradient || null,
         String(data.description || ''), unit, defaultRate, costPrice, currency,
         data.taxTreatment || 'Standard (0%)', round2(Number(data.taxRatePct ?? 0)), status
       ]
@@ -9174,7 +9283,11 @@ export class PostgresService {
 
     const type = data.type !== undefined ? (data.type === 'service' ? 'service' : 'product') : existing.type;
     const category = data.category !== undefined ? String(data.category).trim() : existing.category;
-    const subCategory = data.subCategory !== undefined ? String(data.subCategory) : existing.subCategory;
+    const subCategory = data.subCategory !== undefined ? String(data.subCategory) : (existing.subCategory || '');
+    const categoryId = data.categoryId !== undefined ? data.categoryId : (existing.categoryId || null);
+    const subCategoryId = data.subCategoryId !== undefined ? data.subCategoryId : (existing.subCategoryId || null);
+    const themeId = data.themeId !== undefined ? data.themeId : (existing.themeId || null);
+    const customGradient = data.customGradient !== undefined ? data.customGradient : (existing.customGradient || null);
     const description = data.description !== undefined ? String(data.description) : existing.description;
     const unit = data.unit !== undefined ? String(data.unit).trim() : existing.unit;
     const defaultRate = data.defaultRate !== undefined ? round4(Number(data.defaultRate)) : existing.defaultRate;
@@ -9189,11 +9302,13 @@ export class PostgresService {
     await db.query(
       `UPDATE revenue_items SET
         code = $1, barcode = $2, name = $3, type = $4, category = $5, sub_category = $6,
-        description = $7, unit = $8, default_rate = $9, cost_price = $10, currency = $11,
-        tax_treatment = $12, tax_rate_pct = $13, status = $14, updated_at = NOW()
-       WHERE id = $15`,
+        category_id = $7, sub_category_id = $8, theme_id = $9, custom_gradient = $10,
+        description = $11, unit = $12, default_rate = $13, cost_price = $14, currency = $15,
+        tax_treatment = $16, tax_rate_pct = $17, status = $18, updated_at = NOW()
+       WHERE id = $19`,
       [
         code, barcode, name, type, category, subCategory,
+        categoryId, subCategoryId, themeId, customGradient,
         description, unit, defaultRate, costPrice, currency,
         taxTreatment, taxRatePct, status, id
       ]

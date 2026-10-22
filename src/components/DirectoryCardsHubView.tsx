@@ -547,6 +547,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       return updated;
     });
 
+    // 1. Projects
     const proj = projects.find((p) => p.id === cardId);
     if (proj && onUpdateProject) {
       onUpdateProject(cardId, {
@@ -555,16 +556,62 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         customGradient: customGrad
       });
     }
+
+    // 2. Categories & Sub-Categories (persists theme to PostgreSQL database)
+    const cat = categories.find((c) => c.id === cardId);
+    if (cat) {
+      const updatedCat: CategoryNode = { ...cat, themeId: newThemeId, customGradient: customGrad };
+      const newCategories = categories.map((c) => (c.id === cardId ? updatedCat : c));
+      setCategories(newCategories);
+      onUpdateCategories?.(newCategories);
+      persistentDatabase.saveCategories(newCategories);
+      api.updateCategory(cardId, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+    }
+
+    // 3. Produce / Manufactured Deliverables
+    const prod = produceItems.find((p) => p.id === cardId);
+    if (prod) {
+      if (onUpdateProduceItem) onUpdateProduceItem(cardId, { ...prod, themeId: newThemeId, customGradient: customGrad });
+      api.updateProduce(cardId, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+    }
+
+    // 4. Revenue Items
+    const rev = revenueItems.find((r) => r.id === cardId);
+    if (rev) {
+      api.updateRevenueItem(cardId, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+    }
+
+    // 5. Overhead Items
+    const ovh = overheadItems.find((o) => o.id === cardId);
+    if (ovh) {
+      api.updateOverheadItem(cardId, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+    }
   };
 
-  const getTileStyle = (cardId: string, defaultThemeId: string) => {
+  const getTileStyle = (cardId: string, defaultThemeId: string = 'pacific-sky') => {
     const override = themeOverrides[cardId];
-    if (override) {
+    if (override && override.themeId) {
       return { themeId: override.themeId, customGradient: override.customGradient };
+    }
+    const cat = categories.find((c) => c.id === cardId);
+    if (cat && (cat.themeId || cat.customGradient)) {
+      return { themeId: cat.themeId || defaultThemeId, customGradient: cat.customGradient };
     }
     const proj = projects.find((p) => p.id === cardId);
     if (proj && (proj.themeId || proj.customGradient)) {
       return { themeId: proj.themeId || defaultThemeId, customGradient: proj.customGradient };
+    }
+    const prod = produceItems.find((p) => p.id === cardId);
+    if (prod && (prod.themeId || prod.customGradient)) {
+      return { themeId: prod.themeId || defaultThemeId, customGradient: prod.customGradient };
+    }
+    const rev = revenueItems.find((r) => r.id === cardId);
+    if (rev && (rev.themeId || rev.customGradient)) {
+      return { themeId: rev.themeId || defaultThemeId, customGradient: rev.customGradient };
+    }
+    const ovh = overheadItems.find((o) => o.id === cardId);
+    if (ovh && (ovh.themeId || ovh.customGradient)) {
+      return { themeId: ovh.themeId || defaultThemeId, customGradient: ovh.customGradient };
     }
     return { themeId: defaultThemeId };
   };
@@ -5025,14 +5072,27 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                           .filter((c) => (c.group === 'product' || c.group === 'revenue') && c.type === 'category')
                           .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
                           .map((cat) => {
-                            const style = getTileStyle(cat.id, cat.themeId);
+                            const style = getTileStyle(cat.id, cat.themeId || 'pacific-sky');
+                            const subCats = categories.filter((s) => s.parentId === cat.id || s.parentName === cat.name);
+                            const matchingCount =
+                              produceItems.filter(
+                                (p) =>
+                                  (!p.type || p.type === 'product') &&
+                                  (p.category?.toLowerCase() === cat.name.toLowerCase() || p.categoryId === cat.id)
+                              ).length +
+                              revenueItems.filter(
+                                (r) =>
+                                  (!r.type || r.type === 'product') &&
+                                  (r.category?.toLowerCase() === cat.name.toLowerCase() || r.categoryId === cat.id)
+                              ).length;
+
                             return (
                               <ModernTileCard
                                 key={cat.id}
                                 id={cat.id}
                                 tag="SUPPLIED PRODUCT CATEGORY"
                                 title={cat.name}
-                                brief={cat.brief}
+                                brief={cat.brief || `${matchingCount} assemblies & components`}
                                 actionLabel="VIEW ASSEMBLIES"
                                 actionVariant="button"
                                 themeId={style.themeId}
@@ -5058,6 +5118,44 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                                   });
                                 }}
                                 listViewLabel="FXTT Grid"
+                                extraMeta={
+                                  <div className="space-y-1.5 pt-1">
+                                    <div className="flex items-center justify-between text-[11px] text-white/95">
+                                      <span className="bg-black/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                                        {matchingCount} Products • {subCats.length} Sub-Categories
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setCreateSubCategoryGroup('product');
+                                          setCreateSubCategoryParentId(cat.id);
+                                          setIsCreateSubCategoryModalOpen(true);
+                                        }}
+                                        className="text-[10px] text-white hover:underline font-semibold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                                      >
+                                        + Sub
+                                      </button>
+                                    </div>
+                                    {subCats.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 pt-0.5">
+                                        {subCats.slice(0, 3).map((sub) => (
+                                          <span
+                                            key={sub.id}
+                                            className="text-[9px] px-1.5 py-0.5 bg-black/35 text-white/95 rounded backdrop-blur-xs font-medium"
+                                          >
+                                            {sub.name}
+                                          </span>
+                                        ))}
+                                        {subCats.length > 3 && (
+                                          <span className="text-[9px] px-1.5 py-0.5 bg-black/45 text-white/85 rounded font-medium">
+                                            +{subCats.length - 3} more
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                }
                               />
                             );
                           })}
@@ -5608,99 +5706,91 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {categories
                   .filter((c) => (c.group === 'product' || c.group === 'revenue' || c.group === 'service') && c.type === 'category')
+                  .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
                   .map((cat) => {
+                    const defaultTheme = cat.group === 'service' ? 'napa-purple' : 'airbus-cobalt';
+                    const style = getTileStyle(cat.id, cat.themeId || defaultTheme);
                     const subCats = categories.filter((s) => s.parentId === cat.id || s.parentName === cat.name);
                     const matchingRecords = combinedAllRevenueRecords.filter(
                       (r) => r.category.toLowerCase() === cat.name.toLowerCase()
                     );
                     return (
-                      <div
+                      <ModernTileCard
                         key={cat.id}
-                        className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                            {cat.group.toUpperCase()}
-                          </span>
-                          <span className="text-xs font-mono font-semibold text-slate-500">
-                            {matchingRecords.length} records
-                          </span>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white">{cat.name}</h4>
-                          <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{cat.brief || 'Revenue catalog category'}</p>
-                        </div>
-
-                        {/* Subcategories pill list */}
-                        <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                          <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 flex items-center justify-between">
-                            <span>Sub-Categories ({subCats.length}):</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCreateSubCategoryGroup(cat.group === 'service' ? 'service' : 'product');
-                                setCreateSubCategoryParentId(cat.id);
-                                setIsCreateSubCategoryModalOpen(true);
-                              }}
-                              className="text-[10px] text-blue-600 hover:underline font-semibold"
-                            >
-                              + Add Sub
-                            </button>
-                          </div>
-                          {subCats.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {subCats.map((sub) => (
-                                <span
-                                  key={sub.id}
-                                  className="text-[11px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700"
-                                >
-                                  {sub.name}
-                                </span>
-                              ))}
+                        id={cat.id}
+                        tag={cat.group === 'service' ? 'CUSTOMER SERVICE REVENUE' : 'PRODUCT REVENUE CATEGORY'}
+                        title={cat.name}
+                        brief={cat.brief || `${matchingRecords.length} commercial deliverables`}
+                        actionLabel="VIEW DELIVERABLES"
+                        actionVariant="button"
+                        themeId={style.themeId}
+                        customGradient={style.customGradient}
+                        onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
+                        onEdit={() =>
+                          handleOpenEdit('category', cat.id, {
+                            title: cat.name,
+                            name: cat.name,
+                            brief: cat.brief
+                          })
+                        }
+                        onDelete={() => handleOpenDelete('Revenue Category', cat.id, cat.name, 'revenue-streams')}
+                        onDuplicate={() => handleDuplicate('category', cat.id)}
+                        onAction={() => {
+                          setSelectedProductCatId(cat.id);
+                          setRevenueSubTab('products');
+                        }}
+                        onViewListView={() => {
+                          setActiveFXTTCard({
+                            cardType: cat.group === 'service' ? 'service_category' : 'product_category',
+                            cardId: cat.id,
+                            cardTitle: cat.name,
+                            cardSubtitle: cat.brief,
+                            cardTag: cat.group === 'service' ? 'CUSTOMER SERVICE REVENUE' : 'PRODUCT REVENUE CATEGORY'
+                          });
+                        }}
+                        listViewLabel="FXTT Grid"
+                        extraMeta={
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between text-[11px] text-white/95">
+                              <span className="bg-black/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                                {matchingRecords.length} Items • {subCats.length} Sub-Categories
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCreateSubCategoryGroup(cat.group === 'service' ? 'service' : 'product');
+                                  setCreateSubCategoryParentId(cat.id);
+                                  setIsCreateSubCategoryModalOpen(true);
+                                }}
+                                className="text-[10px] text-white hover:underline font-semibold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                              >
+                                + Sub
+                              </button>
                             </div>
-                          ) : (
-                            <p className="text-[11px] text-slate-400 italic">No sub-categories defined yet.</p>
-                          )}
-                        </div>
-
-                        <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedProductCatId(cat.id);
-                              setRevenueSubTab('products');
-                            }}
-                            className="text-xs font-semibold text-[#003049] dark:text-sky-400 hover:underline"
-                          >
-                            Browse Items →
-                          </button>
-                          <div className="flex items-center space-x-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenEdit('category', cat.id, {
-                                  name: cat.name,
-                                  title: cat.name,
-                                  brief: cat.brief
-                                })
-                              }
-                              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-500"
-                            >
-                              <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDelete('Category', cat.id, cat.name, 'revenue-streams')}
-                              className="p-1 hover:bg-rose-50 text-rose-500 rounded"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {subCats.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-0.5">
+                                {subCats.slice(0, 3).map((sub) => (
+                                  <span
+                                    key={sub.id}
+                                    className="text-[9px] px-1.5 py-0.5 bg-black/35 text-white/95 rounded backdrop-blur-xs font-medium"
+                                  >
+                                    {sub.name}
+                                  </span>
+                                ))}
+                                {subCats.length > 3 && (
+                                  <span className="text-[9px] px-1.5 py-0.5 bg-black/45 text-white/85 rounded font-medium">
+                                    +{subCats.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      </div>
+                        }
+                      />
                     );
                   })}
               </div>

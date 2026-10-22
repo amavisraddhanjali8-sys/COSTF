@@ -547,6 +547,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     setCode(autoCode);
     if (selectedType === 'material') {
       setBarcode(autoCode);
+    }
     setName('');
     // Resolve category and subcategory from props if provided, for ANY entity type
     if (initialCategoryId) {

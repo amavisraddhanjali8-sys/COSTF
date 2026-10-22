@@ -14,12 +14,22 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
-  Tag
+  Tag,
+  LayoutGrid,
+  ListFilter,
+  ArrowLeft,
+  FolderPlus,
+  Sliders,
+  CheckCircle2,
+  Sparkles,
+  X
 } from 'lucide-react';
-import { OverheadItem, OverheadCategory, OverheadAuditLog, Project } from '../../types';
+import { OverheadItem, OverheadCategory, OverheadAuditLog, Project, CategoryNode } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 import { CreateEditOverheadItemModal } from './CreateEditOverheadItemModal';
+import { ModernTileCard } from '../ModernTileCard';
+import { bizStore } from '../../services/bizStore';
 
 interface OverheadCostPortalProps {
   currentUser?: any;
@@ -37,13 +47,42 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   onAddOverheadItem
 }) => {
   const [items, setItems] = useState<OverheadItem[]>([]);
-  const [categories, setCategories] = useState<OverheadCategory[]>([]);
+  const [overheadCategories, setOverheadCategories] = useState<OverheadCategory[]>([]);
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [auditLogs, setAuditLogs] = useState<OverheadAuditLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'catalogue' | 'audit'>('catalogue');
+
+  // Top level views: Cards View (default), Catalogue Table, Audit Log
+  const [activeSubTab, setActiveSubTab] = useState<'cards' | 'catalogue' | 'audit'>('cards');
+
+  // Hierarchy drilldown state
+  const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
+  const [selectedSubCatId, setSelectedSubCatId] = useState<string | null>(null);
+
+  // Theme overrides
+  const [themeOverrides, setThemeOverrides] = useState<Record<string, { themeId: string; customGradient?: string }>>(() => {
+    try {
+      const saved = bizStore.getItem('overhead_tile_theme_overrides');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  // Modals state
   const [isCreateEditOpen, setIsCreateEditOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<OverheadItem | null>(null);
+  const [presetCategoryName, setPresetCategoryName] = useState<string | undefined>(undefined);
+  const [presetSubCategoryName, setPresetSubCategoryName] = useState<string | undefined>(undefined);
 
+  // Category and Subcategory Modals
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState(false);
+  const [isCreateSubCatModalOpen, setIsCreateSubCatModalOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatCode, setNewCatCode] = useState('');
+  const [newCatBrief, setNewCatBrief] = useState('');
+
+  // Filtering
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -53,13 +92,15 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [itemsRes, catsRes, logsRes] = await Promise.all([
-        api.getOverheadItems({ limit: 100 }),
+      const [itemsRes, catsRes, allCategoriesRes, logsRes] = await Promise.all([
+        api.getOverheadItems({ limit: 200 }),
         api.getOverheadCategories(),
+        api.getCategories(),
         api.getOverheadAuditLogs({ limit: 50 })
       ]);
       setItems(Array.isArray(itemsRes) ? itemsRes : (itemsRes as any)?.data || []);
-      setCategories(catsRes || []);
+      setOverheadCategories(catsRes || []);
+      setCategories(Array.isArray(allCategoriesRes) ? allCategoriesRes : (allCategoriesRes as any)?.data || []);
       setAuditLogs(Array.isArray(logsRes) ? logsRes : (logsRes as any)?.data || []);
     } catch (e: any) {
       console.error('Failed to load overhead portal data:', e);
@@ -72,6 +113,136 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
     loadData();
   }, []);
 
+  const handleUpdateTileTheme = (id: string, newThemeId: string, customGrad?: string) => {
+    setThemeOverrides((prev) => {
+      const updated = { ...prev, [id]: { themeId: newThemeId, customGradient: customGrad } };
+      try {
+        bizStore.setItem('overhead_tile_theme_overrides', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    // Check if category or item
+    const isCat = categories.some((c) => c.id === id);
+    if (isCat) {
+      api.updateCategory(id, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+      setCategories((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, themeId: newThemeId, customGradient: customGrad } : c))
+      );
+    } else {
+      api.updateOverheadItem(id, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
+      setItems((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, themeId: newThemeId, customGradient: customGrad } : i))
+      );
+    }
+  };
+
+  const getTileStyle = (id: string, defaultThemeId: string = 'amber-forge') => {
+    const override = themeOverrides[id];
+    if (override && override.themeId) return override;
+    const cat = categories.find((c) => c.id === id);
+    if (cat && (cat.themeId || cat.customGradient)) {
+      return { themeId: cat.themeId || defaultThemeId, customGradient: cat.customGradient };
+    }
+    const item = items.find((i) => i.id === id);
+    if (item && (item.themeId || item.customGradient)) {
+      return { themeId: item.themeId || defaultThemeId, customGradient: item.customGradient };
+    }
+    return { themeId: defaultThemeId };
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatName.trim()) return;
+
+    try {
+      const payload = {
+        name: newCatName.trim(),
+        code: newCatCode.trim() || `OVH-${Date.now().toString().slice(-4)}`,
+        brief: newCatBrief.trim() || 'Overhead operations cost center',
+        group: 'overhead',
+        type: 'category',
+        themeId: 'amber-forge'
+      };
+
+      await api.createCategory(payload);
+      await api.createOverheadCategory({
+        name: payload.name,
+        code: payload.code,
+        description: payload.brief
+      });
+
+      setNewCatName('');
+      setNewCatCode('');
+      setNewCatBrief('');
+      setIsCreateCategoryModalOpen(false);
+      await loadData();
+      if (showToast) showToast(`Overhead category "${payload.name}" created successfully.`);
+    } catch (err: any) {
+      console.error('Failed to create overhead category:', err);
+      if (showToast) showToast({ message: 'Failed to create category: ' + err.message, type: 'error' });
+    }
+  };
+
+  const handleCreateSubCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatName.trim() || !selectedCatId) return;
+
+    const parent = categories.find((c) => c.id === selectedCatId);
+    try {
+      const payload = {
+        name: newCatName.trim(),
+        code: newCatCode.trim() || `SUB-${Date.now().toString().slice(-4)}`,
+        brief: newCatBrief.trim() || `Sub-category under ${parent?.name || 'Overheads'}`,
+        group: 'overhead',
+        type: 'sub_category',
+        parentId: selectedCatId,
+        parentName: parent?.name,
+        themeId: 'sunset-amber'
+      };
+
+      await api.createCategory(payload);
+
+      setNewCatName('');
+      setNewCatCode('');
+      setNewCatBrief('');
+      setIsCreateSubCatModalOpen(false);
+      await loadData();
+      if (showToast) showToast(`Sub-category "${payload.name}" created under ${parent?.name}.`);
+    } catch (err: any) {
+      console.error('Failed to create sub-category:', err);
+      if (showToast) showToast({ message: 'Failed to create sub-category: ' + err.message, type: 'error' });
+    }
+  };
+
+  const handleDeleteCategory = async (catId: string, catName: string) => {
+    if (!window.confirm(`Delete overhead category "${catName}" and unlink its items?`)) return;
+    try {
+      await api.deleteCategory(catId);
+      await loadData();
+      if (selectedCatId === catId) setSelectedCatId(null);
+      if (selectedSubCatId === catId) setSelectedSubCatId(null);
+      if (showToast) showToast(`Category "${catName}" removed.`);
+    } catch (err: any) {
+      console.error('Failed to delete category:', err);
+      if (showToast) showToast({ message: 'Failed to delete category: ' + err.message, type: 'error' });
+    }
+  };
+
+  // Overhead categories list from DB
+  const overheadCatNodes = categories.filter((c) => c.group === 'overhead' && c.type === 'category');
+  const selectedCatNode = categories.find((c) => c.id === selectedCatId);
+  const selectedSubCatNode = categories.find((c) => c.id === selectedSubCatId);
+
+  // Subcategories for current selected category
+  const overheadSubCatNodes = categories.filter(
+    (c) =>
+      c.group === 'overhead' &&
+      c.type === 'sub_category' &&
+      (c.parentId === selectedCatId || (selectedCatNode && c.parentName === selectedCatNode.name))
+  );
+
+  // Filtered catalogue items
   const filteredItems = items.filter((item) => {
     if (categoryFilter !== 'ALL' && item.category !== categoryFilter) return false;
     if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
@@ -88,23 +259,33 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Banner */}
+      {/* 1. Top Banner */}
       <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center space-x-3.5">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-600 to-amber-500 text-white flex items-center justify-center shadow-md">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">Overheads</h1>
+              <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
+                <span>Overhead Cost Management</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-mono font-semibold">
+                  {overheadCatNodes.length} Categories • {items.length} Items
+                </span>
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Indirect expenses, administrative facilities, SG&A burdens, and real-time margin absorption
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap">
             <button
               type="button"
               onClick={() => {
                 setItemToEdit(null);
+                setPresetCategoryName(selectedCatNode?.name);
+                setPresetSubCategoryName(selectedSubCatNode?.name);
                 setIsCreateEditOpen(true);
               }}
               className="px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
@@ -113,34 +294,435 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               <span>New Overhead Item</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setNewCatName('');
+                setNewCatCode('');
+                setNewCatBrief('');
+                setIsCreateCategoryModalOpen(true);
+              }}
+              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-amber-700" />
+              <span>+ Category</span>
+            </button>
+
+            {/* View switcher: Cards View | Catalogue Table | Audit */}
             <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
               <button
                 type="button"
+                onClick={() => setActiveSubTab('cards')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  activeSubTab === 'cards'
+                    ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-amber-500" />
+                <span>Cards View ({overheadCatNodes.length})</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveSubTab('catalogue')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   activeSubTab === 'catalogue'
                     ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Catalogue ({items.length})
+                <ListFilter className="w-3.5 h-3.5 text-blue-500" />
+                <span>Catalogue Table ({items.length})</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveSubTab('audit')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   activeSubTab === 'audit'
                     ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-400'
                 }`}
               >
-                Audit ({auditLogs.length})
+                <History className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Audit ({auditLogs.length})</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* 2. TAB: CARDS VIEW (Hierarchical ModernTileCards with Gradient Themes) */}
+      {activeSubTab === 'cards' && (
+        <div className="space-y-4">
+          {/* Breadcrumb Navigation Header */}
+          <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
+            <div className="flex items-center space-x-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCatId(null);
+                  setSelectedSubCatId(null);
+                }}
+                className={`hover:text-[#003049] dark:hover:text-amber-400 transition-colors cursor-pointer ${
+                  !selectedCatId ? 'font-bold text-[#003049] dark:text-white' : ''
+                }`}
+              >
+                All Overhead Categories (Level 1)
+              </button>
+
+              {selectedCatId && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSubCatId(null)}
+                    className={`hover:text-[#003049] dark:hover:text-amber-400 transition-colors cursor-pointer ${
+                      !selectedSubCatId ? 'font-bold text-[#003049] dark:text-white' : ''
+                    }`}
+                  >
+                    {selectedCatNode?.name || 'Selected Category'} (Sub-Categories)
+                  </button>
+                </>
+              )}
+
+              {selectedSubCatId && (
+                <>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="font-bold text-[#003049] dark:text-amber-400">
+                    {selectedSubCatNode?.name || 'Overhead Items'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2">
+              {selectedCatId && !selectedSubCatId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCatName('');
+                    setNewCatCode('');
+                    setNewCatBrief('');
+                    setIsCreateSubCatModalOpen(true);
+                  }}
+                  className="px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Sub-Category</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setItemToEdit(null);
+                  setPresetCategoryName(selectedCatNode?.name);
+                  setPresetSubCategoryName(selectedSubCatNode?.name);
+                  setIsCreateEditOpen(true);
+                }}
+                className="px-2.5 py-1 text-xs bg-[#003049] hover:bg-[#002235] text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                <span>Add Item</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Level 1: Categories Cards */}
+          {!selectedCatId && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Select any overhead cost category to inspect sub-accounts and individual tariff items:
+                </p>
+                <span className="text-xs font-mono text-slate-400">
+                  {overheadCatNodes.length} categories active
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {overheadCatNodes.map((cat) => {
+                  const style = getTileStyle(cat.id, cat.themeId || 'amber-forge');
+                  const subCats = categories.filter((s) => s.parentId === cat.id || s.parentName === cat.name);
+                  const matchingItems = items.filter(
+                    (item) => item.category?.toLowerCase().trim() === cat.name.toLowerCase().trim()
+                  );
+
+                  return (
+                    <ModernTileCard
+                      key={cat.id}
+                      id={cat.id}
+                      tag="OVERHEAD CATEGORY"
+                      title={cat.name}
+                      brief={cat.brief || `${matchingItems.length} allocated cost lines`}
+                      actionLabel="EXPLORE SUB-CATEGORIES"
+                      actionVariant="button"
+                      themeId={style.themeId}
+                      customGradient={style.customGradient}
+                      onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
+                      onAction={() => setSelectedCatId(cat.id)}
+                      onEdit={() => {
+                        setNewCatName(cat.name);
+                        setNewCatCode(cat.code || '');
+                        setNewCatBrief(cat.brief || '');
+                        setIsCreateCategoryModalOpen(true);
+                      }}
+                      onDelete={() => handleDeleteCategory(cat.id, cat.name)}
+                      extraMeta={
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between text-[11px] text-white/95">
+                            <span className="bg-black/30 px-2 py-0.5 rounded text-[10px] font-mono">
+                              {matchingItems.length} Items • {subCats.length} Sub-Categories
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCatId(cat.id);
+                                setIsCreateSubCatModalOpen(true);
+                              }}
+                              className="text-[10px] text-white hover:underline font-semibold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                            >
+                              + Sub
+                            </button>
+                          </div>
+                          {subCats.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {subCats.slice(0, 3).map((sub) => (
+                                <span
+                                  key={sub.id}
+                                  className="text-[9px] px-1.5 py-0.5 bg-black/35 text-white/95 rounded backdrop-blur-xs font-medium"
+                                >
+                                  {sub.name}
+                                </span>
+                              ))}
+                              {subCats.length > 3 && (
+                                <span className="text-[9px] px-1.5 py-0.5 bg-black/45 text-white/85 rounded font-medium">
+                                  +{subCats.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      }
+                    />
+                  );
+                })}
+              </div>
+
+              {overheadCatNodes.length === 0 && (
+                <div className="text-center py-12 bg-white dark:bg-[#0b101b] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Overhead Categories</h3>
+                  <p className="text-xs text-slate-400 mt-1">Create an overhead category to organize indirect costs.</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateCategoryModalOpen(true)}
+                    className="mt-3 px-3 py-1.5 bg-[#003049] text-white rounded-lg text-xs font-semibold"
+                  >
+                    + Create First Category
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Level 2: Sub-Categories Cards */}
+          {selectedCatId && !selectedSubCatId && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCatId(null)}
+                    className="text-xs text-[#003049] dark:text-sky-400 hover:underline flex items-center space-x-1 cursor-pointer font-semibold"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to All Categories</span>
+                  </button>
+                  <span className="text-xs text-slate-400">•</span>
+                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    Sub-categories for {selectedCatNode?.name}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateSubCatModalOpen(true)}
+                  className="px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Create Sub-Category</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {overheadSubCatNodes.map((subCat) => {
+                  const style = getTileStyle(subCat.id, subCat.themeId || 'sunset-amber');
+                  const matchingItems = items.filter(
+                    (o) =>
+                      (o.subCategory && o.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
+                      o.subCategoryId === subCat.id
+                  );
+
+                  return (
+                    <ModernTileCard
+                      key={subCat.id}
+                      id={subCat.id}
+                      tag="OVERHEAD SUB-CATEGORY"
+                      title={subCat.name}
+                      brief={subCat.brief || `${matchingItems.length} cost items`}
+                      actionLabel="VIEW ITEMS"
+                      actionVariant="button"
+                      themeId={style.themeId}
+                      customGradient={style.customGradient}
+                      onChangeTheme={(tId, grad) => handleUpdateTileTheme(subCat.id, tId, grad)}
+                      onAction={() => setSelectedSubCatId(subCat.id)}
+                      onDelete={() => handleDeleteCategory(subCat.id, subCat.name)}
+                      extraMeta={
+                        <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
+                          <span className="bg-black/25 px-2 py-0.5 rounded text-[10px] font-mono">
+                            {matchingItems.length} Overhead Items
+                          </span>
+                          <span className="text-[10px] text-white/80">Click to view items</span>
+                        </div>
+                      }
+                    />
+                  );
+                })}
+              </div>
+
+              {overheadSubCatNodes.length === 0 && (
+                <div className="text-center py-12 bg-white dark:bg-[#0b101b] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">No sub-categories yet under this category.</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateSubCatModalOpen(true)}
+                    className="mt-2 px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg"
+                  >
+                    + Add Sub-Category
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Level 3: Overhead Items for Selected Sub-Category */}
+          {selectedSubCatId && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSubCatId(null)}
+                    className="text-xs text-[#003049] dark:text-sky-400 hover:underline flex items-center space-x-1 cursor-pointer font-semibold"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Sub-Categories</span>
+                  </button>
+                  <span className="text-xs text-slate-400">•</span>
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    {selectedSubCatNode?.name} Items
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemToEdit(null);
+                    setPresetCategoryName(selectedCatNode?.name);
+                    setPresetSubCategoryName(selectedSubCatNode?.name);
+                    setIsCreateEditOpen(true);
+                  }}
+                  className="px-2.5 py-1 text-xs bg-[#003049] text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3 text-[#fdf0d5]" />
+                  <span>+ Add Item to this Sub-Category</span>
+                </button>
+              </div>
+
+              {/* Overhead Items Grid Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {items
+                  .filter((o) => {
+                    const subName = selectedSubCatNode?.name.toLowerCase().trim();
+                    const subId = selectedSubCatNode?.id;
+                    const oSub = (o.subCategory || '').toLowerCase().trim();
+                    return (subId && o.subCategoryId === subId) || (subName && oSub === subName);
+                  })
+                  .map((item) => {
+                    const style = getTileStyle(item.id, item.themeId || 'copper-canyon');
+                    return (
+                      <ModernTileCard
+                        key={item.id}
+                        id={item.id}
+                        tag={item.costType?.replace(/_/g, ' ').toUpperCase() || 'OVERHEAD ITEM'}
+                        title={item.name}
+                        brief={`Code: ${item.code} • Method: ${item.defaultCalculationMethod?.replace(/_/g, ' ')}`}
+                        actionLabel="EDIT DETAILS"
+                        actionVariant="button"
+                        themeId={style.themeId}
+                        customGradient={style.customGradient}
+                        onChangeTheme={(tId, grad) => handleUpdateTileTheme(item.id, tId, grad)}
+                        onAction={() => {
+                          setItemToEdit(item);
+                          setIsCreateEditOpen(true);
+                        }}
+                        onEdit={() => {
+                          setItemToEdit(item);
+                          setIsCreateEditOpen(true);
+                        }}
+                        onDelete={async () => {
+                          if (window.confirm(`Delete overhead item "${item.name}"?`)) {
+                            await api.deleteOverheadItem(item.id);
+                            loadData();
+                            if (showToast) showToast(`Overhead item "${item.name}" removed.`);
+                          }
+                        }}
+                        extraMeta={
+                          <div className="flex items-center justify-between text-[11px] text-white/95 pt-1">
+                            <span className="font-mono font-bold bg-black/30 px-2 py-0.5 rounded text-[11px]">
+                              {item.defaultCalculationMethod === 'percentage_of_direct'
+                                ? `${item.defaultRate}% of direct`
+                                : formatCurrency(item.defaultRate, activeCurrency)}
+                            </span>
+                            <span className="bg-emerald-500/80 text-white px-1.5 py-0.2 rounded text-[10px] font-bold">
+                              {item.status || 'Active'}
+                            </span>
+                          </div>
+                        }
+                      />
+                    );
+                  })}
+              </div>
+
+              {items.filter((o) => {
+                const subName = selectedSubCatNode?.name.toLowerCase().trim();
+                const subId = selectedSubCatNode?.id;
+                const oSub = (o.subCategory || '').toLowerCase().trim();
+                return (subId && o.subCategoryId === subId) || (subName && oSub === subName);
+              }).length === 0 && (
+                <div className="p-8 text-center bg-white dark:bg-[#0b101b] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <p className="text-xs text-slate-500">No overhead items registered under this sub-category yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItemToEdit(null);
+                      setPresetCategoryName(selectedCatNode?.name);
+                      setPresetSubCategoryName(selectedSubCatNode?.name);
+                      setIsCreateEditOpen(true);
+                    }}
+                    className="mt-2 px-3 py-1.5 bg-[#003049] text-white rounded-lg text-xs font-semibold"
+                  >
+                    + Add Item Now
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. TAB: CATALOGUE TABLE */}
       {activeSubTab === 'catalogue' && (
         <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -162,11 +744,21 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 focus:outline-none"
               >
                 <option value="ALL">All Categories</option>
-                {categories.map((c) => (
+                {overheadCatNodes.map((c) => (
                   <option key={c.id} value={c.name}>
                     {c.name}
                   </option>
                 ))}
+              </select>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2.5 py-1.5 focus:outline-none"
+              >
+                <option value="ALL">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
               </select>
 
               <button
@@ -189,6 +781,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 <tr>
                   <th className="py-2.5 px-3 font-semibold">Code</th>
                   <th className="py-2.5 px-3 font-semibold">Name & Category</th>
+                  <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
                   <th className="py-2.5 px-3 font-semibold">Cost Type</th>
                   <th className="py-2.5 px-3 font-semibold">Calculation Method</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Default Rate</th>
@@ -205,8 +798,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       <div className="font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
                       <div className="text-[10px] text-slate-400">{item.category}</div>
                     </td>
-                    <td className="py-2.5 px-3">{item.costType}</td>
-                    <td className="py-2.5 px-3 font-mono text-[11px]">{item.defaultCalculationMethod}</td>
+                    <td className="py-2.5 px-3 text-slate-500 font-medium">
+                      {item.subCategory || '-'}
+                    </td>
+                    <td className="py-2.5 px-3 capitalize">{item.costType?.replace(/_/g, ' ')}</td>
+                    <td className="py-2.5 px-3 font-mono text-[11px] capitalize">{item.defaultCalculationMethod?.replace(/_/g, ' ')}</td>
                     <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                       {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : formatCurrency(item.defaultRate, activeCurrency)}
                     </td>
@@ -249,12 +845,20 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     </td>
                   </tr>
                 ))}
+                {filteredItems.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                      No overhead items found matching the selected filters.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
+      {/* 4. TAB: AUDIT LOG */}
       {activeSubTab === 'audit' && (
         <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs">
           <div className="text-xs font-bold text-slate-900 dark:text-slate-100 mb-3 flex items-center space-x-2">
@@ -275,16 +879,173 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 <span className="font-mono text-[10px] text-slate-400">{log.id}</span>
               </div>
             ))}
+            {auditLogs.length === 0 && (
+              <div className="py-6 text-center text-slate-400">
+                No audit entries recorded yet.
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Modal */}
+      {/* MODAL: Create / Edit Overhead Category */}
+      {isCreateCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <FolderPlus className="w-4 h-4 text-amber-500" />
+                <span>New Overhead Category</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsCreateCategoryModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateCategory} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Category Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Corporate SG&A, Facility Utilities"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Category Code
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. OVH-SGA"
+                  value={newCatCode}
+                  onChange={(e) => setNewCatCode(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Brief Description
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Indirect operational and executive administration"
+                  value={newCatBrief}
+                  onChange={(e) => setNewCatBrief(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateCategoryModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold"
+                >
+                  Save Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create Sub-Category */}
+      {isCreateSubCatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Layers className="w-4 h-4 text-amber-500" />
+                <span>New Sub-Category under {selectedCatNode?.name || 'Category'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsCreateSubCatModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateSubCategory} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Sub-Category Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Legal & Compliance, Office Lease"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Sub-Category Code
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. SUB-LGL"
+                  value={newCatCode}
+                  onChange={(e) => setNewCatCode(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Brief Description
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Retainers and regulatory audit expenses"
+                  value={newCatBrief}
+                  onChange={(e) => setNewCatBrief(e.target.value)}
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateSubCatModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold"
+                >
+                  Save Sub-Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create/Edit Overhead Item */}
       <CreateEditOverheadItemModal
         isOpen={isCreateEditOpen}
         onClose={() => {
           setIsCreateEditOpen(false);
           setItemToEdit(null);
+          setPresetCategoryName(undefined);
+          setPresetSubCategoryName(undefined);
         }}
         itemToEdit={itemToEdit}
         onSave={(saved) => {
