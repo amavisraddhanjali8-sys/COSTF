@@ -3297,6 +3297,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
                       {/* Full Screen FXTT CRM Grid for Subcontractor Trade Operations */}
                       <FXTTCardItemsListView
+                        key={`fxtt-sub-${selectedSubcontractorSubCatId}`}
                         isModal={true}
                         cardType="subcontractor"
                         cardId={selectedSubcontractorSubCatId}
@@ -3322,6 +3323,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
               {/* View 2: FXTT Enterprise List & Grid View for Subcontractor Services */}
               {subcontractorViewMode === 'fxtt_grid' && (
                 <FXTTCardItemsListView
+                  key={`fxtt-sub-grid-${selectedSubcontractorSubCatId || selectedSubcontractorCatId || 'catalog'}`}
                   isModal={true}
                   cardType="subcontractor"
                     cardId={selectedSubcontractorSubCatId || selectedSubcontractorCatId || 'subcontractors-catalog'}
@@ -3788,8 +3790,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             const style = getTileStyle(subCat.id, subCat.themeId);
                             const matchingServices = outsourcedServices.filter(
                               (s) =>
-                                s.subCategory.toLowerCase().includes(subCat.name.toLowerCase()) ||
-                                subCat.name.toLowerCase().includes(s.subCategory.toLowerCase())
+                                (s.subCategory && s.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
+                                s.subCategoryId === subCat.id
                             );
                             const tariffBrief = subCat.rateRange
                               ? `Tariff: ${subCat.rateRange} (${matchingServices.length} items)`
@@ -3853,8 +3855,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         const currentItems = outsourcedServices.filter((s) => {
                           if (!activeSubCat) return true;
                           return (
-                            s.subCategory.toLowerCase().includes(activeSubCat.name.toLowerCase()) ||
-                            activeSubCat.name.toLowerCase().includes(s.subCategory.toLowerCase())
+                            (s.subCategory && s.subCategory.toLowerCase().trim() === activeSubCat.name.toLowerCase().trim()) ||
+                            s.subCategoryId === activeSubCat.id
                           );
                         });
 
@@ -5127,14 +5129,14 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             const variantsCount = produceItems.filter(
                               (p) =>
                                 (!p.type || p.type === 'product') &&
-                                (p.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
-                                  p.category?.toLowerCase() === subCat.name.toLowerCase())
+                                ((p.subCategory && p.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
+                                  p.subCategoryId === subCat.id)
                             ).length + revenueItems.filter(
                               (r) =>
                                 (!r.type || r.type === 'product') &&
-                                (r.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
-                                  r.category?.toLowerCase() === subCat.name.toLowerCase())
-                            ).length || 3;
+                                ((r.subCategory && r.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
+                                  r.subCategoryId === subCat.id)
+                            ).length;
 
                             return (
                               <ModernTileCard
@@ -5914,9 +5916,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         const style = getTileStyle(subCat.id, subCat.themeId || 'sunset-amber');
                         const matchingItems = overheadItems.filter(
                           (o) =>
-                            o.subCategory?.toLowerCase() === subCat.name.toLowerCase() ||
-                            o.costType?.toLowerCase() === subCat.name.toLowerCase() ||
-                            o.category?.toLowerCase() === subCat.name.toLowerCase()
+                            (o.subCategory && o.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
+                            o.subCategoryId === subCat.id
                         );
 
                         return (
@@ -6013,15 +6014,12 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                         {overheadItems
                           .filter((o) => {
                             const subNode = categories.find((c) => c.id === selectedOverheadSubCatId);
-                            const subName = subNode?.name.toLowerCase();
+                            const subName = subNode?.name.toLowerCase().trim();
                             const subId = subNode?.id;
-                            const oSub = (o.subCategory || o.costType || '').toLowerCase();
+                            const oSub = (o.subCategory || '').toLowerCase().trim();
                             return (
                               (subId && o.subCategoryId === subId) ||
-                              (subName && oSub === subName) ||
-                              (subName && oSub.includes(subName)) ||
-                              (subName && subName.includes(oSub) && oSub.length > 3) ||
-                              (subName && o.category?.toLowerCase() === subName)
+                              (subName && oSub === subName)
                             );
                           })
                           .map((item) => (
@@ -6952,6 +6950,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* 12. FXTT CRM LIST VIEW MODAL */}
       {activeFXTTCard && (
         <FXTTCardItemsListView
+          key={`${activeFXTTCard.cardType}-${activeFXTTCard.cardId || ''}-${activeFXTTCard.cardTitle}`}
           isModal={true}
           cardType={activeFXTTCard.cardType}
           cardId={activeFXTTCard.cardId}

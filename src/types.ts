@@ -142,7 +142,9 @@ export interface ProduceItem {
   name: string;
   type: 'product' | 'service';
   category: string; // e.g. Industrial Automation & Machinery
+  categoryId?: string;
   subCategory: string; // e.g. Aerospace Stamping & Hydro-Forming
+  subCategoryId?: string;
   moreSubCategory: string; // e.g. Turnkey Closed-Loop Servo Press
   itemClassification?: 'produced_product' | 'delivered_service' | 'turnkey_system' | string;
   description?: string;
@@ -221,7 +223,9 @@ export interface OutsourcedService {
   providerId: EntityId;
   providerName: string;
   category: 'Banking & Financial' | 'Telecommunications' | 'Enterprise Internet' | 'Heavy Transportation & Logistics' | 'Grid & Industrial Power' | 'Quality & NDT Inspection' | 'Legal & Compliance' | string;
+  categoryId?: string;
   subCategory: string;
+  subCategoryId?: string;
   moreSubCategory?: string;
   unit?: string;
   baseUnitType: 'per_km' | 'per_kwh' | 'per_month' | 'per_transaction' | 'per_hour' | 'per_gb' | 'fixed_per_contract' | string;
@@ -271,6 +275,8 @@ export interface SubcontractorRateItem {
   contractorName?: string;
   minHoursPerDispatch?: number;
   serviceType: string;
+  categoryId?: string;
+  subCategoryId?: string;
   serviceCategory?: string;
   serviceSubCategory?: string;
   moreServiceSubCategory?: string;
@@ -1080,7 +1086,9 @@ export interface RevenueItem {
   name: string;
   type: 'product' | 'service';
   category: string;
+  categoryId?: string;
   subCategory?: string;
+  subCategoryId?: string;
   description?: string;
   unit: string;
   defaultRate: number; // default selling rate

@@ -58,7 +58,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
       setCode(itemToEdit.code || '');
       setBarcode(itemToEdit.barcode || '');
       setCategory(itemToEdit.category || 'Operating Overheads');
-      setSubCategory('');
+      setSubCategory(itemToEdit.subCategory || '');
       setDescription(itemToEdit.description || '');
       setCostType(itemToEdit.costType || 'facility');
       setDefaultCalculationMethod(itemToEdit.defaultCalculationMethod || 'percentage_of_direct');
@@ -98,12 +98,24 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
     setError(null);
 
     try {
+      const catTrimmed = category.trim();
+      const subTrimmed = subCategory.trim();
+      const matchedCat = categories.find((c) => c.name.toLowerCase() === catTrimmed.toLowerCase());
+      const matchedSub = categories.find(
+        (c) =>
+          c.name.toLowerCase() === subTrimmed.toLowerCase() &&
+          (!matchedCat || c.parentId === matchedCat.id)
+      ) || categories.find((c) => c.name.toLowerCase() === subTrimmed.toLowerCase());
+
       const payload: Partial<OverheadItem> = {
         name: name.trim(),
         code: code.trim().toUpperCase() || `OVH-${Math.floor(Math.random() * 9000 + 1000)}`,
         barcode: barcode.trim() || undefined,
-        category: category.trim(),
-        description: description.trim() || `${name} overhead allocation (${subCategory || category})`,
+        category: catTrimmed,
+        categoryId: itemToEdit?.categoryId || matchedCat?.id || undefined,
+        subCategory: subTrimmed || undefined,
+        subCategoryId: itemToEdit?.subCategoryId || matchedSub?.id || undefined,
+        description: description.trim() || `${name} overhead allocation (${subTrimmed || catTrimmed})`,
         costType,
         defaultCalculationMethod,
         defaultCostBase,

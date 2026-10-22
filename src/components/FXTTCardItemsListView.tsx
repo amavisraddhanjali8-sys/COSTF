@@ -298,6 +298,14 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
   const [addedRows, setAddedRows] = useState<FXTTGridRow[]>([]);
   const [editedRowsMap, setEditedRowsMap] = useState<Record<string, Partial<FXTTGridRow>>>({});
 
+  // Reset ephemeral state when viewing card changes to prevent row leakage across subcategories
+  useEffect(() => {
+    setAddedRows([]);
+    setEditedRowsMap({});
+    setSelectedIds(new Set());
+    setCurrentPage(1);
+  }, [cardId, cardTitle, cardType, cardTag]);
+
   // Item Image Viewer Modal state
   const [activeImageViewerItem, setActiveImageViewerItem] = useState<FXTTGridRow | null>(null);
 

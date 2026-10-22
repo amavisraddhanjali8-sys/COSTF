@@ -106,13 +106,24 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
     setError(null);
 
     try {
+      const catTrimmed = category.trim();
+      const subTrimmed = subCategory.trim();
+      const matchedCat = categories.find((c) => c.name.toLowerCase() === catTrimmed.toLowerCase());
+      const matchedSub = categories.find(
+        (c) =>
+          c.name.toLowerCase() === subTrimmed.toLowerCase() &&
+          (!matchedCat || c.parentId === matchedCat.id)
+      ) || categories.find((c) => c.name.toLowerCase() === subTrimmed.toLowerCase());
+
       const payload: Partial<RevenueItem> = {
         name: name.trim(),
         code: code.trim().toUpperCase() || undefined,
         barcode: barcode.trim().toUpperCase() || undefined,
         type,
-        category: category.trim(),
-        subCategory: subCategory.trim(),
+        category: catTrimmed,
+        categoryId: itemToEdit?.categoryId || matchedCat?.id || undefined,
+        subCategory: subTrimmed,
+        subCategoryId: itemToEdit?.subCategoryId || matchedSub?.id || undefined,
         description: description.trim(),
         unit: unit.trim() || 'unit',
         defaultRate: rateNum,
@@ -134,7 +145,9 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
             code: result.code,
             name: result.name,
             category: result.category,
+            categoryId: result.categoryId,
             subCategory: result.subCategory || 'General',
+            subCategoryId: result.subCategoryId,
             unit: result.unit,
             retailPrice: result.defaultRate,
             costPrice: result.costPrice || 0,

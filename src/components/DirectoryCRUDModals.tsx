@@ -547,37 +547,57 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     setCode(autoCode);
     if (selectedType === 'material') {
       setBarcode(autoCode);
+    setName('');
+    // Resolve category and subcategory from props if provided, for ANY entity type
+    if (initialCategoryId) {
+      setCategoryId(initialCategoryId);
+      const cat = categories.find((c) => c.id === initialCategoryId);
+      if (cat) setCategory(cat.name);
+    } else {
+      const targetGroup =
+        selectedType === 'produce'
+          ? 'product'
+          : selectedType === 'outsourced'
+          ? 'outsourced'
+          : selectedType === 'subcontractor'
+          ? 'subcontractor'
+          : selectedType === 'overhead'
+          ? 'overhead'
+          : selectedType === 'revenue'
+          ? 'revenue'
+          : 'material';
+      const catList = categories.filter(
+        (c) => (c.group === targetGroup || !c.parentId) && (c.type === 'category' || !c.parentId)
+      );
+      if (catList.length > 0) {
+        setCategoryId(catList[0].id);
+        setCategory(catList[0].name);
+      } else if (selectedType === 'subcontractor') {
+        setCategory('Specialist Industrial Labor');
+      } else if (selectedType === 'supplier') {
+        setCategory('Raw Stock Materials & Alloys');
+      }
     }
 
-    // Contextual defaults
-    if (selectedType === 'supplier') {
-      setName('');
-      setCategory('Raw Stock Materials & Alloys');
-      setSubCategory('Aerospace & Engineering Metals');
-    } else if (selectedType === 'subcontractor') {
-      setName('');
-      setCategory('Specialist Industrial Labor');
-      setSubCategory('Precision Tooling & CNC Services');
-    } else if (selectedType === 'material') {
-      setName('');
-      if (initialCategoryId) {
-        setCategoryId(initialCategoryId);
-        const cat = categories.find((c) => c.id === initialCategoryId);
-        if (cat) setCategory(cat.name);
-      } else {
-        const catList = categories.filter((c) => (c.group === 'material' || !c.parentId) && (c.type === 'category' || !c.parentId));
-        if (catList.length > 0 && !categoryId) {
-          setCategoryId(catList[0].id);
-          setCategory(catList[0].name);
-        }
+    if (initialSubCategoryId) {
+      setSubCategoryId(initialSubCategoryId);
+      const sub = categories.find((c) => c.id === initialSubCategoryId);
+      if (sub) setSubCategory(sub.name);
+    } else if (initialCategoryId) {
+      const firstSub = categories.find((c) => c.parentId === initialCategoryId);
+      if (firstSub) {
+        setSubCategoryId(firstSub.id);
+        setSubCategory(firstSub.name);
       }
-      if (initialSubCategoryId) {
-        setSubCategoryId(initialSubCategoryId);
-        const sub = categories.find((c) => c.id === initialSubCategoryId);
-        if (sub) setSubCategory(sub.name);
+    } else {
+      if (selectedType === 'subcontractor') {
+        setSubCategory('Precision Tooling & CNC Services');
+      } else if (selectedType === 'supplier') {
+        setSubCategory('Aerospace & Engineering Metals');
       }
-      if (suppliers.length > 0) setSupplierName(suppliers[0].name);
     }
+
+    if (suppliers.length > 0) setSupplierName(suppliers[0].name);
   }, [selectedType, isOpen, categories, suppliers, initialCategoryId, initialSubCategoryId]);
 
   const handleCategoryChange = (newCatId: string) => {
@@ -653,6 +673,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         subcontractorName: name.trim(),
         nicheServiceName: (subcontractorTrade || name).trim(),
         serviceType: (subcontractorTrade || name).trim(),
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         serviceCategory: category || 'Specialist Industrial Labor',
         serviceSubCategory: subCategory || 'General Hired Scope',
         rateModel: subcontractorRateModel,
@@ -704,6 +726,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       onSave('produce', {
         code: code.trim(),
         name: name.trim(),
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         category: category || 'Standard Assemblies',
         subCategory: subCategory || 'General',
         unit,
@@ -720,6 +744,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       onSave('outsourced', {
         name: name.trim(),
         providerName: supplierName || 'Specialized Service Partner',
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         category: category || 'Specialized Finishing & Heat Treatment',
         subCategory: subCategory || 'General Service',
         baseUnitType: unit || 'per_hour',
@@ -749,6 +775,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       onSave('overhead', {
         code: code.trim(),
         name: name.trim(),
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         category: category || 'Indirect Materials & Factory Consumables',
         subCategory: subCategory || '',
         costType: 'facility',
@@ -766,6 +794,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         code: code.trim(),
         name: name.trim(),
         type: 'product',
+        categoryId: categoryId || undefined,
+        subCategoryId: subCategoryId || undefined,
         category: category || 'Commercial Deliverables',
         subCategory: subCategory || 'General Scope',
         unit: unit || 'unit',

@@ -298,6 +298,18 @@ export const SearchableCategoryPicker: React.FC<SearchableCategoryPickerProps> =
                       key={c.id}
                       onClick={() => {
                         onCategoryChange(c.name, c);
+                        // Check if current selected subcategory belongs to this new category
+                        if (selectedSubCategory && onSubCategoryChange) {
+                          const isChild = categories.some(
+                            (sub) =>
+                              sub.type === 'sub_category' &&
+                              sub.parentId === c.id &&
+                              sub.name.toLowerCase() === selectedSubCategory.toLowerCase()
+                          );
+                          if (!isChild) {
+                            onSubCategoryChange('', undefined);
+                          }
+                        }
                         setIsCatOpen(false);
                         setCatSearch('');
                       }}
