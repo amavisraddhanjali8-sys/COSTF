@@ -44,7 +44,8 @@ import {
   Scale,
   Percent,
   Trash2,
-  Upload
+  Upload,
+  Package
 } from 'lucide-react';
 import { ModernTileCard } from './ModernTileCard';
 import { ColorGradientPicker } from './ColorGradientPicker';
@@ -211,6 +212,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [subcontractorViewMode, setSubcontractorViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [outsourcedViewMode, setOutsourcedViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [productViewMode, setProductViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
+  const [productCategoryFilter, setProductCategoryFilter] = useState<string>('all');
   const [isCommandsMenuOpen, setIsCommandsMenuOpen] = useState(false);
 
   // Overhead Cost view & drilldown states
@@ -242,12 +244,23 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       })
       .catch((err) => console.warn('Could not load overhead items in directory:', err));
 
-    api.getRevenueItems({ limit: 100 })
-      .then((res) => {
-        const list = Array.isArray(res) ? res : (res as any)?.data || [];
-        if (list.length > 0) setRevenueItems(list);
-      })
-      .catch((err) => console.warn('Could not load revenue items in directory:', err));
+    Promise.all([
+      api.getRevenueItems({ limit: 100 }).catch(() => []),
+      api.getRevenueServices().catch(() => [])
+    ]).then(([itemsRes, servicesRes]) => {
+      const itemsList = Array.isArray(itemsRes) ? itemsRes : (itemsRes as any)?.data || [];
+      const servicesList = Array.isArray(servicesRes) ? servicesRes : (servicesRes as any)?.data || [];
+      const mergedMap = new Map<string, any>();
+      itemsList.forEach((it: any) => mergedMap.set((it.code || it.id).toLowerCase(), it));
+      servicesList.forEach((srv: any) => {
+        const key = (srv.code || srv.id).toLowerCase();
+        if (!mergedMap.has(key)) {
+          mergedMap.set(key, { ...srv, type: 'service' });
+        }
+      });
+      const combined = Array.from(mergedMap.values());
+      if (combined.length > 0) setRevenueItems(combined);
+    }).catch((err) => console.warn('Could not load revenue items & services in directory:', err));
   }, []);
 
   // Dedicated states for Revenue Portal all-records view
@@ -4949,505 +4962,338 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           )}
 
           {/* SUB-PORTAL: PRODUCTS (Product categories which we supply) */}
-          {revenueSubTab === 'products' && (
-            <div className="space-y-4">
-              {/* Portal Header: Breadcrumbs & View Switcher (Hierarchy Cards, Full-Screen FXTT Grid, Variants Table) */}
-              <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center space-x-2 flex-wrap">
-                  <button
-                    onClick={() => {
-                      setSelectedProductCatId(null);
-                      setSelectedProductSubCatId(null);
-                      setProductViewMode('hierarchy');
-                    }}
-                    className={`hover:text-[#003049] transition-colors ${!selectedProductCatId ? 'font-medium text-[#003049]' : ''}`}
-                  >
-                    All Supplied Product Categories (Level 1)
-                  </button>
+          {/* SUB-PORTAL: PRODUCTS (Manufactured Products Supplied to Customers) */}
+          {revenueSubTab === 'products' && (() => {
+            const map = new Map<string, any>();
+            produceItems
+              .filter((p) => !p.type || p.type === 'product')
+              .forEach((p) => {
+                const key = (p.code || p.id).toLowerCase();
+                map.set(key, {
+                  id: p.id,
+                  code: p.code,
+                  name: p.name,
+                  category: p.category || 'Manufactured Deliverables',
+                  subCategory: p.subCategory || 'General Product',
+                  unit: p.unit || 'pcs',
+                  costPrice: Number(p.costPrice) || 0,
+                  retailPrice: Number(p.retailPrice) || 0,
+                  leadTimeDays: p.leadTimeDays || 30,
+                  status: p.status || 'Active',
+                  specifications: p.specifications,
+                  brief: p.specifications || `${p.category || 'Product'} • Cost $${(Number(p.costPrice) || 0).toLocaleString()} • Quoted $${(Number(p.retailPrice) || 0).toLocaleString()}`,
+                  themeId: p.themeId || 'airbus-cobalt',
+                  customGradient: p.customGradient,
+                  source: 'produce'
+                });
+              });
+            revenueItems
+              .filter((r) => !r.type || r.type === 'product')
+              .forEach((r) => {
+                const key = (r.code || r.id).toLowerCase();
+                if (!map.has(key)) {
+                  map.set(key, {
+                    id: r.id,
+                    code: r.code || `PRD-${r.id.slice(0, 5)}`,
+                    name: r.name,
+                    category: r.category || 'Manufactured Deliverables',
+                    subCategory: r.subCategory || 'General Product',
+                    unit: r.unit || 'pcs',
+                    costPrice: Number(r.costPrice) || 0,
+                    retailPrice: Number(r.defaultRate) || 0,
+                    leadTimeDays: 30,
+                    status: r.status || 'Active',
+                    specifications: r.description,
+                    brief: r.description || `${r.category || 'Product'} • Cost $${(Number(r.costPrice) || 0).toLocaleString()} • Quoted $${(Number(r.defaultRate) || 0).toLocaleString()}`,
+                    themeId: r.themeId || 'pacific-sky',
+                    customGradient: r.customGradient,
+                    source: 'revenue'
+                  });
+                }
+              });
+            const allSuppliedProducts = Array.from(map.values());
+            const productCategories = Array.from(new Set(allSuppliedProducts.map((p) => p.category).filter(Boolean)));
+            const filteredProducts = allSuppliedProducts
+              .filter((p) => productCategoryFilter === 'all' || p.category.toLowerCase() === productCategoryFilter.toLowerCase())
+              .filter((p) => !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.code.toLowerCase().includes(searchQuery.toLowerCase()) || p.category.toLowerCase().includes(searchQuery.toLowerCase()));
 
-                  {selectedProductCatId && (
-                    <>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      <button
-                        onClick={() => setSelectedProductSubCatId(null)}
-                        className={`hover:text-[#003049] transition-colors ${!selectedProductSubCatId ? 'font-medium text-[#003049]' : ''}`}
-                      >
-                        {categories.find((c) => c.id === selectedProductCatId)?.name} (Sub-Categories)
-                      </button>
-                    </>
-                  )}
-
-                  {selectedProductSubCatId && (
-                    <>
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="font-semibold text-[#003049]">
-                        {categories.find((c) => c.id === selectedProductSubCatId)?.name} (FXTT Grid)
+            return (
+              <div className="space-y-4">
+                {/* Portal Header: Breadcrumbs & View Switcher */}
+                <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center space-x-2 flex-wrap">
+                    <span className="font-bold text-[#003049] flex items-center space-x-1.5">
+                      <Package className="w-4 h-4 text-[#0077b6]" />
+                      <span>Manufactured Products & Commercial Deliverables</span>
+                    </span>
+                    <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {allSuppliedProducts.length} Products
+                    </span>
+                    {productCategoryFilter !== 'all' && (
+                      <span className="bg-slate-100 text-slate-700 text-[10px] font-medium px-2 py-0.5 rounded-full">
+                        Category: {productCategoryFilter}
                       </span>
-                    </>
-                  )}
-                </div>
+                    )}
+                  </div>
 
-                {/* View Mode Switcher */}
-                <div className="flex items-center space-x-1.5">
-                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setProductViewMode('hierarchy')}
-                      className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
-                        productViewMode === 'hierarchy'
-                          ? 'bg-white text-[#003049] font-medium shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>Cards View</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProductViewMode('fxtt_grid')}
-                      className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
-                        productViewMode === 'fxtt_grid'
-                          ? 'bg-[#0077b6] text-white font-medium shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <Table className="w-3.5 h-3.5" />
-                      <span>Full Screen FXTT Grid</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProductViewMode('items_table')}
-                      className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
-                        productViewMode === 'items_table'
-                          ? 'bg-white text-[#003049] font-medium shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      <ListFilter className="w-3.5 h-3.5" />
-                      <span>Variants Table</span>
-                    </button>
+                  {/* View Mode Switcher */}
+                  <div className="flex items-center space-x-1.5">
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setProductViewMode('hierarchy')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          productViewMode === 'hierarchy'
+                            ? 'bg-white text-[#003049] font-medium shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>Product Cards</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProductViewMode('fxtt_grid')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          productViewMode === 'fxtt_grid'
+                            ? 'bg-[#0077b6] text-white font-medium shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Table className="w-3.5 h-3.5" />
+                        <span>FXTT Grid</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProductViewMode('items_table')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          productViewMode === 'items_table'
+                            ? 'bg-white text-[#003049] font-medium shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <ListFilter className="w-3.5 h-3.5" />
+                        <span>Variants Table</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* View 1: Hierarchy Cards */}
-              {productViewMode === 'hierarchy' && (
-                <>
-                  {/* Level 1: Categories */}
-                  {!selectedProductCatId && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs text-slate-500">
-                          Click any product category to drill into assemblies & manufactured models which we supply:
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCreateCategoryGroup('product');
-                              setIsCreateCategoryModalOpen(true);
-                            }}
-                            className="text-xs text-[#003049] hover:text-[#002235] font-semibold flex items-center space-x-1 cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>New Product Category</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAddItemPortal('products-hierarchy');
-                              setAddItemCategoryId(selectedProductCatId || undefined);
-                              setAddItemSubCategoryId(undefined);
-                              setIsAddItemModalOpen(true);
-                            }}
-                            className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold flex items-center space-x-1 ml-2 cursor-pointer"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Add Product Record</span>
-                          </button>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {categories
-                          .filter((c) => (c.group === 'product' || c.group === 'revenue') && c.type === 'category')
-                          .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
-                          .map((cat) => {
-                            const style = getTileStyle(cat.id, cat.themeId || 'pacific-sky');
-                            const subCats = categories.filter((s) => s.parentId === cat.id || s.parentName === cat.name);
-                            const matchingCount =
-                              produceItems.filter(
-                                (p) =>
-                                  (!p.type || p.type === 'product') &&
-                                  (p.category?.toLowerCase() === cat.name.toLowerCase() || p.categoryId === cat.id)
-                              ).length +
-                              revenueItems.filter(
-                                (r) =>
-                                  (!r.type || r.type === 'product') &&
-                                  (r.category?.toLowerCase() === cat.name.toLowerCase() || r.categoryId === cat.id)
-                              ).length;
-
-                            return (
-                              <ModernTileCard
-                                key={cat.id}
-                                id={cat.id}
-                                tag="SUPPLIED PRODUCT CATEGORY"
-                                title={cat.name}
-                                brief={cat.brief || `${matchingCount} assemblies & components`}
-                                actionLabel="VIEW ASSEMBLIES"
-                                actionVariant="button"
-                                themeId={style.themeId}
-                                customGradient={style.customGradient}
-                                onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
-                                onEdit={() =>
-                                  handleOpenEdit('category', cat.id, {
-                                    title: cat.name,
-                                    name: cat.name,
-                                    brief: cat.brief
-                                  })
-                                }
-                                onDelete={() => handleOpenDelete('Product Category', cat.id, cat.name, 'revenue-streams')}
-                                onDuplicate={() => handleDuplicate('category', cat.id)}
-                                onAction={() => setSelectedProductCatId(cat.id)}
-                                onViewListView={() => {
-                                  setActiveFXTTCard({
-                                    cardType: 'product_category',
-                                    cardId: cat.id,
-                                    cardTitle: cat.name,
-                                    cardSubtitle: cat.brief,
-                                    cardTag: 'SUPPLIED PRODUCT CATEGORY'
-                                  });
-                                }}
-                                listViewLabel="FXTT Grid"
-                                extraMeta={
-                                  <div className="space-y-1.5 pt-1">
-                                    <div className="flex items-center justify-between text-[11px] text-white/95">
-                                      <span className="bg-black/30 px-2 py-0.5 rounded text-[10px] font-mono">
-                                        {matchingCount} Products • {subCats.length} Sub-Categories
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setCreateSubCategoryGroup('product');
-                                          setCreateSubCategoryParentId(cat.id);
-                                          setIsCreateSubCategoryModalOpen(true);
-                                        }}
-                                        className="text-[10px] text-white hover:underline font-semibold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded cursor-pointer transition-colors"
-                                      >
-                                        + Sub
-                                      </button>
-                                    </div>
-                                    {subCats.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 pt-0.5">
-                                        {subCats.slice(0, 3).map((sub) => (
-                                          <span
-                                            key={sub.id}
-                                            className="text-[9px] px-1.5 py-0.5 bg-black/35 text-white/95 rounded backdrop-blur-xs font-medium"
-                                          >
-                                            {sub.name}
-                                          </span>
-                                        ))}
-                                        {subCats.length > 3 && (
-                                          <span className="text-[9px] px-1.5 py-0.5 bg-black/45 text-white/85 rounded font-medium">
-                                            +{subCats.length - 3} more
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                }
-                              />
-                            );
-                          })}
-                      </div>
-                      {renderCustomTilesForTab('revenue-streams', 'Product Specification')}
-                    </div>
-                  )}
-
-                  {/* Level 2: Sub-Categories with FXTT Grid View style */}
-                  {selectedProductCatId && !selectedProductSubCatId && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <div className="text-xs text-slate-500">Manufactured assemblies for supplied category:</div>
-                          <button
-                            onClick={() => {
-                              setCreateSubCategoryGroup('product');
-                              setCreateSubCategoryParentId(selectedProductCatId);
-                              setIsCreateSubCategoryModalOpen(true);
-                            }}
-                            className="text-xs text-emerald-700 hover:text-emerald-800 flex items-center space-x-1 font-normal"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Create Sub-Assembly</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setAddItemPortal('products-hierarchy');
-                              setAddItemCategoryId(selectedProductCatId);
-                              setAddItemSubCategoryId(undefined);
-                              setIsAddItemModalOpen(true);
-                            }}
-                            className="text-xs text-[#003049] hover:underline flex items-center space-x-1 font-normal ml-2"
-                          >
-                            <Plus className="w-3 h-3" />
-                            <span>Add Product Item</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const parentCat = categories.find((c) => c.id === selectedProductCatId)?.name;
-                              setBulkImportConfig({
-                                isOpen: true,
-                                targetType: 'produce',
-                                categoryScope: parentCat
-                              });
-                            }}
-                            className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1 rounded-lg flex items-center space-x-1 font-semibold ml-2 cursor-pointer shadow-2xs"
-                            title="Bulk import products into this category"
-                          >
-                            <Upload className="w-3 h-3 text-emerald-700" />
-                            <span>Bulk Import Product Items</span>
-                          </button>
-                        </div>
-                        <button
-                          onClick={() => setSelectedProductCatId(null)}
-                          className="text-xs text-[#003049] flex items-center space-x-1 hover:underline cursor-pointer"
+                {/* View 1: Product Cards View (NOT Categories) */}
+                {productViewMode === 'hierarchy' && (
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-500">Filter Category:</span>
+                        <select
+                          value={productCategoryFilter}
+                          onChange={(e) => setProductCategoryFilter(e.target.value)}
+                          className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-700 focus:outline-none"
                         >
-                          <ArrowLeft className="w-3 h-3" />
-                          <span>Back to Supplied Categories</span>
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {categories
-                          .filter((c) => (c.group === 'product' || c.group === 'revenue') && c.type === 'sub_category' && c.parentId === selectedProductCatId)
-                          .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                          .map((subCat) => {
-                            const style = getTileStyle(subCat.id, subCat.themeId);
-                            const variantsCount = produceItems.filter(
-                              (p) =>
-                                (!p.type || p.type === 'product') &&
-                                ((p.subCategory && p.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
-                                  p.subCategoryId === subCat.id)
-                            ).length + revenueItems.filter(
-                              (r) =>
-                                (!r.type || r.type === 'product') &&
-                                ((r.subCategory && r.subCategory.toLowerCase().trim() === subCat.name.toLowerCase().trim()) ||
-                                  r.subCategoryId === subCat.id)
-                            ).length;
-
-                            return (
-                              <ModernTileCard
-                                key={subCat.id}
-                                id={subCat.id}
-                                tag="PRODUCT SUB-CATEGORY"
-                                title={subCat.name}
-                                brief={subCat.brief}
-                                actionLabel="OPEN FXTT GRID"
-                                actionVariant="button"
-                                themeId={style.themeId}
-                                customGradient={style.customGradient}
-                                onChangeTheme={(tId, grad) => handleUpdateTileTheme(subCat.id, tId, grad)}
-                                onEdit={() =>
-                                  handleOpenEdit('sub_category', subCat.id, {
-                                    title: subCat.name,
-                                    name: subCat.name,
-                                    brief: subCat.brief
-                                  })
-                                }
-                                onDelete={() => handleOpenDelete('Product Sub-Category', subCat.id, subCat.name, 'revenue-streams')}
-                                onDuplicate={() => handleDuplicate('sub_category', subCat.id)}
-                                onBulkImport={() => {
-                                  const parentCat = categories.find((c) => c.id === selectedProductCatId)?.name;
-                                  setBulkImportConfig({
-                                    isOpen: true,
-                                    targetType: 'produce',
-                                    categoryScope: parentCat,
-                                    subCategoryScope: subCat.name
-                                  });
-                                }}
-                                onAction={() => setSelectedProductSubCatId(subCat.id)}
-                                onViewListView={() => setSelectedProductSubCatId(subCat.id)}
-                                listViewLabel="FXTT Grid"
-                                extraMeta={
-                                  <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
-                                    <span className="bg-black/25 px-2 py-0.5 rounded text-[10px] font-mono">
-                                      {variantsCount} Variants
-                                    </span>
-                                    <span className="text-[10px] text-white/80">Full Screen FXTT Grid</span>
-                                  </div>
-                                }
-                              />
-                            );
-                          })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Level 3: Full-Screen FXTT Grid View for Selected Product Sub-Category */}
-                  {selectedProductSubCatId && (
-                    <FXTTCardItemsListView
-                      isModal={true}
-                      cardType="product_category"
-                      cardId={selectedProductSubCatId}
-                      cardTitle={categories.find((c) => c.id === selectedProductSubCatId)?.name || 'Product Variant Assemblies'}
-                      cardSubtitle={categories.find((c) => c.id === selectedProductSubCatId)?.brief || 'Engineered Turnkey Product Variants & Specifications'}
-                      cardTag="PRODUCT SUB-CATEGORY"
-                      categories={categories}
-                      materials={materials}
-                      suppliers={suppliers}
-                      outsourcedServices={outsourcedServices}
-                      subcontractors={subcontractors}
-                      projects={projects}
-                      produceItems={produceItems}
-                      onClose={() => setSelectedProductSubCatId(null)}
-                      onUpdatePrice={(id, price, reason) => {
-                        onUpdateProduceItem?.(id, { costPrice: price, retailPrice: Math.round(price * 1.35) });
-                        onUpdateMaterialPrice?.(id, price, reason);
-                      }}
-                      onUpdateMaterialPrice={onUpdateMaterialPrice}
-                      onUpdateMaterial={onUpdateMaterial}
-                      onAddSupplier={onAddSupplier}
-                      onAddProduceItem={onAddProduceItem}
-                      onUpdateProduceItem={onUpdateProduceItem}
-                    />
-                  )}
-                </>
-              )}
-
-              {/* View 2: Full-Screen Direct FXTT Grid View for All Revenue Stream Products */}
-              {productViewMode === 'fxtt_grid' && (
-                <FXTTCardItemsListView
-                  isModal={true}
-                  cardType="product_category"
-                  cardId={selectedProductSubCatId || selectedProductCatId || 'all-products'}
-                  cardTitle={
-                    selectedProductSubCatId
-                      ? categories.find((c) => c.id === selectedProductSubCatId)?.name || 'Product Sub-Categories'
-                      : selectedProductCatId
-                      ? categories.find((c) => c.id === selectedProductCatId)?.name || 'Supplied Products'
-                      : 'All Revenue Streams Product Sub-Categories'
-                  }
-                  cardSubtitle="Complete Manufactured Product Variants, Assemblies & Technical Specifications"
-                  cardTag="REVENUE PRODUCT PORTAL"
-                  categories={categories}
-                  materials={materials}
-                  suppliers={suppliers}
-                  outsourcedServices={outsourcedServices}
-                  subcontractors={subcontractors}
-                  projects={projects}
-                  produceItems={produceItems}
-                  onClose={() => setProductViewMode('hierarchy')}
-                  onUpdatePrice={(id, price, reason) => {
-                    onUpdateProduceItem?.(id, { costPrice: price, retailPrice: Math.round(price * 1.35) });
-                    onUpdateMaterialPrice?.(id, price, reason);
-                  }}
-                  onUpdateMaterialPrice={onUpdateMaterialPrice}
-                  onUpdateMaterial={onUpdateMaterial}
-                  onAddSupplier={onAddSupplier}
-                  onAddProduceItem={onAddProduceItem}
-                  onUpdateProduceItem={onUpdateProduceItem}
-                />
-              )}
-
-              {/* View 3: Master Product & Revenue Variants Table */}
-              {productViewMode === 'items_table' && (() => {
-                const map = new Map<string, any>();
-                produceItems
-                  .filter((p) => !p.type || p.type === 'product')
-                  .forEach((p) => {
-                    const key = (p.code || p.id).toLowerCase();
-                    map.set(key, {
-                      id: p.id,
-                      code: p.code,
-                      name: p.name,
-                      category: p.category,
-                      subCategory: p.subCategory,
-                      unit: p.unit,
-                      costPrice: p.costPrice,
-                      retailPrice: p.retailPrice,
-                      leadTimeDays: p.leadTimeDays,
-                      status: p.status || 'Active',
-                      source: 'Product'
-                    });
-                  });
-                revenueItems
-                  .filter((r) => !r.type || r.type === 'product')
-                  .forEach((r) => {
-                    const key = (r.code || r.id).toLowerCase();
-                    if (!map.has(key)) {
-                      map.set(key, {
-                        id: r.id,
-                        code: r.code,
-                        name: r.name,
-                        category: r.category,
-                        subCategory: r.subCategory || 'General Product',
-                        unit: r.unit || 'pcs',
-                        costPrice: r.costPrice || 0,
-                        retailPrice: r.defaultRate,
-                        leadTimeDays: 14,
-                        status: r.status || 'Active',
-                        source: 'Revenue'
-                      });
-                    }
-                  });
-                const allCombinedProducts = Array.from(map.values());
-
-                return (
-                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center space-x-2">
-                          <span>Manufactured Product Variants & Revenue Deliverables</span>
-                          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
-                            {allCombinedProducts.length} Records
-                          </span>
-                        </h3>
-                        <p className="text-[11px] text-slate-500">
-                          Complete produced product deliverables & revenue portal records supplied to customers with unique item codes, tiered volume pricing, unit cost rates, and retail pricing.
-                        </p>
+                          <option value="all">All Product Categories ({allSuppliedProducts.length})</option>
+                          {productCategories.map((catName) => (
+                            <option key={catName} value={catName}>
+                              {catName}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="flex items-center space-x-2">
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveFXTTCard({
-                              cardType: 'product_category',
-                              cardId: 'all-products',
-                              cardTitle: 'Supplied Product Variants',
-                              cardSubtitle: 'Turnkey Manufactured Deliverables & Sub-Categories',
-                              cardTag: 'PRODUCT SUB-CATEGORY'
+                            setAddItemPortal('products-hierarchy');
+                            setIsAddItemModalOpen(true);
+                          }}
+                          className="text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Add Product Record</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBulkImportConfig({
+                              isOpen: true,
+                              targetType: 'produce'
                             });
                           }}
-                          className="px-2.5 py-1 bg-[#0077b6] hover:bg-[#005f94] text-white rounded-lg text-xs font-medium flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                          className="text-xs text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                          title="Bulk import product items"
                         >
-                          <Table className="w-3.5 h-3.5 text-white" />
-                          <span>Open Full Screen FXTT Grid</span>
+                          <Upload className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Bulk Import Products</span>
                         </button>
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs text-slate-700">
-                        <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
-                          <tr>
-                            <th className="py-2.5 px-3 font-semibold">Unique Item Code</th>
-                            <th className="py-2.5 px-3 font-semibold">Product Variant Name</th>
-                            <th className="py-2.5 px-3 font-semibold">Category</th>
-                            <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
-                            <th className="py-2.5 px-3 font-semibold">Unit</th>
-                            <th className="py-2.5 px-3 font-semibold text-right">Unit Cost Rate</th>
-                            <th className="py-2.5 px-3 font-semibold text-right">Quoted Retail</th>
-                            <th className="py-2.5 px-3 font-semibold text-center">Lead Time</th>
-                            <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                            <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {allCombinedProducts
-                            .filter((item) => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.code.toLowerCase().includes(searchQuery.toLowerCase()) || item.category.toLowerCase().includes(searchQuery.toLowerCase()))
-                            .map((item) => {
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {filteredProducts.map((prod) => {
+                        const style = getTileStyle(prod.id, prod.themeId || 'airbus-cobalt');
+                        const marginPct = prod.retailPrice && prod.costPrice
+                          ? Math.round(((prod.retailPrice - prod.costPrice) / prod.retailPrice) * 100)
+                          : 25;
+
+                        return (
+                          <ModernTileCard
+                            key={prod.id}
+                            id={prod.id}
+                            tag="MANUFACTURED PRODUCT"
+                            title={prod.name}
+                            brief={prod.brief || `${prod.code} • ${prod.category}`}
+                            actionLabel="COMPETITOR RATES"
+                            actionVariant="button"
+                            themeId={style.themeId}
+                            customGradient={style.customGradient}
+                            onChangeTheme={(tId, grad) => handleUpdateTileTheme(prod.id, tId, grad)}
+                            onEdit={() =>
+                              handleOpenEdit(prod.source === 'produce' ? 'produce' : 'revenue', prod.id, {
+                                title: prod.name,
+                                name: prod.name,
+                                code: prod.code,
+                                category: prod.category,
+                                subCategory: prod.subCategory,
+                                costPrice: prod.costPrice,
+                                retailPrice: prod.retailPrice,
+                                unit: prod.unit
+                              })
+                            }
+                            onDelete={() => handleOpenDelete('Product Deliverable', prod.id, prod.name, 'revenue-streams')}
+                            onDuplicate={() => handleDuplicate(prod.source === 'produce' ? 'produce' : 'revenue', prod.id)}
+                            onAction={() => {
+                              setActiveFXTTCard({
+                                cardType: 'produce',
+                                cardId: prod.id,
+                                cardTitle: prod.name,
+                                cardSubtitle: `${prod.code} • Cost: $${prod.costPrice.toLocaleString()} / Quoted: $${prod.retailPrice.toLocaleString()}`,
+                                cardTag: 'PRODUCT DELIVERABLE'
+                              });
+                            }}
+                            onViewListView={() => {
+                              setActiveFXTTCard({
+                                cardType: 'produce',
+                                cardId: prod.id,
+                                cardTitle: prod.name,
+                                cardSubtitle: `${prod.code} • Cost: $${prod.costPrice.toLocaleString()} / Quoted: $${prod.retailPrice.toLocaleString()}`,
+                                cardTag: 'PRODUCT DELIVERABLE'
+                              });
+                            }}
+                            listViewLabel="FXTT & Competitors"
+                            extraMeta={
+                              <div className="space-y-1.5 pt-1">
+                                <div className="flex items-center justify-between text-[11px] text-white/95">
+                                  <span className="bg-black/35 px-2 py-0.5 rounded text-[10px] font-mono">
+                                    Cost: ${prod.costPrice.toLocaleString()} / {prod.unit}
+                                  </span>
+                                  <span className="bg-emerald-500/80 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-2xs">
+                                    Sell: ${prod.retailPrice.toLocaleString()} (+{marginPct}%)
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-[10px] text-white/80 pt-0.5">
+                                  <span>Code: <span className="font-mono text-white font-semibold">{prod.code}</span></span>
+                                  <span>Lead: {prod.leadTimeDays || 30}d</span>
+                                </div>
+                              </div>
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {filteredProducts.length === 0 && (
+                      <div className="bg-white p-8 text-center rounded-2xl border border-slate-200">
+                        <p className="text-sm font-medium text-slate-700">No manufactured products found matching filter</p>
+                        <p className="text-xs text-slate-400 mt-1">Categories (such as dfcc) are managed under the Categories & Subcategories subtab. Use "+ Add Product Record" above to register product variants.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* View 2: Full-Screen Direct FXTT Grid View for All Revenue Stream Products */}
+                {productViewMode === 'fxtt_grid' && (
+                  <FXTTCardItemsListView
+                    isModal={true}
+                    cardType="produce"
+                    cardId={filteredProducts[0]?.id || 'all-products'}
+                    cardTitle="Supplied Product Deliverables & Competitor Benchmarks"
+                    cardSubtitle="Complete Manufactured Product Deliverables & Technical Specifications"
+                    cardTag="REVENUE PRODUCT PORTAL"
+                    categories={categories}
+                    materials={materials}
+                    suppliers={suppliers}
+                    outsourcedServices={outsourcedServices}
+                    subcontractors={subcontractors}
+                    projects={projects}
+                    produceItems={produceItems}
+                    onClose={() => setProductViewMode('hierarchy')}
+                    onUpdatePrice={(id, price, reason) => {
+                      onUpdateProduceItem?.(id, { costPrice: price, retailPrice: Math.round(price * 1.35) });
+                      onUpdateMaterialPrice?.(id, price, reason);
+                    }}
+                    onUpdateMaterialPrice={onUpdateMaterialPrice}
+                    onUpdateMaterial={onUpdateMaterial}
+                    onAddSupplier={onAddSupplier}
+                    onAddProduceItem={onAddProduceItem}
+                    onUpdateProduceItem={onUpdateProduceItem}
+                  />
+                )}
+
+                {/* View 3: Master Product & Revenue Variants Table */}
+                {productViewMode === 'items_table' && (() => {
+                  return (
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs space-y-0">
+                      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide flex items-center space-x-2">
+                            <span>Manufactured Product Variants & Revenue Deliverables</span>
+                            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
+                              {allSuppliedProducts.length} Records
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-slate-500">
+                            Complete produced product deliverables & revenue portal records supplied to customers with unique item codes, tiered volume pricing, unit cost rates, and retail pricing.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveFXTTCard({
+                                cardType: 'produce',
+                                cardId: 'all-products',
+                                cardTitle: 'Supplied Product Variants',
+                                cardSubtitle: 'Turnkey Manufactured Deliverables & Sub-Categories',
+                                cardTag: 'PRODUCT SUB-CATEGORY'
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-[#0077b6] hover:bg-[#005f94] text-white rounded-lg text-xs font-medium flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                          >
+                            <Table className="w-3.5 h-3.5 text-white" />
+                            <span>Open Full Screen FXTT Grid</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs text-slate-700">
+                          <thead className="bg-slate-100/80 text-[11px] uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                            <tr>
+                              <th className="py-2.5 px-3 font-semibold">Unique Item Code</th>
+                              <th className="py-2.5 px-3 font-semibold">Product Variant Name</th>
+                              <th className="py-2.5 px-3 font-semibold">Category</th>
+                              <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
+                              <th className="py-2.5 px-3 font-semibold">Unit</th>
+                              <th className="py-2.5 px-3 font-semibold text-right">Unit Cost Rate</th>
+                              <th className="py-2.5 px-3 font-semibold text-right">Quoted Retail</th>
+                              <th className="py-2.5 px-3 font-semibold text-center">Lead Time</th>
+                              <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                              <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredProducts.map((item) => {
                               const marginPct = item.retailPrice && item.costPrice
                                 ? Math.round(((item.retailPrice - item.costPrice) / item.retailPrice) * 100)
                                 : 25;
@@ -5473,7 +5319,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                                     </span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center text-slate-600">
-                                    {item.leadTimeDays || 45} days
+                                    {item.leadTimeDays || 30} days
                                   </td>
                                   <td className="py-2.5 px-3 text-center">
                                     <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800">
@@ -5485,29 +5331,30 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                                       type="button"
                                       onClick={() => {
                                         setActiveFXTTCard({
-                                          cardType: 'product_category',
+                                          cardType: 'produce',
                                           cardId: item.id,
-                                          cardTitle: item.subCategory || item.category,
-                                          cardSubtitle: `${item.code} - ${item.name}`,
-                                          cardTag: 'PRODUCT SUB-CATEGORY'
+                                          cardTitle: item.name,
+                                          cardSubtitle: `${item.code} • Cost: $${item.costPrice.toLocaleString()} / Quoted: $${item.retailPrice.toLocaleString()}`,
+                                          cardTag: 'PRODUCT DELIVERABLE'
                                         });
                                       }}
                                       className="px-2 py-1 bg-slate-100 hover:bg-[#0077b6] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors cursor-pointer"
                                     >
-                                      FXTT Grid
+                                      Competitors
                                     </button>
                                   </td>
                                 </tr>
                               );
                             })}
-                        </tbody>
-                      </table>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
+                  );
+                })()}
+              </div>
+            );
+          })()}
 
           {/* SUB-PORTAL: SERVICES (Service categories we render to the customer - not others) */}
           {revenueSubTab === 'services' && (

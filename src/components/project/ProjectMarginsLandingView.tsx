@@ -24,6 +24,9 @@ import {
 import { Project, MaterialItem, Supplier, SubcontractorRateItem, OutsourcedService } from '../../types';
 import { formatCurrency, getCurrencyInfo, getStoredCurrency } from '../../utils/currency';
 import { getMarginThreshold } from '../../utils/profitabilityMonitor';
+import { ModernTileCard } from '../ModernTileCard';
+import { getThemeById } from '../../data/tileThemes';
+import { themeService } from '../../services/themeService';
 
 interface ProjectMarginsLandingViewProps {
   projects: Project[];
@@ -41,6 +44,20 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
   const [sortBy, setSortBy] = useState<'margin_desc' | 'margin_asc' | 'revenue_desc' | 'cost_desc' | 'name' | 'code'>('margin_desc');
   const baseCurrency = getStoredCurrency();
   const threshold = getMarginThreshold();
+
+  const [tileThemes, setTileThemes] = useState<Record<string, { themeId: string; customGradient?: string }>>({});
+
+  const handleUpdateTileTheme = (id: string, themeId: string, customGradient?: string) => {
+    setTileThemes((prev) => ({ ...prev, [id]: { themeId, customGradient } }));
+    themeService.saveTileTheme(id, themeId, customGradient);
+  };
+
+  const getStyleForProject = (p: Project) => {
+    if (tileThemes[p.id]) return tileThemes[p.id];
+    const saved = themeService.getTileTheme(p.id);
+    if (saved) return saved;
+    return { themeId: p.themeId || 'pacific-sky', customGradient: p.customGradient };
+  };
 
   // Calculate detailed financial health for each project
   const projectMetrics = useMemo(() => {
@@ -337,202 +354,115 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredMetrics.map((m) => {
             const p = m.project;
             const isHigh = m.grossMarginPct >= m.targetMargin;
             const isWarning = m.grossMarginPct < threshold && m.grossMarginPct > 0;
             const isNegative = m.grossMarginPct <= 0;
-
             const progressRatio = Math.min(100, Math.max(0, (m.grossMarginPct / (m.targetMargin || 35)) * 100));
+            const style = getStyleForProject(p);
 
             return (
-              <div
+              <ModernTileCard
                 key={p.id}
+                id={p.id}
+                tag={`MARGIN ANALYSIS • ${p.code}`}
+                title={p.name}
+                brief={`Client: ${p.clientName || 'Enterprise Partner'} • Quoted: ${formatCurrency(m.quotedRevenue, m.currency)}`}
+                actionLabel="MARGIN CONTROLS"
+                actionVariant="button"
+                themeId={style.themeId}
+                customGradient={style.customGradient}
+                onChangeTheme={(tId, grad) => handleUpdateTileTheme(p.id, tId, grad)}
                 onClick={() => onSelectProject(p, 'margins')}
-                className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-[#0078d4] dark:hover:border-sky-500 hover:shadow-md transition-all p-4 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
-              >
-                {/* Top Strip Accents */}
-                <div
-                  className={`absolute top-0 left-0 right-0 h-1.5 ${
-                    isNegative
-                      ? 'bg-rose-500'
-                      : isWarning
-                      ? 'bg-amber-500'
-                      : isHigh
-                      ? 'bg-emerald-500'
-                      : 'bg-[#0078d4]'
-                  }`}
-                />
-
-                <div>
-                  {/* Card Header: Code, Status & Client */}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="font-mono text-xs font-bold text-[#003049] dark:text-sky-300 bg-blue-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                      {p.code}
-                    </span>
-
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                        p.status === 'Completed'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : p.status === 'In Progress' || p.status === 'In Assembly'
-                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-sky-300'
-                          : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                      }`}
-                    >
-                      {p.status || 'Active'}
-                    </span>
-                  </div>
-
-                  {/* Project Title */}
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-[#0078d4] dark:group-hover:text-sky-400 transition-colors line-clamp-1">
-                    {p.name}
-                  </h3>
-
-                  {/* Client & Category Subtitle */}
-                  <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    <span className="flex items-center space-x-1 truncate max-w-[150px]">
-                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span className="truncate">{p.clientName || 'Enterprise Partner'}</span>
-                    </span>
-                    <span>•</span>
-                    <span className="truncate">{p.productCategory || 'Engineering'}</span>
-                  </div>
-
-                  {/* MARGIN PROGRESS METER */}
-                  <div className="mt-3.5 bg-slate-50 dark:bg-slate-900/80 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+                onAction={() => onSelectProject(p, 'cost-controls')}
+                listViewLabel="FXTT Grid"
+                onViewListView={() => onSelectProject(p, 'margins')}
+                onViewMargins={() => onSelectProject(p, 'margins')}
+                onViewTimelines={() => onSelectProject(p, 'dashboard')}
+                extraMeta={
+                  <div className="space-y-2.5 pt-1 text-white">
+                    {/* Gross Margin Meter Header */}
                     <div className="flex items-baseline justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/80">
                         Gross Margin
                       </span>
-                      <div className="flex items-baseline space-x-1.5">
-                        <span
-                          className={`text-xl font-black font-mono ${
-                            isNegative
-                              ? 'text-rose-600 dark:text-rose-400'
-                              : isWarning
-                              ? 'text-amber-600 dark:text-amber-400'
-                              : isHigh
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-slate-900 dark:text-slate-100'
-                          }`}
-                        >
+                      <div className="flex items-baseline space-x-1.5 font-mono">
+                        <span className={`text-xl font-black ${isNegative ? 'text-rose-300' : isWarning ? 'text-amber-300' : isHigh ? 'text-emerald-300' : 'text-white'}`}>
                           {m.grossMarginPct}%
                         </span>
-                        <span className="text-[11px] text-slate-400 font-mono">
+                        <span className="text-[11px] text-white/70">
                           / Target {m.targetMargin}%
                         </span>
                       </div>
                     </div>
 
-                    {/* Visual Progress Bar */}
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full mt-2 overflow-hidden">
+                    {/* Progress Bar */}
+                    <div className="w-full bg-black/35 h-2 rounded-full overflow-hidden backdrop-blur-xs">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
                           isNegative
-                            ? 'bg-rose-500'
+                            ? 'bg-rose-400'
                             : isWarning
-                            ? 'bg-amber-500'
+                            ? 'bg-amber-400'
                             : isHigh
-                            ? 'bg-emerald-500'
-                            : 'bg-[#0078d4]'
+                            ? 'bg-emerald-400'
+                            : 'bg-sky-300'
                         }`}
                         style={{ width: `${progressRatio}%` }}
                       />
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 font-medium">
+                    {/* Health Status & Net Margin */}
+                    <div className="flex items-center justify-between text-[10px] text-white/90 font-medium">
                       <span>
-                        Net Margin: <strong className="font-mono text-slate-800 dark:text-slate-200">{m.netMarginPct}%</strong>
+                        Net Margin: <strong className="font-mono text-white">{m.netMarginPct}%</strong>
                       </span>
-                      {isHigh ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center">
-                          <CheckCircle2 className="w-2.5 h-2.5 mr-0.5" /> Optimal Margin
-                        </span>
-                      ) : isWarning ? (
-                        <span className="text-amber-600 dark:text-amber-400 font-bold flex items-center">
-                          <AlertTriangle className="w-2.5 h-2.5 mr-0.5" /> Below Target
-                        </span>
-                      ) : isNegative ? (
-                        <span className="text-rose-600 dark:text-rose-400 font-bold">
-                          Negative Yield
-                        </span>
-                      ) : (
-                        <span className="text-blue-600 dark:text-blue-400 font-bold">
-                          On Track
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 3-COLUMN FINANCIAL STATS */}
-                  <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Revenue</span>
-                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(m.quotedRevenue, m.currency)}
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                        isHigh
+                          ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/40'
+                          : isWarning
+                          ? 'bg-amber-500/30 text-amber-200 border border-amber-400/40'
+                          : isNegative
+                          ? 'bg-rose-500/30 text-rose-200 border border-rose-400/40'
+                          : 'bg-white/20 text-white'
+                      }`}>
+                        {isHigh ? 'Optimal Margin' : isWarning ? 'Below Target' : isNegative ? 'Negative Yield' : 'On Track'}
                       </span>
                     </div>
 
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Total Cost</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                        {formatCurrency(m.totalProjectCost, m.currency)}
-                      </span>
+                    {/* 3-Column Financial Metrics Box */}
+                    <div className="grid grid-cols-3 gap-1.5 pt-1 text-[10px] text-center font-mono">
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg p-1.5 border border-white/10">
+                        <div className="text-[8px] text-white/60 uppercase">Revenue</div>
+                        <div className="font-bold text-white truncate">{formatCurrency(m.quotedRevenue, m.currency)}</div>
+                      </div>
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg p-1.5 border border-white/10">
+                        <div className="text-[8px] text-white/60 uppercase">Total Cost</div>
+                        <div className="font-bold text-white/90 truncate">{formatCurrency(m.totalProjectCost, m.currency)}</div>
+                      </div>
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg p-1.5 border border-white/10">
+                        <div className="text-[8px] text-white/60 uppercase">Gross Profit</div>
+                        <div className={`font-bold truncate ${m.grossProfit >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                          +{formatCurrency(m.grossProfit, m.currency)}
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <span className="text-[10px] text-slate-400 block">Gross Profit</span>
-                      <span
-                        className={`font-mono font-bold ${
-                          m.grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
-                        }`}
-                      >
-                        +{formatCurrency(m.grossProfit, m.currency)}
+                    {/* Linked Cost Items Strip */}
+                    <div className="flex items-center justify-between text-[10px] text-white/80 pt-0.5">
+                      <span className="flex items-center space-x-1">
+                        <Layers className="w-3 h-3 text-white/70" />
+                        <span><strong>{m.itemsCount}</strong> Cost items</span>
+                      </span>
+                      <span className="font-mono text-[9px] text-white/70">
+                        Direct: {formatCurrency(m.directCost, m.currency)}
                       </span>
                     </div>
                   </div>
-
-                  {/* Deliverables / Sourced Breakdown Strip */}
-                  <div className="mt-3 py-1.5 px-2 bg-slate-50/70 dark:bg-slate-900/50 rounded-lg flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                    <span className="flex items-center space-x-1">
-                      <Layers className="w-3 h-3 text-[#0078d4]" />
-                      <span><strong>{m.itemsCount}</strong> Cost items linked</span>
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      Direct: {formatCurrency(m.directCost, m.currency)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card Action Footer */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectProject(p, 'cost-controls');
-                    }}
-                    className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-[#0078d4] dark:hover:text-sky-300 transition-colors flex items-center space-x-1"
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span>Controls</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectProject(p, 'margins');
-                    }}
-                    className="px-3 py-1.5 bg-[#003049] group-hover:bg-[#0078d4] text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
-                  >
-                    <span>Margins</span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                </div>
-              </div>
+                }
+              />
             );
           })}
         </div>

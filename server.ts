@@ -3034,6 +3034,38 @@ async function startServer() {
     }
   });
 
+  app.get('/api/revenue-services', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const services = await postgresService.getRevenueServices(opts);
+      res.json(services);
+    } catch (e: any) {
+      console.error('Failed to get revenue services:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue services', details: e?.message });
+    }
+  });
+
+  app.post('/api/revenue-items/:id/commit-price', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.commitRevenueItemPrice(req.params.id, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to commit revenue price revision:', e);
+      res.status(500).json({ error: 'Failed to commit revenue price revision', details: e?.message });
+    }
+  });
+
+  app.get('/api/revenue-items/:id/price-history', async (req, res) => {
+    try {
+      const history = await postgresService.getRevenueItemPriceHistory(req.params.id);
+      res.json(history);
+    } catch (e: any) {
+      console.error('Failed to get revenue price history:', e);
+      res.status(500).json({ error: 'Failed to fetch revenue price history', details: e?.message });
+    }
+  });
+
   // --- Plan BOQ Line Items ---
   const planBoqRoutes = [
     '/api/project-plans/:planId/boq-items',
@@ -3182,6 +3214,66 @@ async function startServer() {
     }
   });
 
+  // --- Dedicated Competitor Table Endpoints (name, product/service association, pricing, timestamps) ---
+  app.get(['/api/competitor', '/api/competitor-entries'], async (req, res) => {
+    try {
+      const { itemId, itemType, search } = req.query;
+      const entries = await postgresService.getCompetitorEntries({
+        itemId: itemId ? String(itemId) : undefined,
+        itemType: itemType ? String(itemType) : undefined,
+        search: search ? String(search) : undefined
+      });
+      res.json(entries);
+    } catch (e: any) {
+      console.error('Failed to get competitor entries:', e);
+      res.status(500).json({ error: 'Failed to fetch competitor entries', details: e?.message });
+    }
+  });
+
+  app.get('/api/competitor/benchmarks-map', async (_req, res) => {
+    try {
+      const map = await postgresService.getAllCompetitorBenchmarksMap();
+      res.json(map);
+    } catch (e: any) {
+      console.error('Failed to get competitor benchmarks map:', e);
+      res.status(500).json({ error: 'Failed to fetch competitor benchmarks map', details: e?.message });
+    }
+  });
+
+  app.post(['/api/competitor', '/api/competitor-entries'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createCompetitorEntry(req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create competitor entry:', e);
+      res.status(500).json({ error: 'Failed to create competitor entry', details: e?.message });
+    }
+  });
+
+  app.put(['/api/competitor/:id', '/api/competitor-entries/:id'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateCompetitorEntry(req.params.id, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Competitor entry not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update competitor entry:', e);
+      res.status(500).json({ error: 'Failed to update competitor entry', details: e?.message });
+    }
+  });
+
+  app.delete(['/api/competitor/:id', '/api/competitor-entries/:id'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      await postgresService.deleteCompetitorEntry(req.params.id, actor);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete competitor entry:', e);
+      res.status(500).json({ error: 'Failed to delete competitor entry', details: e?.message });
+    }
+  });
+
   // --- Product & Revenue Services Competitor Quotes & Matrix APIs ---
   app.get(['/api/products/:id/competitor-quotes', '/api/revenue-items/:id/competitor-quotes', '/api/produce/:id/competitor-quotes'], async (req, res) => {
     try {
@@ -3231,7 +3323,7 @@ async function startServer() {
   app.delete(['/api/products/:id/competitor-quotes/:quoteId', '/api/revenue-items/:id/competitor-quotes/:quoteId', '/api/produce/:id/competitor-quotes/:quoteId'], async (req: any, res) => {
     try {
       const actor = req.user;
-      const result = await postgresService.deleteProductCompetitorQuote(req.params.id, req.params.quoteId, req.body, actor);
+      const result = await postgresService.deleteProductCompetitorQuote(req.params.id, req.params.quoteId, actor);
       res.json(result);
     } catch (e: any) {
       console.error('Failed to delete competitor quote:', e);
@@ -3241,8 +3333,7 @@ async function startServer() {
 
   app.get(['/api/products/:id/competitor-history', '/api/revenue-items/:id/competitor-history', '/api/produce/:id/competitor-history'], async (req, res) => {
     try {
-      const itemType = req.query.itemType ? String(req.query.itemType) : undefined;
-      const history = await postgresService.getProductCompetitorHistory(req.params.id, itemType);
+      const history = await postgresService.getProductCompetitorHistory(req.params.id);
       res.json(history);
     } catch (e: any) {
       console.error('Failed to fetch competitor history:', e);

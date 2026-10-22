@@ -26,6 +26,8 @@ import {
   PlanTariff,
   MeasurementUnit,
   Competitor,
+  CompetitorRecord,
+  CompetitorBenchmarkSummary,
   ProductCompetitorQuote,
   ProductCompetitorPriceHistoryRecord,
   ProjectDeliverableItem
@@ -1449,6 +1451,35 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete revenue catalogue item');
   },
 
+  async getRevenueServices(params?: ListQueryParams): Promise<RevenueItem[]> {
+    const res = await fetch(`/api/revenue-services?${buildQueryString(params, false)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue services');
+    return await res.json();
+  },
+
+  async commitRevenueItemPrice(id: string, payload: {
+    rate?: number;
+    costPrice?: number;
+    effectiveDate?: string;
+    reason?: string;
+    quoteRef?: string;
+    updatedBy?: string;
+  }): Promise<RevenueItem> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(id)}/commit-price`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to commit revenue price revision');
+    return await res.json();
+  },
+
+  async getRevenueItemPriceHistory(id: string): Promise<RevenueRateHistoryRecord[]> {
+    const res = await fetch(`/api/revenue-items/${encodeURIComponent(id)}/price-history`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue price history');
+    return await res.json();
+  },
+
   // --- Plan BOQ Items ---
   async getPlanBoqItems(planId: string, params?: ListQueryParams): Promise<ProjectPlanBoqItem[]> {
     const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items?${buildQueryString(params, false)}`);
@@ -1715,6 +1746,51 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create competitor');
     return await res.json();
+  },
+
+  // --- Dedicated Competitor Table API (name, product/service association, pricing, timestamps) ---
+  async getCompetitorEntries(params?: { itemId?: string; itemType?: string; search?: string }): Promise<CompetitorRecord[]> {
+    const q = new URLSearchParams();
+    if (params?.itemId) q.set('itemId', params.itemId);
+    if (params?.itemType) q.set('itemType', params.itemType);
+    if (params?.search) q.set('search', params.search);
+    const qs = q.toString();
+    const res = await fetch(`/api/competitor${qs ? `?${qs}` : ''}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch competitor entries');
+    return await res.json();
+  },
+
+  async getCompetitorBenchmarksMap(): Promise<Record<string, CompetitorBenchmarkSummary>> {
+    const res = await fetch('/api/competitor/benchmarks-map');
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch competitor benchmarks map');
+    return await res.json();
+  },
+
+  async createCompetitorEntry(data: Partial<CompetitorRecord>): Promise<CompetitorRecord> {
+    const res = await fetch('/api/competitor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create competitor entry');
+    return await res.json();
+  },
+
+  async updateCompetitorEntry(id: string, data: Partial<CompetitorRecord>): Promise<CompetitorRecord> {
+    const res = await fetch(`/api/competitor/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update competitor entry');
+    return await res.json();
+  },
+
+  async deleteCompetitorEntry(id: string): Promise<void> {
+    const res = await fetch(`/api/competitor/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete competitor entry');
   },
 
   async getProductCompetitorQuotes(itemId: string, itemType?: string): Promise<ProductCompetitorQuote[]> {

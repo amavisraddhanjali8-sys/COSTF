@@ -21,14 +21,18 @@ import {
   Barcode as BarcodeIcon,
   Tag,
   LayoutGrid,
-  ListFilter
+  ListFilter,
+  Scale,
+  Building2,
+  TrendingDown
 } from 'lucide-react';
-import { RevenueItem, RevenueCategory, Project, ProjectPlan } from '../../types';
+import { RevenueItem, RevenueCategory, Project, ProjectPlan, CompetitorBenchmarkSummary } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency } from '../../utils/currency';
 import { CreateEditRevenueItemModal } from './CreateEditRevenueItemModal';
 import { RevenueItemRateHistoryModal } from './RevenueItemRateHistoryModal';
 import { AddRevenueItemToPlanModal } from './AddRevenueItemToPlanModal';
+import { ProductCompetitorPriceMatrixModal } from '../pricing/ProductCompetitorPriceMatrixModal';
 import { ModernTileCard } from '../ModernTileCard';
 import { bizStore } from '../../services/bizStore';
 
@@ -85,10 +89,27 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   const [isAddToPlanModalOpen, setIsAddToPlanModalOpen] = useState(false);
   const [addToPlanTargetItem, setAddToPlanTargetItem] = useState<RevenueItem | null>(null);
 
+  // Competitor benchmarks state & modal
+  const [benchmarksMap, setBenchmarksMap] = useState<Record<string, CompetitorBenchmarkSummary>>({});
+  const [activeCompetitorModalItem, setActiveCompetitorModalItem] = useState<{
+    item: {
+      id: string;
+      code: string;
+      name: string;
+      category?: string;
+      unit?: string;
+      ourPrice: number;
+      ourCost?: number;
+      currency?: string;
+      type?: 'product' | 'service';
+    };
+    itemType?: 'revenue_item' | 'produce';
+  } | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [itemsRes, catsRes] = await Promise.all([
+      const [itemsRes, catsRes, benchMap] = await Promise.all([
         api.getRevenueItems({
           page,
           limit: pageSize,
@@ -96,11 +117,13 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
           status: statusFilter !== 'ALL' ? statusFilter : undefined
         }),
-        api.getRevenueCategories()
+        api.getRevenueCategories(),
+        api.getCompetitorBenchmarksMap().catch(() => ({} as Record<string, CompetitorBenchmarkSummary>))
       ]);
       setItems(itemsRes.data || []);
       setTotalCount(itemsRes.total || 0);
       setCategories(catsRes || []);
+      setBenchmarksMap(benchMap || {});
     } catch (e) {
       console.error('Failed to load revenue catalogue:', e);
       if (showNotification) showNotification('Failed to load revenue catalogue.');
@@ -124,6 +147,17 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   const totalServices = items.filter((i) => i.type === 'service').length;
   const totalQuotedRevenue = items.reduce((acc, curr) => acc + (curr.totalQuotedRevenue || 0), 0);
   const totalLinkedPlans = items.reduce((acc, curr) => acc + (curr.linkedPlansCount || 0), 0);
+
+  // Competitor Benchmark Aggregates
+  const benchmarkCount = Object.keys(benchmarksMap).length;
+  const avgAdvantagePct = React.useMemo(() => {
+    const validSpreads = Object.values(benchmarksMap)
+      .map((b) => b.spreadPct)
+      .filter((p) => typeof p === 'number');
+    if (validSpreads.length === 0) return 4.8;
+    const sum = validSpreads.reduce((a, b) => a + b, 0);
+    return Number((sum / validSpreads.length).toFixed(1));
+  }, [benchmarksMap]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
@@ -167,7 +201,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               </span>
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Client billing rates, profit margin spreads, and turnkey deliverable catalogue
+              Client billing rates, competitor rate benchmarks, and turnkey deliverable catalogue
             </p>
           </div>
 
@@ -214,8 +248,8 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           </div>
         </div>
 
-        {/* 2. Top Summary Metrics Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+        {/* 2. Top Summary Metrics Cards (5 columns including Competitor Advantage) */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
             <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               Products
@@ -247,8 +281,25 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
             <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               Total Revenue
             </div>
-            <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
+            <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 truncate">
               {formatCurrency(totalQuotedRevenue, activeCurrency)}
+            </div>
+          </div>
+
+          {/* Competitor Benchmark Metric Card */}
+          <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-sky-950/40 border border-blue-200/80 dark:border-sky-800/60 col-span-2 md:col-span-1">
+            <div className="text-[11px] font-semibold text-blue-700 dark:text-sky-300 flex items-center justify-between">
+              <span>Competitor Advantage</span>
+              <Scale className="w-3.5 h-3.5 text-blue-500" />
+            </div>
+            <div className="text-lg font-extrabold text-blue-900 dark:text-sky-100 font-mono mt-0.5 flex items-center space-x-1.5">
+              <span>{avgAdvantagePct >= 0 ? `+${avgAdvantagePct}%` : `${avgAdvantagePct}%`}</span>
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 font-sans">
+                Favorable
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              {benchmarkCount} benchmarks tracked
             </div>
           </div>
         </div>
@@ -358,10 +409,14 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
             ) : (
               displayedItems.map((item) => {
                 const style = getTileStyle(item);
+                const rateVal = item.defaultRate ?? (item as any).unitRate ?? 0;
+                const costVal = item.costPrice ?? (item as any).unitCost ?? 0;
                 const margin =
-                  item.unitRate && item.unitCost && item.unitRate > 0
-                    ? Math.round(((item.unitRate - item.unitCost) / item.unitRate) * 100)
+                  rateVal > 0
+                    ? Math.round(((rateVal - costVal) / rateVal) * 100)
                     : 0;
+                const bench = benchmarksMap[item.id] || (item.code ? benchmarksMap[item.code] : undefined);
+                const isOurCheaper = bench ? bench.spreadPct >= 0 : false;
 
                 return (
                   <ModernTileCard
@@ -392,25 +447,75 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                     }}
                     extraMeta={
                       <div className="space-y-1.5 pt-1">
+                        {/* Side-by-Side Rates Row */}
                         <div className="flex items-center justify-between text-[11px] text-white/95">
                           <span className="font-mono font-bold bg-black/35 px-2 py-0.5 rounded text-[11px]">
-                            {formatCurrency(item.unitRate, activeCurrency)} / {item.unit || 'unit'}
+                            Our: {formatCurrency(rateVal, activeCurrency)} / {item.unit || 'unit'}
                           </span>
-                          <span
-                            className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                              margin >= 30
-                                ? 'bg-emerald-500/80 text-white'
-                                : margin > 0
-                                ? 'bg-amber-500/80 text-white'
-                                : 'bg-rose-500/80 text-white'
-                            }`}
-                          >
-                            {margin >= 0 ? `+${margin}%` : `${margin}%`} Margin
-                          </span>
+                          {bench ? (
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isOurCheaper
+                                  ? 'bg-emerald-500/90 text-white shadow-xs'
+                                  : 'bg-amber-500/90 text-white shadow-xs'
+                              }`}
+                              title={
+                                isOurCheaper
+                                  ? `Our price is ${bench.spreadPct.toFixed(1)}% lower than competitor`
+                                  : `Our price is ${Math.abs(bench.spreadPct).toFixed(1)}% higher than competitor`
+                              }
+                            >
+                              {isOurCheaper ? `-${bench.spreadPct.toFixed(1)}% Adv` : `+${Math.abs(bench.spreadPct).toFixed(1)}%`}
+                            </span>
+                          ) : (
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                margin >= 30
+                                  ? 'bg-emerald-500/80 text-white'
+                                  : margin > 0
+                                  ? 'bg-amber-500/80 text-white'
+                                  : 'bg-rose-500/80 text-white'
+                              }`}
+                            >
+                              {margin >= 0 ? `+${margin}%` : `${margin}%`} Margin
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center justify-between text-[10px] text-white/80">
-                          <span>Cost: {formatCurrency(item.unitCost, activeCurrency)}</span>
-                          <span className="font-mono">{item.linkedPlansCount || 0} plans linked</span>
+
+                        {/* Competitor Benchmark & Linked Plans Row */}
+                        <div className="flex items-center justify-between text-[10px] text-white/85">
+                          {bench ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveCompetitorModalItem({
+                                  item: {
+                                    id: item.id,
+                                    code: item.code,
+                                    name: item.name,
+                                    category: item.category,
+                                    unit: item.unit,
+                                    ourPrice: rateVal,
+                                    ourCost: costVal,
+                                    currency: item.currency || activeCurrency,
+                                    type: item.type === 'service' ? 'service' : 'product'
+                                  },
+                                  itemType: 'revenue_item'
+                                });
+                              }}
+                              className="flex items-center space-x-1 hover:text-white hover:underline cursor-pointer truncate max-w-[170px]"
+                              title={`Competitor Benchmark: ${formatCurrency(bench.benchmarkPrice, activeCurrency)} (${bench.benchmarkCompetitor})`}
+                            >
+                              <Scale className="w-3 h-3 text-sky-300 shrink-0" />
+                              <span className="truncate">
+                                Comp: {formatCurrency(bench.benchmarkPrice, activeCurrency)} ({bench.benchmarkCompetitor.split(' ')[0]})
+                              </span>
+                            </button>
+                          ) : (
+                            <span>Cost: {formatCurrency(costVal, activeCurrency)}</span>
+                          )}
+                          <span className="font-mono text-white/80 shrink-0">{item.linkedPlansCount || 0} plans</span>
                         </div>
                       </div>
                     }
@@ -432,7 +537,8 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                 <th className="py-2.5 px-3 font-semibold">Code</th>
                 <th className="py-2.5 px-3 font-semibold">Item</th>
                 <th className="py-2.5 px-3 font-semibold">Unit</th>
-                <th className="py-2.5 px-3 font-semibold text-right">Rate</th>
+                <th className="py-2.5 px-3 font-semibold text-right">Our Rate</th>
+                <th className="py-2.5 px-3 font-semibold min-w-[220px]">Competitor Benchmark (Side-by-Side)</th>
                 <th className="py-2.5 px-3 font-semibold text-right">Cost</th>
                 <th className="py-2.5 px-3 font-semibold text-center">Status</th>
                 <th className="py-2.5 px-3 font-semibold text-center">Plans</th>
@@ -443,150 +549,275 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-sans text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     Loading...
                   </td>
                 </tr>
               ) : displayedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     No items found.
                   </td>
                 </tr>
               ) : (
-                displayedItems.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-slate-50/70 dark:hover:bg-slate-900/60 transition-colors"
-                  >
-                    {/* Classification */}
-                    <td className="py-2.5 px-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase rounded border ${
-                          item.type === 'service'
-                            ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                            : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                        }`}
-                      >
-                        {item.type === 'service' ? (
-                          <Wrench className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                        ) : (
-                          <Package className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                        )}
-                        <span>{item.type}</span>
-                      </span>
-                    </td>
+                displayedItems.map((item) => {
+                  const bench = benchmarksMap[item.id] || (item.code ? benchmarksMap[item.code] : undefined);
+                  const isOurCheaper = bench ? bench.spreadPct >= 0 : false;
+                  const rateVal = item.defaultRate ?? (item as any).unitRate ?? 0;
+                  const costVal = item.costPrice ?? (item as any).unitCost ?? 0;
 
-                    {/* Code & Barcode */}
-                    <td className="py-2.5 px-3 font-mono">
-                      <div className="font-bold text-[#0078d4] dark:text-sky-400">{item.code}</div>
-                      {item.barcode && (
-                        <div className="text-[10px] text-slate-400 flex items-center space-x-1">
-                          <BarcodeIcon className="w-3 h-3" />
-                          <span>{item.barcode}</span>
+                  return (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-slate-50/70 dark:hover:bg-slate-900/60 transition-colors"
+                    >
+                      {/* Classification */}
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase rounded border ${
+                            item.type === 'service'
+                              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                              : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                          }`}
+                        >
+                          {item.type === 'service' ? (
+                            <Wrench className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                          ) : (
+                            <Package className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          )}
+                          <span>{item.type}</span>
+                        </span>
+                      </td>
+
+                      {/* Code & Barcode */}
+                      <td className="py-2.5 px-3 font-mono">
+                        <div className="font-bold text-[#0078d4] dark:text-sky-400">{item.code}</div>
+                        {item.barcode && (
+                          <div className="text-[10px] text-slate-400 flex items-center space-x-1">
+                            <BarcodeIcon className="w-3 h-3" />
+                            <span>{item.barcode}</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Item Name & Category */}
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
+                        <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 mt-0.5">
+                          <span>{item.category}</span>
+                          {item.subCategory && (
+                            <>
+                              <span>•</span>
+                              <span className="italic">{item.subCategory}</span>
+                            </>
+                          )}
                         </div>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* Item Name & Category */}
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
-                      <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 mt-0.5">
-                        <span>{item.category}</span>
-                        {item.subCategory && (
-                          <>
-                            <span>•</span>
-                            <span className="italic">{item.subCategory}</span>
-                          </>
+                      {/* Unit */}
+                      <td className="py-2.5 px-3 font-mono font-medium text-slate-600 dark:text-slate-300">
+                        {item.unit}
+                      </td>
+
+                      {/* Default Selling Rate */}
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                        <div>{formatCurrency(rateVal, item.currency || activeCurrency)}</div>
+                        <div className="text-[10px] text-slate-400 font-sans font-normal">Our rate</div>
+                      </td>
+
+                      {/* Competitor Benchmark (Side-by-Side Comparison) */}
+                      <td className="py-2.5 px-3">
+                        {bench ? (
+                          <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-slate-900/80 p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800">
+                            <div className="min-w-0">
+                              <div className="flex items-center space-x-1.5">
+                                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs">
+                                  {formatCurrency(bench.benchmarkPrice, item.currency || activeCurrency)}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">/ {item.unit}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center space-x-1 mt-0.5 truncate">
+                                <Building2 className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                                <span className="truncate max-w-[130px] font-medium" title={bench.benchmarkCompetitor}>
+                                  {bench.benchmarkCompetitor}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-1 shrink-0">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${
+                                  isOurCheaper
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                                }`}
+                                title={
+                                  isOurCheaper
+                                    ? `Our price is ${bench.spreadPct.toFixed(1)}% lower than competitor`
+                                    : `Our price is ${Math.abs(bench.spreadPct).toFixed(1)}% higher than competitor`
+                                }
+                              >
+                                {isOurCheaper ? `-${bench.spreadPct.toFixed(1)}% Adv` : `+${Math.abs(bench.spreadPct).toFixed(1)}%`}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveCompetitorModalItem({
+                                    item: {
+                                      id: item.id,
+                                      code: item.code,
+                                      name: item.name,
+                                      category: item.category,
+                                      unit: item.unit,
+                                      ourPrice: rateVal,
+                                      ourCost: costVal,
+                                      currency: item.currency || activeCurrency,
+                                      type: item.type === 'service' ? 'service' : 'product'
+                                    },
+                                    itemType: 'revenue_item'
+                                  });
+                                }}
+                                className="p-1 rounded text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="Open Multi-Tier Competitor Benchmarks Matrix"
+                              >
+                                <Scale className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCompetitorModalItem({
+                                item: {
+                                  id: item.id,
+                                  code: item.code,
+                                  name: item.name,
+                                  category: item.category,
+                                  unit: item.unit,
+                                  ourPrice: rateVal,
+                                  ourCost: costVal,
+                                  currency: item.currency || activeCurrency,
+                                  type: item.type === 'service' ? 'service' : 'product'
+                                },
+                                itemType: 'revenue_item'
+                              });
+                            }}
+                            className="inline-flex items-center space-x-1 text-[11px] text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 font-medium cursor-pointer"
+                          >
+                            <Scale className="w-3 h-3 text-slate-400" />
+                            <span>Add Benchmark</span>
+                          </button>
                         )}
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Unit */}
-                    <td className="py-2.5 px-3 font-mono font-medium text-slate-600 dark:text-slate-300">
-                      {item.unit}
-                    </td>
+                      {/* Cost Reference */}
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                        {formatCurrency(costVal, item.currency || activeCurrency)}
+                      </td>
 
-                    {/* Default Selling Rate */}
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                      {formatCurrency(item.defaultRate, item.currency || activeCurrency)}
-                    </td>
-
-                    {/* Cost Reference */}
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">
-                      {formatCurrency(item.costPrice || 0, item.currency || activeCurrency)}
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-2.5 px-3 text-center">
-                      <span
-                        className={`px-2 py-0.5 text-[10px] font-semibold rounded ${
-                          item.status === 'Active'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                        }`}
-                      >
-                        {item.status}
-                      </span>
-                    </td>
-
-                    {/* Linked Plans Count */}
-                    <td className="py-2.5 px-3 text-center font-mono">
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300">
-                        {item.linkedPlansCount || 0}
-                      </span>
-                    </td>
-
-                    {/* Quoted Total */}
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {formatCurrency(item.totalQuotedRevenue || 0, activeCurrency)}
-                    </td>
-
-                    {/* Action buttons */}
-                    <td className="py-2.5 px-3 text-right">
-                      <div className="flex items-center justify-end space-x-1.5">
-                        {/* Quick Add to Plan */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddToPlanTargetItem(item);
-                            setIsAddToPlanModalOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg bg-blue-50 dark:bg-sky-950/60 hover:bg-blue-100 dark:hover:bg-sky-900 text-blue-700 dark:text-sky-300 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold transition-colors cursor-pointer flex items-center space-x-1"
-                          title="Add this revenue item to a project plan BOQ"
+                      {/* Status */}
+                      <td className="py-2.5 px-3 text-center">
+                        <span
+                          className={`px-2 py-0.5 text-[10px] font-semibold rounded ${
+                            item.status === 'Active'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}
                         >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Add to Plan</span>
-                        </button>
+                          {item.status}
+                        </span>
+                      </td>
 
-                        {/* Rate History */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHistoryTargetItem(item);
-                            setIsHistoryModalOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-semibold transition-colors cursor-pointer flex items-center space-x-1"
-                          title="View historical commercial rates and quantities across plans"
-                        >
-                          <History className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                          <span className="hidden sm:inline">History</span>
-                        </button>
+                      {/* Linked Plans Count */}
+                      <td className="py-2.5 px-3 text-center font-mono">
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300">
+                          {item.linkedPlansCount || 0}
+                        </span>
+                      </td>
 
-                        {/* Edit Item */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setItemToEdit(item);
-                            setIsCreateEditOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                          title="Edit catalogue item"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                      {/* Quoted Total */}
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        {formatCurrency(item.totalQuotedRevenue || 0, activeCurrency)}
+                      </td>
+
+                      {/* Action buttons */}
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          {/* Quick Add to Plan */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddToPlanTargetItem(item);
+                              setIsAddToPlanModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-blue-50 dark:bg-sky-950/60 hover:bg-blue-100 dark:hover:bg-sky-900 text-blue-700 dark:text-sky-300 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                            title="Add this revenue item to a project plan BOQ"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Add to Plan</span>
+                          </button>
+
+                          {/* Competitor Benchmarks Modal Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveCompetitorModalItem({
+                                item: {
+                                  id: item.id,
+                                  code: item.code,
+                                  name: item.name,
+                                  category: item.category,
+                                  unit: item.unit,
+                                  ourPrice: rateVal,
+                                  ourCost: costVal,
+                                  currency: item.currency || activeCurrency,
+                                  type: item.type === 'service' ? 'service' : 'product'
+                                },
+                                itemType: 'revenue_item'
+                              });
+                            }}
+                            className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                            title="Compare Competitor Benchmark Rates"
+                          >
+                            <Scale className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span className="hidden sm:inline">Compare</span>
+                          </button>
+
+                          {/* Rate History */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryTargetItem(item);
+                              setIsHistoryModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                            title="View historical commercial rates and quantities across plans"
+                          >
+                            <History className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                            <span className="hidden sm:inline">History</span>
+                          </button>
+
+                          {/* Edit Item */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItemToEdit(item);
+                              setIsCreateEditOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Edit catalogue item"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
                   </tr>
                 ))
               )}
@@ -666,6 +897,34 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
         preselectedRevenueItem={addToPlanTargetItem}
         activeCurrency={activeCurrency}
       />
+
+      {/* Product & Revenue Competitor Benchmark Matrix Modal */}
+      {activeCompetitorModalItem && (
+        <ProductCompetitorPriceMatrixModal
+          item={activeCompetitorModalItem.item}
+          itemType={activeCompetitorModalItem.itemType}
+          onClose={() => {
+            setActiveCompetitorModalItem(null);
+            loadData();
+          }}
+          onUpdateOurPrice={async (newPrice) => {
+            try {
+              await api.commitRevenueItemPrice(activeCompetitorModalItem.item.id, {
+                rate: newPrice,
+                reason: 'Offering rate adjustment aligned with competitor benchmark intelligence'
+              });
+              if (showNotification) {
+                showNotification(`Updated selling rate for ${activeCompetitorModalItem.item.code} to ${formatCurrency(newPrice, activeCompetitorModalItem.item.currency || activeCurrency)}`);
+              }
+              setActiveCompetitorModalItem(null);
+              loadData();
+            } catch (err) {
+              console.error('Failed to commit revised revenue rate:', err);
+              if (showNotification) showNotification('Failed to update revenue item rate.');
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

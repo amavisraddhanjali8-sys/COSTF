@@ -410,12 +410,20 @@ export interface InventoryTransaction {
 
 export interface ProjectMilestone {
   id: string;
+  projectId?: string;
+  projectCode?: string;
+  projectName?: string;
   name?: string;
   title?: string;
   completed?: boolean;
-  status?: string;
+  status?: 'Completed' | 'In Progress' | 'Not Started' | 'Overdue' | string;
   dueDate?: string;
   date?: string;
+  type?: 'project_deadline' | 'project_start' | 'phase_start' | 'phase_end' | 'deliverable' | 'custom' | string;
+  phaseId?: string;
+  phaseName?: string;
+  budget?: number;
+  description?: string;
 }
 
 export interface ProjectPhase {
@@ -618,6 +626,7 @@ export interface ProductCompetitorQuote {
   competitorId?: string;
   competitorName: string;
   currentPrice: number;
+  competitorPrice?: number;
   currency: string;
   ourPrice: number;
   priceDelta: number;
@@ -626,6 +635,8 @@ export interface ProductCompetitorQuote {
   leadTimeDays: number;
   isBenchmark: boolean;
   lastQuotedDate: string;
+  lastUpdatedDate?: string;
+  effectiveDate?: string;
   status: 'Active' | 'Primary Competitor' | 'Benchmark' | 'Low Cost' | 'Premium Rival' | 'Archived' | string;
   contactEmail?: string;
   contactPhone?: string;
@@ -634,6 +645,51 @@ export interface ProductCompetitorQuote {
   priceHistory?: ProductCompetitorPriceHistoryRecord[];
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface CompetitorRecord {
+  id: string;
+  competitorName: string;
+  itemId: string;
+  itemCode?: string;
+  itemName: string;
+  itemType: 'product' | 'service' | 'produce' | 'revenue_item';
+  productServiceAssociation?: string;
+  pricing: number;
+  currency: string;
+  ourPrice?: number;
+  priceDelta?: number;
+  spreadPct?: number;
+  marketTier?: string;
+  notes?: string;
+  quotedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompetitorBenchmarkSummary {
+  itemId: string;
+  itemCode?: string;
+  itemName: string;
+  itemType: string;
+  ourPrice: number;
+  benchmarkPrice: number;
+  benchmarkCompetitor: string;
+  lowestPrice: number;
+  lowestCompetitor: string;
+  highestPrice: number;
+  highestCompetitor: string;
+  spreadPct: number;
+  priceDelta: number;
+  quotesCount: number;
+  quotes: Array<{
+    id: string;
+    competitorName: string;
+    pricing: number;
+    spreadPct: number;
+    quotedAt?: string;
+    marketTier?: string;
+  }>;
 }
 
 export interface ProductCompetitorPriceHistoryRecord {
@@ -1133,20 +1189,6 @@ export interface CalendarEvent {
   budget?: number;
 }
 
-export interface ProjectMilestone {
-  id: string;
-  projectId: string;
-  projectCode: string;
-  projectName: string;
-  title: string;
-  date: string; // YYYY-MM-DD
-  type: 'project_deadline' | 'project_start' | 'phase_start' | 'phase_end' | 'deliverable' | 'custom';
-  phaseId?: string;
-  phaseName?: string;
-  status: 'Completed' | 'In Progress' | 'Not Started' | 'Overdue';
-  budget?: number;
-  description?: string;
-}
 
 // ============================================================================
 // Centralized Revenue Catalogue & Commercial Rate Tracking (TASK 3)

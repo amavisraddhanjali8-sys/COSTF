@@ -19,6 +19,8 @@ import {
   PlayCircle
 } from 'lucide-react';
 import { Project, ProjectPhase, ProjectMilestone, AppUser, SubcontractorRateItem } from '../../types';
+import { ModernTileCard } from '../ModernTileCard';
+import { themeService } from '../../services/themeService';
 
 interface ProjectTimelinesLandingViewProps {
   projects: Project[];
@@ -34,8 +36,22 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
   subcontractors = []
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'on_track' | 'critical' | 'completed'>('all');
   const [sortBy, setSortBy] = useState<'deadline_asc' | 'progress_desc' | 'name' | 'code'>('deadline_asc');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'on_track' | 'critical' | 'completed'>('all');
+
+  const [tileThemes, setTileThemes] = useState<Record<string, { themeId: string; customGradient?: string }>>({});
+
+  const handleUpdateTileTheme = (id: string, themeId: string, customGradient?: string) => {
+    setTileThemes((prev) => ({ ...prev, [id]: { themeId, customGradient } }));
+    themeService.saveTileTheme(id, themeId, customGradient);
+  };
+
+  const getStyleForProject = (p: Project) => {
+    if (tileThemes[p.id]) return tileThemes[p.id];
+    const saved = themeService.getTileTheme(p.id);
+    if (saved) return saved;
+    return { themeId: p.themeId || 'pacific-sky', customGradient: p.customGradient };
+  };
 
   // Compute timeline metrics for each project
   const timelineCards = useMemo(() => {
@@ -282,160 +298,108 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCards.map((card) => {
             const p = card.project;
             const isCritical = card.scheduleStatus === 'critical';
             const isCompleted = card.scheduleStatus === 'completed';
+            const style = getStyleForProject(p);
 
             return (
-              <div
+              <ModernTileCard
                 key={p.id}
+                id={p.id}
+                tag={`TIMELINE • ${p.code}`}
+                title={p.name}
+                brief={`Client: ${p.clientName || 'Commercial Client'} • ${isCompleted ? 'Delivered' : isCritical ? 'Critical Path' : 'On Schedule'}`}
+                actionLabel="VIEW TIMELINE"
+                actionVariant="button"
+                themeId={style.themeId}
+                customGradient={style.customGradient}
+                onChangeTheme={(tId, grad) => handleUpdateTileTheme(p.id, tId, grad)}
                 onClick={() => onSelectProject(p)}
-                className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-[#0078d4] dark:hover:border-sky-500 hover:shadow-md transition-all p-4 cursor-pointer flex flex-col justify-between group relative overflow-hidden"
-              >
-                {/* Status Color Strip */}
-                <div
-                  className={`absolute top-0 left-0 right-0 h-1.5 ${
-                    isCompleted
-                      ? 'bg-emerald-500'
-                      : isCritical
-                      ? 'bg-amber-500'
-                      : 'bg-[#0078d4]'
-                  }`}
-                />
-
-                <div>
-                  {/* Top Bar: Code, Schedule Badge, Client */}
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="font-mono text-xs font-bold text-[#003049] dark:text-sky-300 bg-blue-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
-                      {p.code}
-                    </span>
-
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center space-x-1 ${
-                        isCompleted
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : isCritical
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-sky-300'
-                      }`}
-                    >
-                      {isCritical && <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />}
-                      <span>{isCompleted ? 'Delivered' : isCritical ? 'Critical Path' : 'On Schedule'}</span>
-                    </span>
-                  </div>
-
-                  {/* Title & Client */}
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 group-hover:text-[#0078d4] dark:group-hover:text-sky-400 transition-colors line-clamp-1">
-                    {p.name}
-                  </h3>
-
-                  <div className="flex items-center space-x-2 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    <span className="flex items-center space-x-1 truncate max-w-[150px]">
-                      <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span className="truncate">{p.clientName || 'Commercial Client'}</span>
-                    </span>
-                    <span>•</span>
-                    <span className="truncate">{p.productCategory || 'Engineering Assembly'}</span>
-                  </div>
-
-                  {/* TIMELINE PROGRESS METER */}
-                  <div className="mt-3.5 bg-slate-50 dark:bg-slate-900/80 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+                onAction={() => onSelectProject(p)}
+                listViewLabel="FXTT Grid"
+                onViewListView={() => onSelectProject(p)}
+                onViewMargins={() => onSelectProject(p)}
+                onViewTimelines={() => onSelectProject(p)}
+                extraMeta={
+                  <div className="space-y-2.5 pt-1 text-white">
+                    {/* Completion Meter Header */}
                     <div className="flex items-baseline justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/80">
                         Schedule Completion
                       </span>
-                      <span className="text-lg font-black font-mono text-slate-900 dark:text-slate-100">
+                      <span className="text-xl font-black font-mono text-white">
                         {card.progressPct}%
                       </span>
                     </div>
 
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full mt-1.5 overflow-hidden">
+                    {/* Progress Bar */}
+                    <div className="w-full bg-black/35 h-2 rounded-full overflow-hidden backdrop-blur-xs">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
                           isCompleted
-                            ? 'bg-emerald-500'
+                            ? 'bg-emerald-400'
                             : isCritical
-                            ? 'bg-amber-500'
-                            : 'bg-[#0078d4]'
+                            ? 'bg-amber-400'
+                            : 'bg-sky-300'
                         }`}
                         style={{ width: `${card.progressPct}%` }}
                       />
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 mt-2 font-medium">
+                    {/* Milestones & Phases Stats */}
+                    <div className="flex items-center justify-between text-[10px] text-white/90 font-medium">
                       <span className="flex items-center space-x-1">
-                        <Flag className="w-3 h-3 text-purple-600" />
+                        <Flag className="w-3 h-3 text-white/80" />
                         <span><strong>{card.completedMilestones}</strong> of {card.totalMilestones || 4} Milestones</span>
                       </span>
-
                       <span className="flex items-center space-x-1">
-                        <Layers className="w-3 h-3 text-blue-600" />
+                        <Layers className="w-3 h-3 text-white/80" />
                         <span>{card.totalPhases || 3} Phases</span>
                       </span>
                     </div>
-                  </div>
 
-                  {/* TIMELINE DATES & COUNTDOWN */}
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Start Date</span>
-                      <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 text-[11px]">
-                        {card.startDate}
-                      </span>
-                    </div>
-
-                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Delivery Deadline</span>
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 text-[11px]">
-                          {card.deadline}
+                    {/* Start Date & Deadline Countdown Box */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-0.5 text-[10px]">
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg p-1.5 border border-white/10">
+                        <span className="text-[8px] text-white/60 block uppercase">Start Date</span>
+                        <span className="font-mono font-semibold text-white truncate block">
+                          {card.startDate}
                         </span>
-                        {!isCompleted && card.diffDays > 0 && (
-                          <span className={`text-[9px] px-1 py-0.2 rounded font-bold ${
-                            card.diffDays <= 14 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {card.diffDays}d left
+                      </div>
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg p-1.5 border border-white/10">
+                        <span className="text-[8px] text-white/60 block uppercase">Deadline</span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-semibold text-white truncate">
+                            {card.deadline}
                           </span>
-                        )}
+                          {!isCompleted && card.diffDays > 0 && (
+                            <span className={`text-[8px] px-1 py-0.2 rounded font-bold ${
+                              card.diffDays <= 14 ? 'bg-amber-400/30 text-amber-200 border border-amber-300/40' : 'bg-white/20 text-white'
+                            }`}>
+                              {card.diffDays}d
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+
+                    {/* Active Phase Pill */}
+                    {card.activePhase && (
+                      <div className="bg-black/25 backdrop-blur-xs rounded-lg px-2 py-1 border border-white/10 flex items-center justify-between text-[10px]">
+                        <span className="text-white/90 truncate font-medium">
+                          Active: <strong>{card.activePhase.name}</strong>
+                        </span>
+                        <span className="text-[9px] text-white/70 font-mono shrink-0 ml-1">
+                          Phase {card.activePhase.order || 1}
+                        </span>
+                      </div>
+                    )}
                   </div>
-
-                  {/* ACTIVE PHASE BANNER */}
-                  {card.activePhase && (
-                    <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-600 dark:text-slate-300 font-medium truncate">
-                        Active: <strong className="text-[#003049] dark:text-sky-300">{card.activePhase.name}</strong>
-                      </span>
-                      <span className="text-[10px] text-blue-700 dark:text-sky-400 font-bold shrink-0 ml-1">
-                        Phase {card.activePhase.order || 1}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Card Action Footer */}
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <div className="text-[11px] text-slate-500 flex items-center space-x-1">
-                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Gantt Schedule</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectProject(p);
-                    }}
-                    className="px-3 py-1.5 bg-[#003049] group-hover:bg-[#0078d4] text-white text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 shadow-2xs cursor-pointer"
-                  >
-                    <span>Timeline</span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                </div>
-              </div>
+                }
+              />
             );
           })}
         </div>

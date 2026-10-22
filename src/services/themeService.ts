@@ -172,3 +172,37 @@ export function initThemeListener(): () => void {
   applyThemeToDocument(current);
   return () => {};
 }
+
+/**
+ * Tile Theme Overrides
+ */
+export function getTileTheme(id: string): { themeId: string; customGradient?: string } | null {
+  try {
+    const raw = localStorage.getItem('fxtt_tile_theme_overrides');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed[id]) return parsed[id];
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function saveTileTheme(id: string, themeId: string, customGradient?: string): void {
+  try {
+    const raw = localStorage.getItem('fxtt_tile_theme_overrides');
+    const existing = raw ? JSON.parse(raw) : {};
+    existing[id] = { themeId, customGradient };
+    localStorage.setItem('fxtt_tile_theme_overrides', JSON.stringify(existing));
+  } catch (e) {}
+}
+
+export const themeService = {
+  getStoredThemeMode,
+  isDarkEffective,
+  applyThemeToDocument,
+  setStoredThemeMode,
+  initThemeListener,
+  getTileTheme,
+  saveTileTheme
+};
+

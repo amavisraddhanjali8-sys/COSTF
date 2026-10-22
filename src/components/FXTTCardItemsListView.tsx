@@ -38,7 +38,8 @@ import {
   Sliders,
   LayoutGrid,
   List,
-  Info
+  Info,
+  Scale
 } from 'lucide-react';
 import {
   MaterialItem,
@@ -54,6 +55,7 @@ import {
   RevenueItem
 } from '../types';
 import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal';
+import { ProductCompetitorPriceMatrixModal } from './pricing/ProductCompetitorPriceMatrixModal';
 import { VendorLatestRangesModal } from './VendorLatestRangesModal';
 import { RevisionChangesAuditModal } from './RevisionChangesAuditModal';
 import { ItemImageViewerModal } from './ItemImageViewerModal';
@@ -227,6 +229,22 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
   // Multi-Vendor / Multi-Provider Price Matrix modal state
   const [activeVendorMatrixMaterial, setActiveVendorMatrixMaterial] = useState<MaterialItem | null>(null);
+
+  // Dedicated Product & Revenue Competitor Benchmark Matrix Modal state
+  const [activeCompetitorModalItem, setActiveCompetitorModalItem] = useState<{
+    item: {
+      id: string;
+      code: string;
+      name: string;
+      category?: string;
+      unit?: string;
+      ourPrice: number;
+      ourCost?: number;
+      currency?: string;
+      type?: 'product' | 'service';
+    };
+    itemType?: 'revenue_item' | 'produce';
+  } | null>(null);
 
   // Dedicated Ranges Simulation Modal state
   const [activeRangesVendor, setActiveRangesVendor] = useState<{
@@ -764,7 +782,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     return { material: fallbackMat, quotes: fallbackMat.vendorQuotes || [] };
   };
 
-  // Open Multi-Vendor / Multi-Provider Price Matrix modal or Project Details
+  // Open Multi-Vendor / Multi-Provider Price Matrix modal or Project Details or Competitor Benchmark
   const handleViewItem = (row: FXTTGridRow) => {
     if (cardType === 'client' || row.itemType === 'project') {
       if (row.rawItem) {
@@ -775,6 +793,33 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       }
       return;
     }
+
+    // Products and Revenue Deliverables do not have suppliers/vendors; they only have Our Rates vs Competitor Benchmarks
+    if (
+      row.itemType === 'final_product' ||
+      row.itemType === 'produce' ||
+      row.itemType === 'revenue' ||
+      cardType === 'product_category' ||
+      cardType === 'produce' ||
+      cardType === 'revenue'
+    ) {
+      setActiveCompetitorModalItem({
+        item: {
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          category: row.category,
+          unit: row.unit,
+          ourPrice: row.retailPrice || Number((Number(row.rate) * 1.35).toFixed(2)),
+          ourCost: row.rate,
+          currency: 'USD',
+          type: row.itemType === 'service' ? 'service' : 'product'
+        },
+        itemType: row.itemType === 'produce' || cardType === 'produce' ? 'produce' : 'revenue_item'
+      });
+      return;
+    }
+
     const { material, quotes } = buildItemMaterialAndQuotes(row);
     material.vendorQuotes = quotes;
     setActiveVendorMatrixMaterial(material);
@@ -782,6 +827,31 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
   // Open Dedicated Volume Ranges Simulation Modal
   const handleOpenRangesModal = (row: FXTTGridRow) => {
+    if (
+      row.itemType === 'final_product' ||
+      row.itemType === 'produce' ||
+      row.itemType === 'revenue' ||
+      cardType === 'product_category' ||
+      cardType === 'produce' ||
+      cardType === 'revenue'
+    ) {
+      setActiveCompetitorModalItem({
+        item: {
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          category: row.category,
+          unit: row.unit,
+          ourPrice: row.retailPrice || Number((Number(row.rate) * 1.35).toFixed(2)),
+          ourCost: row.rate,
+          currency: 'USD',
+          type: row.itemType === 'service' ? 'service' : 'product'
+        },
+        itemType: row.itemType === 'produce' || cardType === 'produce' ? 'produce' : 'revenue_item'
+      });
+      return;
+    }
+
     const { material, quotes } = buildItemMaterialAndQuotes(row);
     const targetVendor =
       quotes.find(
@@ -3284,6 +3354,8 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                       ? 'Service Provider Firm & Hub'
                       : cardType === 'subcontractor'
                       ? 'Subcontractor Partner & Crew Hub'
+                      : cardType === 'product_category' || cardType === 'produce' || cardType === 'revenue'
+                      ? 'Competitor Benchmark'
                       : 'Country / Supplier'}
                   </span>
                   <ArrowUpDown className="w-3 h-3 text-slate-400" />
@@ -3883,9 +3955,20 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                               type="button"
                               onClick={() => handleViewItem(row)}
                               className="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-[#0077b6] border border-blue-200 rounded text-[10px] font-normal transition-colors cursor-pointer flex items-center space-x-1"
-                              title="View Multi-Vendor / Multi-Provider Comparison Matrix"
+                              title={
+                                row.itemType === 'final_product' || row.itemType === 'produce' || row.itemType === 'revenue' || cardType === 'product_category' || cardType === 'produce' || cardType === 'revenue'
+                                  ? 'View Competitor Benchmark Matrix & Discount Ranges'
+                                  : 'View Multi-Vendor / Multi-Provider Comparison Matrix'
+                              }
                             >
-                              <span>Matrix</span>
+                              {(row.itemType === 'final_product' || row.itemType === 'produce' || row.itemType === 'revenue' || cardType === 'product_category' || cardType === 'produce' || cardType === 'revenue') && (
+                                <Scale className="w-3 h-3 text-[#0077b6]" />
+                              )}
+                              <span>
+                                {row.itemType === 'final_product' || row.itemType === 'produce' || row.itemType === 'revenue' || cardType === 'product_category' || cardType === 'produce' || cardType === 'revenue'
+                                  ? 'Competitors'
+                                  : 'Matrix'}
+                              </span>
                             </button>
                             <button
                               type="button"
@@ -4221,6 +4304,24 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           onUpdateMaterial={handleUpdateMatrixMaterial}
           onUpdateMaterialPrice={handleCommitPrice}
           onAddSupplier={onAddSupplier}
+        />
+      )}
+
+      {/* 6b. DEDICATED PRODUCT & REVENUE COMPETITOR BENCHMARK MATRIX MODAL */}
+      {activeCompetitorModalItem && (
+        <ProductCompetitorPriceMatrixModal
+          item={activeCompetitorModalItem.item}
+          itemType={activeCompetitorModalItem.itemType}
+          onClose={() => setActiveCompetitorModalItem(null)}
+          onUpdateOurPrice={(newPrice) => {
+            handleCommitPrice(
+              activeCompetitorModalItem.item.id,
+              newPrice,
+              'Offering price adjustment aligned with competitor benchmarks'
+            );
+            setActiveCompetitorModalItem(null);
+            showNotification(`Updated rate for ${activeCompetitorModalItem.item.code} to $${newPrice.toLocaleString()}`);
+          }}
         />
       )}
 

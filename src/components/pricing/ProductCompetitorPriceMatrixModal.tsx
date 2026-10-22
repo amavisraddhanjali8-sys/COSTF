@@ -61,7 +61,7 @@ export interface ProductCompetitorPriceMatrixModalProps {
     type?: 'product' | 'service';
     volumePricing?: VolumePriceTier[];
   };
-  itemType?: 'revenue_item' | 'produce';
+  itemType?: 'product' | 'service' | 'produce' | 'revenue_item';
   onClose: () => void;
   onUpdateOurPrice?: (newPrice: number, newCost?: number) => void;
   currentUser?: AppUser | null;
@@ -150,8 +150,9 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
 
   // Open Edit Price / Ranges Modal for a competitor
   const handleOpenEditPrice = (quote: ProductCompetitorQuote) => {
+    const p = quote.competitorPrice ?? quote.currentPrice ?? 0;
     setEditingQuote(quote);
-    setEditPrice(quote.competitorPrice);
+    setEditPrice(p);
     setEditEffectiveDate(new Date().toISOString().slice(0, 10));
     setEditQuoteRef(`COMP-${item.code}-${Date.now().toString().slice(-4)}`);
     setEditReason('Quarterly Benchmark Update');
@@ -160,7 +161,6 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     if (quote.volumePricing && quote.volumePricing.length > 0) {
       setEditTiers(JSON.parse(JSON.stringify(quote.volumePricing)));
     } else {
-      const p = quote.competitorPrice;
       setEditTiers([
         { minQty: 1, maxQty: 100, unitPrice: p, discountPct: 0, label: '1 - 100 (Standard)' },
         { minQty: 101, maxQty: 500, unitPrice: Number((p * 0.95).toFixed(2)), discountPct: 5, label: '101 - 500 (Mid Tier)' },
@@ -263,7 +263,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
       ];
 
       await api.createProductCompetitorQuote(item.id, {
-        itemType,
+        itemType: (itemType as 'product' | 'service' | 'produce' | 'revenue_item') || 'revenue_item',
         competitorId: selectedCompetitorId !== 'new' ? selectedCompetitorId : undefined,
         competitorName: compName,
         competitorPrice: baseP,
@@ -294,30 +294,54 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
 
   // Export full competitor comparison CSV
   const handleExportCSV = () => {
+    const headers = [
+      'Product / Service Code',
+      'Item Name',
+      'Category',
+      'Unit',
+      'Our Selling Price',
+      'Our Direct Cost',
+      'Our Target Margin %',
+      'Competitor Name',
+      'Competitor Quoted Rate',
+      'Price Spread ($)',
+      'Spread vs Our Rate (%)',
+      'Position',
+      'Active Tiers Count',
+      'Tier 1 (1-100)',
+      'Tier 2 (101-500)',
+      'Tier 3 (501+)',
+      'Last Revision Date'
+    ];
+
     const rows = quotes.map((q) => {
-      const spread = q.spreadPct;
-      return {
-        'Product / Service Code': item.code,
-        'Item Name': item.name,
-        'Category': item.category || 'Direct Offering',
-        'Unit': item.unit || 'pcs',
-        'Our Selling Price': `$${ourPrice.toFixed(2)}`,
-        'Our Direct Cost': `$${ourCost.toFixed(2)}`,
-        'Our Target Margin %': `${ourMarginPct}%`,
-        'Competitor Name': q.competitorName,
-        'Competitor Quoted Rate': `$${q.competitorPrice.toFixed(2)}`,
-        'Price Spread ($)': `$${q.priceDelta.toFixed(2)}`,
-        'Spread vs Our Rate (%)': `${q.spreadPct}%`,
-        'Position': q.competitorPrice < ourPrice ? 'Competitor Cheaper' : 'Our Price Cheaper',
-        'Active Tiers Count': q.volumePricing?.length || 0,
-        'Tier 1 (1-100)': q.volumePricing?.[0] ? `$${q.volumePricing[0].unitPrice.toFixed(2)}` : 'N/A',
-        'Tier 2 (101-500)': q.volumePricing?.[1] ? `$${q.volumePricing[1].unitPrice.toFixed(2)}` : 'N/A',
-        'Tier 3 (501+)': q.volumePricing?.[2] ? `$${q.volumePricing[2].unitPrice.toFixed(2)}` : 'N/A',
-        'Last Revision Date': q.lastUpdatedDate || q.effectiveDate || 'N/A'
-      };
+      const p = q.competitorPrice ?? q.currentPrice ?? 0;
+      return [
+        item.code,
+        item.name,
+        item.category || 'Direct Offering',
+        item.unit || 'pcs',
+        `$${ourPrice.toFixed(2)}`,
+        `$${ourCost.toFixed(2)}`,
+        `${ourMarginPct}%`,
+        q.competitorName,
+        `$${p.toFixed(2)}`,
+        `$${(q.priceDelta || 0).toFixed(2)}`,
+        `${q.spreadPct || 0}%`,
+        p < ourPrice ? 'Competitor Cheaper' : 'Our Price Cheaper',
+        q.volumePricing?.length || 0,
+        q.volumePricing?.[0] ? `$${q.volumePricing[0].unitPrice.toFixed(2)}` : 'N/A',
+        q.volumePricing?.[1] ? `$${q.volumePricing[1].unitPrice.toFixed(2)}` : 'N/A',
+        q.volumePricing?.[2] ? `$${q.volumePricing[2].unitPrice.toFixed(2)}` : 'N/A',
+        q.lastUpdatedDate || q.effectiveDate || q.lastQuotedDate || 'N/A'
+      ];
     });
 
-    downloadCSV(rows, `${item.code}_Competitor_Rate_Comparison_${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadCSV(
+      `${item.code}_Competitor_Rate_Comparison_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows
+    );
   };
 
   return (
