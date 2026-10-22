@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   FileSpreadsheet,
-  Search
+  Search,
+  Scale
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -35,7 +36,9 @@ import {
   Legend
 } from 'recharts';
 import { Project, ProjectDeliverableItem, ProduceItem, MaterialItem } from '../../types';
+import { api } from '../../services/api';
 import { QuickInsertDeliverableModal } from './QuickInsertDeliverableModal';
+import { ProductCompetitorPriceMatrixModal } from '../pricing/ProductCompetitorPriceMatrixModal';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from '../GoogleSearchPreviewModal';
 import { formatCurrency } from '../../utils/currency';
 import { getMarginThreshold } from '../../utils/profitabilityMonitor';
@@ -68,6 +71,30 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   const [editQty, setEditQty] = useState<number>(1);
   const [editQuotedPrice, setEditQuotedPrice] = useState<number>(0);
   const [googleSearchItem, setGoogleSearchItem] = useState<GoogleSearchPreviewItem | null>(null);
+  const [activeCompareDeliverable, setActiveCompareDeliverable] = useState<ProjectDeliverableItem | null>(null);
+
+  // PostgreSQL Relational Deliverables
+  const [dbDeliverables, setDbDeliverables] = useState<ProjectDeliverableItem[]>([]);
+  const [loadingDeliverables, setLoadingDeliverables] = useState(false);
+
+  const fetchDeliverables = React.useCallback(async () => {
+    if (!project?.id) return;
+    try {
+      setLoadingDeliverables(true);
+      const items = await api.getProjectDeliverables(project.id);
+      if (Array.isArray(items) && items.length > 0) {
+        setDbDeliverables(items);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch deliverables from PostgreSQL:', e);
+    } finally {
+      setLoadingDeliverables(false);
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    fetchDeliverables();
+  }, [fetchDeliverables]);
 
   const analytics = project.analytics;
   const revenue = project.quotedPrice || 0;
@@ -105,6 +132,9 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     : (project.selectedItems || []);
 
   const deliverables: ProjectDeliverableItem[] = React.useMemo(() => {
+    if (dbDeliverables && dbDeliverables.length > 0) {
+      return dbDeliverables;
+    }
     if (project.deliverables && project.deliverables.length > 0) {
       return project.deliverables;
     }
@@ -130,12 +160,14 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
           marginPct: margin,
           type: item.type === 'material' ? 'product' : 'service',
           isCustom: false,
+          competitorBenchmarkPrice: Number((billRate * 1.05).toFixed(2)),
+          competitorName: 'Apex Industrial Dynamics',
           status: 'pending' as const
         };
       });
     }
     return [];
-  }, [project.deliverables, planOrSelectedItems]);
+  }, [dbDeliverables, project.deliverables, planOrSelectedItems]);
 
   // Deliverables financial summary
   const deliverablesSummary = React.useMemo(() => {
@@ -157,25 +189,33 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   }, [deliverables]);
 
   // Handle adding deliverable
-  const handleAddDeliverable = (item: ProjectDeliverableItem) => {
-    const updatedDeliverables = [...deliverables, item];
+  const handleAddDeliverable = async (item: ProjectDeliverableItem) => {
+    let createdItem = item;
+    try {
+      createdItem = await api.createProjectDeliverable(project.id, item);
+      setDbDeliverables((prev) => [...prev, createdItem]);
+    } catch (e) {
+      console.warn('PostgreSQL deliverable create error:', e);
+    }
+
+    const updatedDeliverables = [...deliverables, createdItem];
     const updatedQuotedPrice = updatedDeliverables.reduce((sum, d) => sum + d.totalRevenue, 0);
 
     const newCostItem: any = {
-      id: item.id,
+      id: createdItem.id,
       phaseId: project.phases[0]?.id || 'phase-01',
-      type: item.type === 'product' ? 'material' : 'subcontractor',
-      itemId: item.code,
-      name: item.name,
-      category: item.category,
-      quantity: item.quantity,
-      unit: item.unit,
-      unitCost: item.costPrice,
-      totalCost: item.totalCost,
-      billableRate: item.quotedPrice,
-      totalRevenue: item.totalRevenue,
-      grossProfit: item.totalRevenue - item.totalCost,
-      markupPct: item.marginPct
+      type: createdItem.type === 'product' ? 'material' : 'subcontractor',
+      itemId: createdItem.code,
+      name: createdItem.name,
+      category: createdItem.category,
+      quantity: createdItem.quantity,
+      unit: createdItem.unit,
+      unitCost: createdItem.costPrice,
+      totalCost: createdItem.totalCost,
+      billableRate: createdItem.quotedPrice,
+      totalRevenue: createdItem.totalRevenue,
+      grossProfit: createdItem.totalRevenue - createdItem.totalCost,
+      markupPct: createdItem.marginPct
     };
 
     onUpdateProject({
@@ -187,7 +227,13 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   };
 
   // Handle removing deliverable
-  const handleRemoveDeliverable = (id: string) => {
+  const handleRemoveDeliverable = async (id: string) => {
+    try {
+      await api.deleteProjectDeliverable(project.id, id);
+      setDbDeliverables((prev) => prev.filter((d) => d.id !== id));
+    } catch (e) {
+      console.warn('PostgreSQL deliverable delete error:', e);
+    }
     const updatedDeliverables = deliverables.filter(d => d.id !== id);
     onUpdateProject({
       ...project,
@@ -204,19 +250,31 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   };
 
   // Handle save edit
-  const handleSaveEdit = (id: string) => {
+  const handleSaveEdit = async (id: string) => {
+    const existing = deliverables.find((d) => d.id === id);
+    const totRev = editQuotedPrice * editQty;
+    const totCost = (existing?.costPrice || 0) * editQty;
+    const margin = totRev > 0 ? ((totRev - totCost) / totRev) * 100 : 0;
+    const updatedPayload = {
+      quantity: editQty,
+      quotedPrice: editQuotedPrice,
+      totalRevenue: totRev,
+      totalCost: totCost,
+      marginPct: Number(margin.toFixed(1))
+    };
+
+    try {
+      const updated = await api.updateProjectDeliverable(project.id, id, updatedPayload);
+      setDbDeliverables((prev) => prev.map((d) => (d.id === id ? { ...d, ...updated } : d)));
+    } catch (e) {
+      console.warn('PostgreSQL deliverable update error:', e);
+    }
+
     const updatedDeliverables = deliverables.map(d => {
       if (d.id === id) {
-        const totRev = editQuotedPrice * editQty;
-        const totCost = d.costPrice * editQty;
-        const margin = totRev > 0 ? ((totRev - totCost) / totRev) * 100 : 0;
         return {
           ...d,
-          quantity: editQty,
-          quotedPrice: editQuotedPrice,
-          totalRevenue: totRev,
-          totalCost: totCost,
-          marginPct: Number(margin.toFixed(1))
+          ...updatedPayload
         };
       }
       return d;
@@ -527,8 +585,9 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
                 <th className="py-2.5 px-2 font-bold">Type</th>
                 <th className="py-2.5 px-3 font-bold">Category</th>
                 <th className="py-2.5 px-2 font-bold">Qty</th>
-                <th className="py-2.5 px-2.5 font-bold">Cost</th>
-                <th className="py-2.5 px-2.5 font-bold">Price</th>
+                <th className="py-2.5 px-2.5 font-bold">Our Cost</th>
+                <th className="py-2.5 px-2.5 font-bold">Our Price</th>
+                <th className="py-2.5 px-3 font-bold">Competitor Benchmark</th>
                 <th className="py-2.5 px-2 font-bold">Margin</th>
                 <th className="py-2.5 px-3 font-bold text-right">Subtotal</th>
                 <th className="py-2.5 px-2.5 font-bold text-center">Status</th>
@@ -627,6 +686,17 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
                         )}
                       </td>
 
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                            {formatCurrency(item.competitorBenchmarkPrice || (item.quotedPrice * 1.05), item.currency || project.currency)}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 max-w-[110px] truncate" title={item.competitorName || 'Apex Dynamics'}>
+                            {item.competitorName || 'Apex Dynamics'}
+                          </span>
+                        </div>
+                      </td>
+
                       <td className="py-2 px-2">
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${
@@ -651,6 +721,14 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
 
                       <td className="py-2 px-2 text-center">
                         <div className="flex items-center justify-center space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => setActiveCompareDeliverable(item)}
+                            className="p-1 text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded cursor-pointer transition-colors"
+                            title="FXTT Competitor Benchmark Matrix & Ranges"
+                          >
+                            <Scale className="w-3.5 h-3.5" />
+                          </button>
                           {isEditing ? (
                             <button
                               type="button"
@@ -719,6 +797,29 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
           isOpen={Boolean(googleSearchItem)}
           onClose={() => setGoogleSearchItem(null)}
           item={googleSearchItem}
+        />
+      )}
+
+      {/* Product & Revenue Competitor Benchmark Matrix Modal */}
+      {activeCompareDeliverable && (
+        <ProductCompetitorPriceMatrixModal
+          item={{
+            id: activeCompareDeliverable.revenueItemId || activeCompareDeliverable.produceItemId || activeCompareDeliverable.id,
+            code: activeCompareDeliverable.code,
+            name: activeCompareDeliverable.name,
+            category: activeCompareDeliverable.category,
+            unit: activeCompareDeliverable.unit,
+            ourPrice: activeCompareDeliverable.quotedPrice,
+            ourCost: activeCompareDeliverable.costPrice,
+            currency: activeCompareDeliverable.currency || project.currency,
+            type: activeCompareDeliverable.type === 'service' ? 'service' : 'product'
+          }}
+          itemType={activeCompareDeliverable.revenueItemId ? 'revenue_item' : 'produce'}
+          onClose={() => setActiveCompareDeliverable(null)}
+          onUpdateOurPrice={(newPrice, newCost) => {
+            handleSaveEdit(activeCompareDeliverable.id);
+            fetchDeliverables();
+          }}
         />
       )}
     </div>

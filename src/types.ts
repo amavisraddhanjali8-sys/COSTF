@@ -567,6 +567,10 @@ export interface ProjectProfitabilityMetrics {
 
 export interface ProjectDeliverableItem {
   id: string;
+  projectId?: string;
+  planId?: string;
+  revenueItemId?: string;
+  produceItemId?: string;
   code: string;
   name: string;
   type: 'product' | 'service';
@@ -580,10 +584,82 @@ export interface ProjectDeliverableItem {
   totalRevenue: number;
   totalCost: number;
   marginPct: number;
+  competitorBenchmarkPrice?: number;
+  competitorName?: string;
   leadTimeDays?: number;
   status?: 'Planned' | 'In Assembly' | 'Completed' | 'Delivered' | string;
   currency?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export interface Competitor {
+  id: string;
+  name: string;
+  code: string;
+  country?: string;
+  marketTier?: string;
+  contactPerson?: string;
+  email?: string;
+  website?: string;
+  notes?: string;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProductCompetitorQuote {
+  id: string;
+  itemId: string;
+  itemType: 'product' | 'service' | 'produce' | 'revenue_item';
+  itemCode?: string;
+  itemName: string;
+  competitorId?: string;
+  competitorName: string;
+  currentPrice: number;
+  currency: string;
+  ourPrice: number;
+  priceDelta: number;
+  spreadPct: number;
+  moq: number;
+  leadTimeDays: number;
+  isBenchmark: boolean;
+  lastQuotedDate: string;
+  status: 'Active' | 'Primary Competitor' | 'Benchmark' | 'Low Cost' | 'Premium Rival' | 'Archived' | string;
+  contactEmail?: string;
+  contactPhone?: string;
+  notes?: string;
+  volumePricing: VolumePriceTier[];
+  priceHistory?: ProductCompetitorPriceHistoryRecord[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ProductCompetitorPriceHistoryRecord {
+  id: string;
+  quoteId: string;
+  itemId: string;
+  itemType: string;
+  competitorId?: string;
+  competitorName: string;
+  revisionDate: string;
+  price: number;
+  previousPrice?: number;
+  ourPrice?: number;
+  changePct?: number;
+  reason: string;
+  quoteRef?: string;
+  moq?: number;
+  leadTimeDays?: number;
+  updatedBy: string;
+  targetTierLabel?: string;
+  changedTiers?: VolumePriceTier[];
+  tierChanges?: TierChangeDetail[];
+  appliedChangesSummary?: string[];
+  createdAt?: string;
+}
+
 
 export interface PlanTemplate {
   id: string;

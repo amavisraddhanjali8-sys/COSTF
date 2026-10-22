@@ -3161,6 +3161,140 @@ async function startServer() {
     }
   });
 
+  // --- Competitors Registry API (Task: Product Competitor Comparison) ---
+  app.get('/api/competitors', async (_req, res) => {
+    try {
+      const competitors = await postgresService.getCompetitors();
+      res.json(competitors);
+    } catch (e: any) {
+      console.error('Failed to get competitors:', e);
+      res.status(500).json({ error: 'Failed to fetch competitors', details: e?.message });
+    }
+  });
+
+  app.post('/api/competitors', async (req, res) => {
+    try {
+      const created = await postgresService.createCompetitor(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create competitor:', e);
+      res.status(500).json({ error: 'Failed to create competitor', details: e?.message });
+    }
+  });
+
+  // --- Product & Revenue Services Competitor Quotes & Matrix APIs ---
+  app.get(['/api/products/:id/competitor-quotes', '/api/revenue-items/:id/competitor-quotes', '/api/produce/:id/competitor-quotes'], async (req, res) => {
+    try {
+      const itemType = req.query.itemType ? String(req.query.itemType) : undefined;
+      const quotes = await postgresService.getProductCompetitorQuotes(req.params.id, itemType);
+      res.json(quotes);
+    } catch (e: any) {
+      console.error('Failed to fetch competitor quotes:', e);
+      res.status(500).json({ error: 'Failed to fetch competitor quotes', details: e?.message });
+    }
+  });
+
+  app.post(['/api/products/:id/competitor-quotes', '/api/revenue-items/:id/competitor-quotes', '/api/produce/:id/competitor-quotes'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createProductCompetitorQuote(req.params.id, req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create competitor quote:', e);
+      res.status(500).json({ error: 'Failed to create competitor quote', details: e?.message });
+    }
+  });
+
+  app.put(['/api/products/:id/competitor-quotes/:quoteId', '/api/revenue-items/:id/competitor-quotes/:quoteId', '/api/produce/:id/competitor-quotes/:quoteId'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateProductCompetitorQuote(req.params.quoteId, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Competitor quote not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update competitor quote:', e);
+      res.status(500).json({ error: 'Failed to update competitor quote', details: e?.message });
+    }
+  });
+
+  app.post(['/api/products/:id/competitor-quotes/:quoteId/commit-price', '/api/revenue-items/:id/competitor-quotes/:quoteId/commit-price', '/api/produce/:id/competitor-quotes/:quoteId/commit-price'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.commitProductCompetitorPrice(req.params.id, req.params.quoteId, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to commit competitor price revision:', e);
+      res.status(500).json({ error: 'Failed to commit competitor price revision', details: e?.message });
+    }
+  });
+
+  app.delete(['/api/products/:id/competitor-quotes/:quoteId', '/api/revenue-items/:id/competitor-quotes/:quoteId', '/api/produce/:id/competitor-quotes/:quoteId'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.deleteProductCompetitorQuote(req.params.id, req.params.quoteId, req.body, actor);
+      res.json(result);
+    } catch (e: any) {
+      console.error('Failed to delete competitor quote:', e);
+      res.status(500).json({ error: 'Failed to delete competitor quote', details: e?.message });
+    }
+  });
+
+  app.get(['/api/products/:id/competitor-history', '/api/revenue-items/:id/competitor-history', '/api/produce/:id/competitor-history'], async (req, res) => {
+    try {
+      const itemType = req.query.itemType ? String(req.query.itemType) : undefined;
+      const history = await postgresService.getProductCompetitorHistory(req.params.id, itemType);
+      res.json(history);
+    } catch (e: any) {
+      console.error('Failed to fetch competitor history:', e);
+      res.status(500).json({ error: 'Failed to fetch competitor history', details: e?.message });
+    }
+  });
+
+  // --- Project Deliverables Relational API ---
+  app.get('/api/projects/:projectId/deliverables', async (req, res) => {
+    try {
+      const deliverables = await postgresService.getProjectDeliverables(req.params.projectId);
+      res.json(deliverables);
+    } catch (e: any) {
+      console.error('Failed to fetch project deliverables:', e);
+      res.status(500).json({ error: 'Failed to fetch project deliverables', details: e?.message });
+    }
+  });
+
+  app.post('/api/projects/:projectId/deliverables', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createProjectDeliverable(req.params.projectId, req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create project deliverable:', e);
+      res.status(500).json({ error: 'Failed to create project deliverable', details: e?.message });
+    }
+  });
+
+  app.put('/api/projects/:projectId/deliverables/:deliverableId', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateProjectDeliverable(req.params.projectId, req.params.deliverableId, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Deliverable not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update project deliverable:', e);
+      res.status(500).json({ error: 'Failed to update project deliverable', details: e?.message });
+    }
+  });
+
+  app.delete('/api/projects/:projectId/deliverables/:deliverableId', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.deleteProjectDeliverable(req.params.projectId, req.params.deliverableId, actor);
+      res.json(result);
+    } catch (e: any) {
+      console.error('Failed to delete project deliverable:', e);
+      res.status(500).json({ error: 'Failed to delete project deliverable', details: e?.message });
+    }
+  });
+
   // Calculate ad-hoc scenario with Python Analytics
   app.post('/api/analytics/calculate', (req, res) => {
     const results = runPythonAnalytics(req.body);

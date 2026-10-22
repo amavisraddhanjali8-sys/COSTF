@@ -27,8 +27,10 @@ import {
   SubcontractorRateItem,
   OutsourcedService,
   ProjectCostItem,
-  Project
+  Project,
+  RevenueItem
 } from '../../types';
+import { api } from '../../services/api';
 import {
   SUPPORTED_CURRENCIES,
   getStoredCurrency,
@@ -42,6 +44,7 @@ interface QuickInsertDeliverableModalProps {
   onClose: () => void;
   project?: Project;
   produceItems?: ProduceItem[];
+  revenueItems?: RevenueItem[];
   materials?: MaterialItem[];
   subcontractors?: SubcontractorRateItem[];
   outsourcedServices?: OutsourcedService[];
@@ -56,6 +59,7 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
   onClose,
   project,
   produceItems = [],
+  revenueItems: initialRevenueItems = [],
   materials = [],
   subcontractors = [],
   outsourcedServices = [],
@@ -64,6 +68,17 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
   onAddCostItem,
   projectCurrency
 }) => {
+  const [dbRevenueItems, setDbRevenueItems] = useState<RevenueItem[]>(initialRevenueItems);
+
+  React.useEffect(() => {
+    if (initialRevenueItems.length > 0) {
+      setDbRevenueItems(initialRevenueItems);
+    } else if (isOpen) {
+      api.getRevenueItemsList().then((items) => {
+        if (Array.isArray(items)) setDbRevenueItems(items);
+      }).catch((e) => console.warn('Failed to load revenue items in quick insert modal:', e));
+    }
+  }, [isOpen, initialRevenueItems]);
   const [activeTab, setActiveTab] = useState<'all' | 'product' | 'service' | 'material' | 'scratch'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -128,7 +143,27 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
         retailPrice: p.retailPrice || 0,
         leadTimeDays: p.leadTimeDays || 14,
         inStock: undefined,
-        raw: p
+        raw: { ...p, isProduce: true, produceItemId: p.id }
+      });
+    });
+
+    // Products and Revenue Services from PostgreSQL Revenue Items Catalog
+    dbRevenueItems.forEach((r) => {
+      list.push({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        type: r.type === 'service' ? 'service' : 'product',
+        category: r.category || (r.type === 'service' ? 'Revenue Services' : 'Revenue Products'),
+        subCategory: r.subCategory,
+        description: r.description || `Revenue ${r.type}: ${r.name}`,
+        unit: r.unit || (r.type === 'service' ? 'hours' : 'pcs'),
+        costPrice: r.costPrice || (r.defaultRate > 0 ? Number((r.defaultRate * 0.65).toFixed(2)) : 0),
+        retailPrice: r.defaultRate || 0,
+        leadTimeDays: 7,
+        inStock: undefined,
+        supplierOrProvider: undefined,
+        raw: { ...r, isRevenueItem: true, revenueItemId: r.id }
       });
     });
 
@@ -191,7 +226,7 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
     });
 
     return list;
-  }, [produceItems, materials, subcontractors, outsourcedServices]);
+  }, [produceItems, dbRevenueItems, materials, subcontractors, outsourcedServices]);
 
   // Unique categories for filtering
   const uniqueCategories = useMemo(() => {
@@ -288,9 +323,12 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
       };
       onAddCostItem(costItem);
     } else {
-      // Add as deliverable (product or service)
+      // Add as deliverable (product or service connected to PostgreSQL)
       const newDeliverable: ProjectDeliverableItem = {
         id: `deliv-${Date.now()}`,
+        projectId: project?.id,
+        revenueItemId: selectedItem.raw?.revenueItemId || (selectedItem.raw?.defaultRate !== undefined ? selectedItem.id : undefined),
+        produceItemId: selectedItem.raw?.isProduce ? selectedItem.id : undefined,
         code: selectedItem.code,
         name: selectedItem.name,
         type: selectedItem.type === 'material' ? 'product' : selectedItem.type,
@@ -304,6 +342,8 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
         totalRevenue: totRev,
         totalCost: totCost,
         marginPct: Number(margin.toFixed(1)),
+        competitorBenchmarkPrice: Number((unitRev * 1.05).toFixed(2)),
+        competitorName: 'Apex Industrial Dynamics',
         leadTimeDays: selectedItem.leadTimeDays,
         status,
         currency

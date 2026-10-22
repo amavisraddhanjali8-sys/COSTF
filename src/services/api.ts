@@ -24,7 +24,11 @@ import {
   Tariff,
   TariffVersion,
   PlanTariff,
-  MeasurementUnit
+  MeasurementUnit,
+  Competitor,
+  ProductCompetitorQuote,
+  ProductCompetitorPriceHistoryRecord,
+  ProjectDeliverableItem
 } from '../types';
 import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
@@ -1691,6 +1695,118 @@ export const api = {
       method: 'DELETE'
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove tariff from plan');
+  },
+
+  // ============================================================================
+  // PRODUCT & REVENUE COMPETITOR BENCHMARK & COMPARISON API
+  // ============================================================================
+
+  async getCompetitors(): Promise<Competitor[]> {
+    const res = await fetch('/api/competitors');
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch competitors');
+    return await res.json();
+  },
+
+  async createCompetitor(data: Partial<Competitor>): Promise<Competitor> {
+    const res = await fetch('/api/competitors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create competitor');
+    return await res.json();
+  },
+
+  async getProductCompetitorQuotes(itemId: string, itemType?: string): Promise<ProductCompetitorQuote[]> {
+    const url = itemType
+      ? `/api/products/${encodeURIComponent(itemId)}/competitor-quotes?itemType=${encodeURIComponent(itemType)}`
+      : `/api/products/${encodeURIComponent(itemId)}/competitor-quotes`;
+    const res = await fetch(url);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch competitor quotes');
+    return await res.json();
+  },
+
+  async createProductCompetitorQuote(itemId: string, data: Partial<ProductCompetitorQuote>): Promise<ProductCompetitorQuote> {
+    const res = await fetch(`/api/products/${encodeURIComponent(itemId)}/competitor-quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create competitor quote');
+    return await res.json();
+  },
+
+  async updateProductCompetitorQuote(itemId: string, quoteId: string, data: Partial<ProductCompetitorQuote>): Promise<ProductCompetitorQuote> {
+    const res = await fetch(`/api/products/${encodeURIComponent(itemId)}/competitor-quotes/${encodeURIComponent(quoteId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update competitor quote');
+    return await res.json();
+  },
+
+  async commitProductCompetitorPrice(itemId: string, quoteId: string, commitPayload: any): Promise<ProductCompetitorQuote> {
+    const res = await fetch(`/api/products/${encodeURIComponent(itemId)}/competitor-quotes/${encodeURIComponent(quoteId)}/commit-price`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(commitPayload)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to commit competitor price revision');
+    return await res.json();
+  },
+
+  async deleteProductCompetitorQuote(itemId: string, quoteId: string): Promise<void> {
+    const res = await fetch(`/api/products/${encodeURIComponent(itemId)}/competitor-quotes/${encodeURIComponent(quoteId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete competitor quote');
+  },
+
+  async getProductCompetitorHistory(itemId: string, itemType?: string): Promise<ProductCompetitorPriceHistoryRecord[]> {
+    const url = itemType
+      ? `/api/products/${encodeURIComponent(itemId)}/competitor-history?itemType=${encodeURIComponent(itemType)}`
+      : `/api/products/${encodeURIComponent(itemId)}/competitor-history`;
+    const res = await fetch(url);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch competitor price history');
+    return await res.json();
+  },
+
+  // ============================================================================
+  // PROJECT DELIVERABLES RELATIONAL API (PostgreSQL inno_cost)
+  // ============================================================================
+
+  async getProjectDeliverables(projectId: string): Promise<ProjectDeliverableItem[]> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deliverables`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project deliverables');
+    return await res.json();
+  },
+
+  async createProjectDeliverable(projectId: string, data: Partial<ProjectDeliverableItem>): Promise<ProjectDeliverableItem> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deliverables`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create project deliverable');
+    return await res.json();
+  },
+
+  async updateProjectDeliverable(projectId: string, deliverableId: string, data: Partial<ProjectDeliverableItem>): Promise<ProjectDeliverableItem> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deliverables/${encodeURIComponent(deliverableId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update project deliverable');
+    return await res.json();
+  },
+
+  async deleteProjectDeliverable(projectId: string, deliverableId: string): Promise<void> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deliverables/${encodeURIComponent(deliverableId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete project deliverable');
   }
 };
 

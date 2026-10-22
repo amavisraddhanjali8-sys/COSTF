@@ -1187,6 +1187,8 @@ export class PostgresService {
     await this.ensureClientProjectRelationships();
     // Ensure material vendor quotes, price change matrix & archive tables exist
     await this.ensureMaterialVendorQuotesSchema();
+    // Ensure product competitor quotes, price matrix & project deliverables schema exist
+    await this.ensureProductCompetitorSchema();
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -12315,17 +12317,870 @@ export class PostgresService {
     };
   }
 
-  public async getVendorDeletionArchives(materialId?: string): Promise<any[]> {
-    const db = await this.getDb();
-    if (materialId) {
-      const res = await db.query(
-        'SELECT * FROM vendor_deletion_archives WHERE material_id = $1 ORDER BY archived_at DESC',
-        [materialId]
-      );
-      return res.rows;
+  public async ensureProductCompetitorSchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS competitors (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          code TEXT UNIQUE,
+          country TEXT DEFAULT 'United States',
+          market_tier TEXT DEFAULT 'Market Benchmark',
+          contact_person TEXT DEFAULT '',
+          email TEXT DEFAULT '',
+          website TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        INSERT INTO competitors (id, name, code, country, market_tier, notes)
+        VALUES
+          ('comp-01', 'Apex Industrial Dynamics', 'COMP-APEX', 'United States', 'Market Leader', 'Primary domestic competitor across automation and architectural lines.'),
+          ('comp-02', 'Global Core Systems Ltd', 'COMP-GLOBAL', 'Germany', 'Premium Rival', 'High-end European precision engineering alternative.'),
+          ('comp-03', 'Benchmark Industry Average', 'COMP-BENCH', 'Global', 'Market Benchmark', 'Aggregated median market reference rate.'),
+          ('comp-04', 'Vanguard Precision Tech', 'COMP-VANG', 'Singapore', 'Low-Cost Challenger', 'Asian Pacific fast-turn competitive rates.')
+        ON CONFLICT (id) DO NOTHING;
+
+        CREATE TABLE IF NOT EXISTS product_competitor_quotes (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          item_type TEXT NOT NULL DEFAULT 'product',
+          item_code TEXT DEFAULT '',
+          item_name TEXT NOT NULL,
+          competitor_id TEXT REFERENCES competitors(id) ON DELETE SET NULL,
+          competitor_name TEXT NOT NULL,
+          current_price NUMERIC(18, 4) NOT NULL CHECK (current_price >= 0),
+          currency TEXT NOT NULL DEFAULT 'USD',
+          our_price NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          price_delta NUMERIC(18, 4) DEFAULT 0,
+          spread_pct NUMERIC(10, 2) DEFAULT 0,
+          moq NUMERIC(18, 4) DEFAULT 1,
+          lead_time_days INT DEFAULT 7,
+          is_benchmark BOOLEAN NOT NULL DEFAULT false,
+          last_quoted_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          status TEXT NOT NULL DEFAULT 'Active',
+          contact_email TEXT DEFAULT '',
+          contact_phone TEXT DEFAULT '',
+          notes TEXT DEFAULT '',
+          volume_pricing JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS product_competitor_price_history (
+          id TEXT PRIMARY KEY,
+          quote_id TEXT NOT NULL REFERENCES product_competitor_quotes(id) ON DELETE CASCADE,
+          item_id TEXT NOT NULL,
+          item_type TEXT NOT NULL DEFAULT 'product',
+          competitor_id TEXT,
+          competitor_name TEXT NOT NULL,
+          revision_date DATE NOT NULL DEFAULT CURRENT_DATE,
+          price NUMERIC(18, 4) NOT NULL CHECK (price >= 0),
+          previous_price NUMERIC(18, 4),
+          our_price NUMERIC(18, 4),
+          change_pct NUMERIC(10, 2) DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT '',
+          quote_ref TEXT DEFAULT '',
+          moq NUMERIC(18, 4) DEFAULT 1,
+          lead_time_days INT DEFAULT 7,
+          updated_by TEXT NOT NULL DEFAULT 'System User',
+          target_tier_label TEXT DEFAULT '',
+          changed_tiers JSONB DEFAULT '[]'::jsonb,
+          tier_changes JSONB DEFAULT '[]'::jsonb,
+          applied_changes_summary JSONB DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS project_deliverables (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          plan_id TEXT REFERENCES project_plans(id) ON DELETE SET NULL,
+          revenue_item_id TEXT REFERENCES revenue_items(id) ON DELETE SET NULL,
+          produce_item_id TEXT REFERENCES produce_items(id) ON DELETE SET NULL,
+          code TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'product',
+          category TEXT DEFAULT '',
+          sub_category TEXT DEFAULT '',
+          quantity NUMERIC(18, 4) NOT NULL DEFAULT 1,
+          unit TEXT NOT NULL DEFAULT 'pcs',
+          cost_price NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          quoted_price NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          total_cost NUMERIC(18, 2) NOT NULL DEFAULT 0,
+          total_revenue NUMERIC(18, 2) NOT NULL DEFAULT 0,
+          margin_pct NUMERIC(8, 2) NOT NULL DEFAULT 0,
+          competitor_benchmark_price NUMERIC(18, 4) DEFAULT 0,
+          competitor_name TEXT DEFAULT '',
+          currency TEXT NOT NULL DEFAULT 'USD',
+          status TEXT NOT NULL DEFAULT 'Planned',
+          lead_time_days INT DEFAULT 14,
+          notes TEXT DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_competitors_name ON competitors(name);
+        CREATE INDEX IF NOT EXISTS idx_prod_comp_quotes_item ON product_competitor_quotes(item_id);
+        CREATE INDEX IF NOT EXISTS idx_prod_comp_quotes_comp ON product_competitor_quotes(competitor_id);
+        CREATE INDEX IF NOT EXISTS idx_prod_comp_hist_quote ON product_competitor_price_history(quote_id, revision_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_proj_deliv_proj ON project_deliverables(project_id);
+
+        -- Ensure deliverables column exists on projects table for synchronized storage
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS deliverables JSONB DEFAULT '[]'::jsonb;
+      `);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] ensureProductCompetitorSchema warning:', e?.message);
     }
-    const res = await db.query('SELECT * FROM vendor_deletion_archives ORDER BY archived_at DESC');
-    return res.rows;
+  }
+
+  // --- Competitors Registry CRUD ---
+  public async getCompetitors(): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT * FROM competitors WHERE is_active = true ORDER BY name ASC');
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      code: r.code,
+      country: r.country,
+      marketTier: r.market_tier,
+      contactPerson: r.contact_person,
+      email: r.email,
+      website: r.website,
+      notes: r.notes,
+      isActive: r.is_active,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  public async createCompetitor(data: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `comp-${Date.now()}`;
+    const code = data.code || `COMP-${String(data.name || 'NEW').slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    const res = await db.query(
+      `INSERT INTO competitors (id, name, code, country, market_tier, contact_person, email, website, notes, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+       RETURNING *`,
+      [
+        id,
+        data.name,
+        code,
+        data.country || 'United States',
+        data.marketTier || 'Primary Competitor',
+        data.contactPerson || '',
+        data.email || '',
+        data.website || '',
+        data.notes || '',
+        data.isActive !== false
+      ]
+    );
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      name: r.name,
+      code: r.code,
+      country: r.country,
+      marketTier: r.market_tier,
+      contactPerson: r.contact_person,
+      email: r.email,
+      website: r.website,
+      notes: r.notes,
+      isActive: r.is_active,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    };
+  }
+
+  // --- Product & Revenue Service Competitor Quotes & Matrix ---
+  public async getProductCompetitorQuotes(itemId: string, itemType?: string): Promise<any[]> {
+    const db = await this.getDb();
+
+    // Fetch existing competitor quotes for this product/service
+    const quotesRes = await db.query(
+      `SELECT * FROM product_competitor_quotes WHERE item_id = $1 ORDER BY is_benchmark DESC, current_price ASC, created_at ASC`,
+      [itemId]
+    );
+
+    let quotes = quotesRes.rows;
+
+    // Resolve our own active product rate to establish baseline comparison
+    let ourRate = 0;
+    let ourCost = 0;
+    let itemCode = '';
+    let itemName = '';
+    let resolvedItemType = itemType || 'product';
+
+    // Check revenue_items first
+    const revRes = await db.query('SELECT * FROM revenue_items WHERE id = $1', [itemId]);
+    if (revRes.rows.length > 0) {
+      const ri = revRes.rows[0];
+      ourRate = round4(ri.default_rate || 0);
+      ourCost = round4(ri.cost_price || 0);
+      itemCode = ri.code || '';
+      itemName = ri.name || '';
+      resolvedItemType = ri.type || 'product';
+    } else {
+      // Check produce_items
+      const prodRes = await db.query('SELECT * FROM produce_items WHERE id = $1', [itemId]);
+      if (prodRes.rows.length > 0) {
+        const pi = prodRes.rows[0];
+        ourRate = round4(pi.retail_price || 0);
+        ourCost = round4(pi.cost_price || 0);
+        itemCode = pi.code || '';
+        itemName = pi.name || '';
+        resolvedItemType = pi.type || 'product';
+      }
+    }
+
+    // If none exist yet, seed initial realistic competitor quotes & benchmarks
+    if (quotes.length === 0 && (ourRate > 0 || itemName)) {
+      const baseCompPrice1 = ourRate > 0 ? round2(ourRate * 1.05) : 5000;
+      const baseCompPrice2 = ourRate > 0 ? round2(ourRate * 0.96) : 4800;
+
+      const q1Id = `pcq-${itemId}-apex-${Date.now()}`;
+      const q2Id = `pcq-${itemId}-bench-${Date.now() + 1}`;
+
+      const tiers1 = [
+        { minQty: 1, maxQty: 4, unitPrice: baseCompPrice1, discountPct: 0, label: '1–4 (Base Rate)' },
+        { minQty: 5, maxQty: 15, unitPrice: round2(baseCompPrice1 * 0.94), discountPct: 6.0, label: '5–15 (Volume Tier)' },
+        { minQty: 16, unitPrice: round2(baseCompPrice1 * 0.88), discountPct: 12.0, label: '16+ (Enterprise Volume)' }
+      ];
+
+      const tiers2 = [
+        { minQty: 1, maxQty: 4, unitPrice: baseCompPrice2, discountPct: 0, label: '1–4 (Base Rate)' },
+        { minQty: 5, maxQty: 15, unitPrice: round2(baseCompPrice2 * 0.95), discountPct: 5.0, label: '5–15 (Volume Tier)' },
+        { minQty: 16, unitPrice: round2(baseCompPrice2 * 0.90), discountPct: 10.0, label: '16+ (Enterprise Volume)' }
+      ];
+
+      await db.query(
+        `INSERT INTO product_competitor_quotes (
+          id, item_id, item_type, item_code, item_name, competitor_id, competitor_name,
+          current_price, currency, our_price, price_delta, spread_pct, moq, lead_time_days,
+          is_benchmark, last_quoted_date, status, notes, volume_pricing, created_at, updated_at
+        ) VALUES
+          ($1, $2, $3, $4, $5, 'comp-01', 'Apex Industrial Dynamics', $6, 'USD', $7, $8, $9, 1, 14, false, CURRENT_DATE, 'Primary Competitor', 'Direct market competitor offering standard commercial warranty.', $10, NOW(), NOW()),
+          ($11, $2, $3, $4, $5, 'comp-03', 'Benchmark Industry Average', $12, 'USD', $7, $13, $14, 1, 7, true, CURRENT_DATE, 'Benchmark', 'Aggregated median industry benchmark quote.', $15, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING`,
+        [
+          q1Id, itemId, resolvedItemType, itemCode, itemName,
+          baseCompPrice1, ourRate, round4(baseCompPrice1 - ourRate),
+          ourRate > 0 ? round2(((baseCompPrice1 - ourRate) / ourRate) * 100) : 0,
+          JSON.stringify(tiers1),
+          q2Id, baseCompPrice2, round4(baseCompPrice2 - ourRate),
+          ourRate > 0 ? round2(((baseCompPrice2 - ourRate) / ourRate) * 100) : 0,
+          JSON.stringify(tiers2)
+        ]
+      );
+
+      // Seed initial history records for both
+      await db.query(
+        `INSERT INTO product_competitor_price_history (
+          id, quote_id, item_id, item_type, competitor_id, competitor_name, revision_date,
+          price, previous_price, our_price, change_pct, reason, quote_ref, moq, lead_time_days,
+          updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+        ) VALUES
+          ($1, $2, $3, $4, 'comp-01', 'Apex Industrial Dynamics', CURRENT_DATE, $5, $5, $6, 0, 'Initial competitor catalog benchmark onboarding', $7, 1, 14, 'Market Intelligence', 'Base Rate', '[]', '[]', $8, NOW()),
+          ($9, $10, $3, $4, 'comp-03', 'Benchmark Industry Average', CURRENT_DATE, $11, $11, $6, 0, 'Initial industry median rate capture', $12, 1, 7, 'Market Intelligence', 'Base Rate', '[]', '[]', $13, NOW())
+        ON CONFLICT (id) DO NOTHING`,
+        [
+          `hist-${q1Id}-init`, q1Id, itemId, resolvedItemType, baseCompPrice1, ourRate, `QT-COMP-APEX-${itemCode || 'PROD'}`,
+          JSON.stringify([`Initial competitor rate established at $${baseCompPrice1.toFixed(2)} (vs our price $${ourRate.toFixed(2)})`]),
+          `hist-${q2Id}-init`, q2Id, baseCompPrice2, `QT-COMP-BENCH-${itemCode || 'PROD'}`,
+          JSON.stringify([`Industry benchmark established at $${baseCompPrice2.toFixed(2)} (vs our price $${ourRate.toFixed(2)})`])
+        ]
+      );
+
+      // Re-fetch seeded rows
+      const reRes = await db.query(
+        `SELECT * FROM product_competitor_quotes WHERE item_id = $1 ORDER BY is_benchmark DESC, current_price ASC, created_at ASC`,
+        [itemId]
+      );
+      quotes = reRes.rows;
+    }
+
+    // Attach price_history to each quote
+    const enrichedQuotes = [];
+    for (const q of quotes) {
+      const histRes = await db.query(
+        `SELECT * FROM product_competitor_price_history WHERE quote_id = $1 ORDER BY revision_date DESC, created_at DESC`,
+        [q.id]
+      );
+
+      const volumePricing = typeof q.volume_pricing === 'string' ? JSON.parse(q.volume_pricing) : q.volume_pricing || [];
+
+      // Re-evaluate spread vs our current price
+      const cPrice = round4(q.current_price);
+      const delta = round4(cPrice - ourRate);
+      const spreadPct = ourRate > 0 ? round2(((cPrice - ourRate) / ourRate) * 100) : 0;
+
+      enrichedQuotes.push({
+        id: q.id,
+        itemId: q.item_id,
+        itemType: q.item_type,
+        itemCode: q.item_code,
+        itemName: q.item_name,
+        competitorId: q.competitor_id,
+        competitorName: q.competitor_name,
+        currentPrice: cPrice,
+        currency: q.currency || 'USD',
+        ourPrice: ourRate,
+        ourCost: ourCost,
+        priceDelta: delta,
+        spreadPct: spreadPct,
+        moq: Number(q.moq || 1),
+        leadTimeDays: Number(q.lead_time_days || 7),
+        isBenchmark: Boolean(q.is_benchmark),
+        lastQuotedDate: formatSqlDate(q.last_quoted_date, new Date().toISOString().slice(0, 10)),
+        status: q.status || 'Active',
+        contactEmail: q.contact_email,
+        contactPhone: q.contact_phone,
+        notes: q.notes,
+        volumePricing,
+        priceHistory: histRes.rows.map((h: any) => ({
+          id: h.id,
+          quoteId: h.quote_id,
+          itemId: h.item_id,
+          itemType: h.item_type,
+          competitorId: h.competitor_id,
+          competitorName: h.competitor_name,
+          revisionDate: formatSqlDate(h.revision_date, new Date().toISOString().slice(0, 10)),
+          price: round4(h.price),
+          previousPrice: h.previous_price != null ? round4(h.previous_price) : undefined,
+          ourPrice: h.our_price != null ? round4(h.our_price) : undefined,
+          changePct: round2(h.change_pct || 0),
+          reason: h.reason,
+          quoteRef: h.quote_ref,
+          moq: Number(h.moq || 1),
+          leadTimeDays: Number(h.lead_time_days || 7),
+          updatedBy: h.updated_by,
+          targetTierLabel: h.target_tier_label,
+          changedTiers: typeof h.changed_tiers === 'string' ? JSON.parse(h.changed_tiers) : h.changed_tiers || [],
+          tierChanges: typeof h.tier_changes === 'string' ? JSON.parse(h.tier_changes) : h.tier_changes || [],
+          appliedChangesSummary: typeof h.applied_changes_summary === 'string' ? JSON.parse(h.applied_changes_summary) : h.applied_changes_summary || [],
+          createdAt: h.created_at
+        })),
+        createdAt: q.created_at,
+        updatedAt: q.updated_at
+      });
+    }
+
+    return enrichedQuotes;
+  }
+
+  public async createProductCompetitorQuote(itemId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `pcq-${itemId}-${Date.now()}`;
+    const price = round4(data.currentPrice || data.price || 0);
+    const ourPrice = round4(data.ourPrice || 0);
+    const delta = round4(price - ourPrice);
+    const spreadPct = ourPrice > 0 ? round2(((price - ourPrice) / ourPrice) * 100) : 0;
+    const moq = Number(data.moq || 1);
+    const leadTime = Number(data.leadTimeDays || 7);
+    const currency = data.currency || 'USD';
+
+    const defaultVolumePricing = (data.volumePricing && Array.isArray(data.volumePricing) && data.volumePricing.length > 0)
+      ? data.volumePricing
+      : [
+          { minQty: moq, maxQty: moq * 4, unitPrice: price, discountPct: 0, label: `${moq}–${moq * 4} (Base MOQ)` },
+          { minQty: moq * 4 + 1, maxQty: moq * 15, unitPrice: round2(price * 0.94), discountPct: 6.0, label: `${moq * 4 + 1}–${moq * 15} (Volume Pack)` },
+          { minQty: moq * 15 + 1, unitPrice: round2(price * 0.88), discountPct: 12.0, label: `${moq * 15 + 1}+ (Enterprise Tier)` }
+        ];
+
+    await db.query(
+      `INSERT INTO product_competitor_quotes (
+        id, item_id, item_type, item_code, item_name, competitor_id, competitor_name,
+        current_price, currency, our_price, price_delta, spread_pct, moq, lead_time_days,
+        is_benchmark, last_quoted_date, status, contact_email, contact_phone, notes, volume_pricing, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_DATE, $16, $17, $18, $19, $20, NOW(), NOW()
+      )`,
+      [
+        id,
+        itemId,
+        data.itemType || 'product',
+        data.itemCode || '',
+        data.itemName || 'Product Offering',
+        data.competitorId || null,
+        data.competitorName || 'Competitor',
+        price,
+        currency,
+        ourPrice,
+        delta,
+        spreadPct,
+        moq,
+        leadTime,
+        Boolean(data.isBenchmark),
+        data.status || 'Active',
+        data.contactEmail || '',
+        data.contactPhone || '',
+        data.notes || '',
+        JSON.stringify(defaultVolumePricing)
+      ]
+    );
+
+    // Initial history event
+    const histId = `hist-${id}-${Date.now()}`;
+    const actorName = actor?.name || 'Pricing Analyst';
+    await db.query(
+      `INSERT INTO product_competitor_price_history (
+        id, quote_id, item_id, item_type, competitor_id, competitor_name, revision_date,
+        price, previous_price, our_price, change_pct, reason, quote_ref, moq, lead_time_days,
+        updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $7, $8, 0, $9, $10, $11, $12, $13, 'Base Rate', '[]', '[]', $14, NOW()
+      )`,
+      [
+        histId,
+        id,
+        itemId,
+        data.itemType || 'product',
+        data.competitorId || null,
+        data.competitorName || 'Competitor',
+        price,
+        ourPrice,
+        data.reason || 'Initial competitor rate onboarding',
+        data.quoteRef || `QT-${data.competitorName || 'COMP'}-${Date.now().toString().slice(-4)}`,
+        moq,
+        leadTime,
+        actorName,
+        JSON.stringify([`Initial competitor rate quoted at $${price.toFixed(2)}`])
+      ]
+    );
+
+    const quotes = await this.getProductCompetitorQuotes(itemId, data.itemType);
+    return quotes.find((q) => q.id === id) || quotes[0];
+  }
+
+  public async updateProductCompetitorQuote(quoteId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await db.query('SELECT * FROM product_competitor_quotes WHERE id = $1', [quoteId]);
+    if (existing.rows.length === 0) return null;
+    const prev = existing.rows[0];
+
+    const price = data.currentPrice !== undefined ? round4(data.currentPrice) : round4(prev.current_price);
+    const ourPrice = data.ourPrice !== undefined ? round4(data.ourPrice) : round4(prev.our_price);
+    const delta = round4(price - ourPrice);
+    const spreadPct = ourPrice > 0 ? round2(((price - ourPrice) / ourPrice) * 100) : 0;
+    const moq = data.moq !== undefined ? Number(data.moq) : Number(prev.moq);
+    const leadTime = data.leadTimeDays !== undefined ? Number(data.leadTimeDays) : Number(prev.lead_time_days);
+    const vp = data.volumePricing ? JSON.stringify(data.volumePricing) : prev.volume_pricing;
+
+    await db.query(
+      `UPDATE product_competitor_quotes SET
+        competitor_name = COALESCE($1, competitor_name),
+        competitor_id = COALESCE($2, competitor_id),
+        current_price = $3,
+        our_price = $4,
+        price_delta = $5,
+        spread_pct = $6,
+        moq = $7,
+        lead_time_days = $8,
+        is_benchmark = COALESCE($9, is_benchmark),
+        status = COALESCE($10, status),
+        notes = COALESCE($11, notes),
+        volume_pricing = $12,
+        updated_at = NOW()
+      WHERE id = $13`,
+      [
+        data.competitorName,
+        data.competitorId,
+        price,
+        ourPrice,
+        delta,
+        spreadPct,
+        moq,
+        leadTime,
+        data.isBenchmark,
+        data.status,
+        data.notes,
+        vp,
+        quoteId
+      ]
+    );
+
+    const quotes = await this.getProductCompetitorQuotes(prev.item_id, prev.item_type);
+    return quotes.find((q) => q.id === quoteId) || null;
+  }
+
+  public async commitProductCompetitorPrice(itemId: string, quoteId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await db.query('SELECT * FROM product_competitor_quotes WHERE id = $1', [quoteId]);
+    if (existing.rows.length === 0) throw new Error('Competitor quote not found');
+    const quote = existing.rows[0];
+
+    const newPrice = round4(data.price ?? data.newPrice ?? quote.current_price);
+    const prevPrice = round4(quote.current_price);
+    const ourPrice = round4(quote.our_price || 0);
+    const changePct = prevPrice > 0 ? round2(((newPrice - prevPrice) / prevPrice) * 100) : 0;
+    const delta = round4(newPrice - ourPrice);
+    const spreadPct = ourPrice > 0 ? round2(((newPrice - ourPrice) / ourPrice) * 100) : 0;
+
+    const revisionDate = formatSqlDate(data.revisionDate || data.effectiveDate, new Date().toISOString().slice(0, 10));
+    const reason = data.reason || 'Competitor pricing revision';
+    const quoteRef = data.quoteRef || `QT-${quote.competitor_name}-${Date.now().toString().slice(-4)}`;
+    const moq = Number(data.moq || quote.moq || 1);
+    const leadTime = Number(data.leadTimeDays || quote.lead_time_days || 7);
+    const actorName = actor?.name || data.updatedBy || 'Pricing Estimator';
+
+    const volumePricing = (data.volumePricing && Array.isArray(data.volumePricing))
+      ? data.volumePricing
+      : (typeof quote.volume_pricing === 'string' ? JSON.parse(quote.volume_pricing) : quote.volume_pricing || []);
+
+    const appliedSummary = Array.isArray(data.appliedChangesSummary) && data.appliedChangesSummary.length > 0
+      ? data.appliedChangesSummary
+      : [`Price revision: $${prevPrice.toFixed(2)} → $${newPrice.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct}%)`];
+
+    // 1. Update product_competitor_quotes
+    await db.query(
+      `UPDATE product_competitor_quotes SET
+        current_price = $1,
+        price_delta = $2,
+        spread_pct = $3,
+        volume_pricing = $4,
+        moq = $5,
+        lead_time_days = $6,
+        last_quoted_date = $7,
+        updated_at = NOW()
+      WHERE id = $8`,
+      [newPrice, delta, spreadPct, JSON.stringify(volumePricing), moq, leadTime, revisionDate, quoteId]
+    );
+
+    // 2. Insert into product_competitor_price_history
+    const histId = `hist-${quoteId}-${Date.now()}`;
+    await db.query(
+      `INSERT INTO product_competitor_price_history (
+        id, quote_id, item_id, item_type, competitor_id, competitor_name, revision_date,
+        price, previous_price, our_price, change_pct, reason, quote_ref, moq, lead_time_days,
+        updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW()
+      )`,
+      [
+        histId,
+        quoteId,
+        itemId,
+        quote.item_type || 'product',
+        quote.competitor_id,
+        quote.competitor_name,
+        revisionDate,
+        newPrice,
+        prevPrice,
+        ourPrice,
+        changePct,
+        reason,
+        quoteRef,
+        moq,
+        leadTime,
+        actorName,
+        data.targetTierLabel || 'Base Rate',
+        JSON.stringify(data.changedTiers || []),
+        JSON.stringify(data.tierChanges || []),
+        JSON.stringify(appliedSummary)
+      ]
+    );
+
+    const quotes = await this.getProductCompetitorQuotes(itemId, quote.item_type);
+    return quotes.find((q) => q.id === quoteId) || quotes[0];
+  }
+
+  public async deleteProductCompetitorQuote(itemId: string, quoteId: string, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM product_competitor_quotes WHERE id = $1', [quoteId]);
+    return { success: true };
+  }
+
+  public async getProductCompetitorHistory(itemId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT * FROM product_competitor_price_history WHERE item_id = $1 ORDER BY revision_date DESC, created_at DESC`,
+      [itemId]
+    );
+    return res.rows.map((h: any) => ({
+      id: h.id,
+      quoteId: h.quote_id,
+      itemId: h.item_id,
+      itemType: h.item_type,
+      competitorId: h.competitor_id,
+      competitorName: h.competitor_name,
+      revisionDate: formatSqlDate(h.revision_date, new Date().toISOString().slice(0, 10)),
+      price: round4(h.price),
+      previousPrice: h.previous_price != null ? round4(h.previous_price) : undefined,
+      ourPrice: h.our_price != null ? round4(h.our_price) : undefined,
+      changePct: round2(h.change_pct || 0),
+      reason: h.reason,
+      quoteRef: h.quote_ref,
+      moq: Number(h.moq || 1),
+      leadTimeDays: Number(h.lead_time_days || 7),
+      updatedBy: h.updated_by,
+      targetTierLabel: h.target_tier_label,
+      changedTiers: typeof h.changed_tiers === 'string' ? JSON.parse(h.changed_tiers) : h.changed_tiers || [],
+      tierChanges: typeof h.tier_changes === 'string' ? JSON.parse(h.tier_changes) : h.tier_changes || [],
+      appliedChangesSummary: typeof h.applied_changes_summary === 'string' ? JSON.parse(h.applied_changes_summary) : h.applied_changes_summary || [],
+      createdAt: h.created_at
+    }));
+  }
+
+  // --- Project Deliverables Relational Database Operations ---
+  public async getProjectDeliverables(projectId: string): Promise<any[]> {
+    const db = await this.getDb();
+
+    // Query relational deliverables table
+    const res = await db.query(
+      `SELECT * FROM project_deliverables WHERE project_id = $1 ORDER BY created_at ASC`,
+      [projectId]
+    );
+
+    let deliverables = res.rows;
+
+    // If none exist in project_deliverables yet, backfill from project's JSON deliverables or BOQ items
+    if (deliverables.length === 0) {
+      try {
+        const prjRes = await db.query('SELECT deliverables, selected_items, currency FROM projects WHERE id = $1', [projectId]);
+        if (prjRes.rows.length > 0) {
+          const p = prjRes.rows[0];
+          const rawDelivs = typeof p.deliverables === 'string' ? JSON.parse(p.deliverables) : p.deliverables || [];
+
+          if (Array.isArray(rawDelivs) && rawDelivs.length > 0) {
+            for (const d of rawDelivs) {
+              const did = d.id || `deliv-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+              const costPrice = round4(d.costPrice || d.cost || 0);
+              const quotedPrice = round4(d.quotedPrice || d.price || (costPrice > 0 ? costPrice * 1.35 : 100));
+              const qty = Number(d.quantity || d.qty || 1);
+              const totCost = round2(costPrice * qty);
+              const totRev = round2(quotedPrice * qty);
+              const margin = totRev > 0 ? round2(((totRev - totCost) / totRev) * 100) : 35;
+
+              await db.query(
+                `INSERT INTO project_deliverables (
+                  id, project_id, plan_id, revenue_item_id, produce_item_id, code, name, type,
+                  category, sub_category, quantity, unit, cost_price, quoted_price, total_cost,
+                  total_revenue, margin_pct, competitor_benchmark_price, competitor_name, currency,
+                  status, lead_time_days, notes, created_at, updated_at
+                ) VALUES (
+                  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
+                ) ON CONFLICT (id) DO NOTHING`,
+                [
+                  did,
+                  projectId,
+                  d.planId || null,
+                  d.revenueItemId || null,
+                  d.produceItemId || null,
+                  d.code || `DELIV-${Math.floor(100 + Math.random() * 900)}`,
+                  d.name || 'Deliverable Item',
+                  d.type === 'service' ? 'service' : 'product',
+                  d.category || 'Direct Offering',
+                  d.subCategory || '',
+                  qty,
+                  d.unit || 'pcs',
+                  costPrice,
+                  quotedPrice,
+                  totCost,
+                  totRev,
+                  margin,
+                  round4(d.competitorBenchmarkPrice || (quotedPrice > 0 ? quotedPrice * 1.05 : 0)),
+                  d.competitorName || 'Apex Industrial Dynamics',
+                  d.currency || p.currency || 'USD',
+                  d.status || 'Planned',
+                  Number(d.leadTimeDays || 14),
+                  d.notes || ''
+                ]
+              );
+            }
+
+            const reRes = await db.query(
+              `SELECT * FROM project_deliverables WHERE project_id = $1 ORDER BY created_at ASC`,
+              [projectId]
+            );
+            deliverables = reRes.rows;
+          }
+        }
+      } catch (err: any) {
+        console.warn('[PostgreSQL] Optional deliverables backfill skipped:', err?.message);
+      }
+    }
+
+    return deliverables.map((r: any) => ({
+      id: r.id,
+      projectId: r.project_id,
+      planId: r.plan_id,
+      revenueItemId: r.revenue_item_id,
+      produceItemId: r.produce_item_id,
+      code: r.code,
+      name: r.name,
+      type: r.type,
+      category: r.category,
+      subCategory: r.sub_category,
+      quantity: Number(r.quantity),
+      unit: r.unit,
+      costPrice: round4(r.cost_price),
+      quotedPrice: round4(r.quoted_price),
+      totalCost: round2(r.total_cost),
+      totalRevenue: round2(r.total_revenue),
+      marginPct: round2(r.margin_pct),
+      competitorBenchmarkPrice: round4(r.competitor_benchmark_price || 0),
+      competitorName: r.competitor_name || '',
+      currency: r.currency || 'USD',
+      status: r.status || 'Planned',
+      leadTimeDays: Number(r.lead_time_days || 14),
+      notes: r.notes || '',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
+  }
+
+  public async createProjectDeliverable(projectId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `deliv-${projectId}-${Date.now()}`;
+    const code = data.code || `DELIV-${Math.floor(100 + Math.random() * 900)}`;
+    const name = String(data.name || 'Deliverable Item').trim();
+    const type = data.type === 'service' ? 'service' : 'product';
+    const qty = Math.max(1, Number(data.quantity || 1));
+    const unit = data.unit || 'pcs';
+    const costPrice = round4(data.costPrice || 0);
+    const quotedPrice = round4(data.quotedPrice || (costPrice > 0 ? costPrice * 1.35 : 100));
+    const totalCost = round2(costPrice * qty);
+    const totalRevenue = round2(quotedPrice * qty);
+    const margin = totalRevenue > 0 ? round2(((totalRevenue - totalCost) / totalRevenue) * 100) : 35;
+    const compPrice = round4(data.competitorBenchmarkPrice || (quotedPrice > 0 ? quotedPrice * 1.05 : 0));
+    const compName = data.competitorName || 'Apex Industrial Dynamics';
+    const currency = data.currency || 'USD';
+    const status = data.status || 'Planned';
+    const leadTime = Number(data.leadTimeDays || 14);
+
+    await db.query(
+      `INSERT INTO project_deliverables (
+        id, project_id, plan_id, revenue_item_id, produce_item_id, code, name, type,
+        category, sub_category, quantity, unit, cost_price, quoted_price, total_cost,
+        total_revenue, margin_pct, competitor_benchmark_price, competitor_name, currency,
+        status, lead_time_days, notes, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
+      )`,
+      [
+        id,
+        projectId,
+        data.planId || null,
+        data.revenueItemId || null,
+        data.produceItemId || null,
+        code,
+        name,
+        type,
+        data.category || 'Direct Offering',
+        data.subCategory || '',
+        qty,
+        unit,
+        costPrice,
+        quotedPrice,
+        totalCost,
+        totalRevenue,
+        margin,
+        compPrice,
+        compName,
+        currency,
+        status,
+        leadTime,
+        data.notes || ''
+      ]
+    );
+
+    // Sync project deliverables JSON column safely
+    const all = await this.getProjectDeliverables(projectId);
+    try {
+      await db.query('UPDATE projects SET deliverables = $1, updated_at_ts = NOW() WHERE id = $2', [
+        JSON.stringify(all),
+        projectId
+      ]);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] Syncing projects.deliverables warning:', e?.message);
+    }
+
+    return all.find((d) => d.id === id) || all[0];
+  }
+
+  public async updateProjectDeliverable(projectId: string, deliverableId: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await db.query('SELECT * FROM project_deliverables WHERE id = $1 AND project_id = $2', [deliverableId, projectId]);
+    if (existing.rows.length === 0) return null;
+    const prev = existing.rows[0];
+
+    const qty = data.quantity !== undefined ? Math.max(1, Number(data.quantity)) : Number(prev.quantity);
+    const costPrice = data.costPrice !== undefined ? round4(data.costPrice) : round4(prev.cost_price);
+    const quotedPrice = data.quotedPrice !== undefined ? round4(data.quotedPrice) : round4(prev.quoted_price);
+    const totalCost = round2(costPrice * qty);
+    const totalRevenue = round2(quotedPrice * qty);
+    const margin = totalRevenue > 0 ? round2(((totalRevenue - totalCost) / totalRevenue) * 100) : 35;
+    const compPrice = data.competitorBenchmarkPrice !== undefined ? round4(data.competitorBenchmarkPrice) : round4(prev.competitor_benchmark_price);
+
+    await db.query(
+      `UPDATE project_deliverables SET
+        name = COALESCE($1, name),
+        type = COALESCE($2, type),
+        category = COALESCE($3, category),
+        quantity = $4,
+        unit = COALESCE($5, unit),
+        cost_price = $6,
+        quoted_price = $7,
+        total_cost = $8,
+        total_revenue = $9,
+        margin_pct = $10,
+        competitor_benchmark_price = $11,
+        competitor_name = COALESCE($12, competitor_name),
+        status = COALESCE($13, status),
+        notes = COALESCE($14, notes),
+        updated_at = NOW()
+      WHERE id = $15 AND project_id = $16`,
+      [
+        data.name,
+        data.type,
+        data.category,
+        qty,
+        data.unit,
+        costPrice,
+        quotedPrice,
+        totalCost,
+        totalRevenue,
+        margin,
+        compPrice,
+        data.competitorName,
+        data.status,
+        data.notes,
+        deliverableId,
+        projectId
+      ]
+    );
+
+    // Sync project deliverables JSON column safely
+    const all = await this.getProjectDeliverables(projectId);
+    try {
+      await db.query('UPDATE projects SET deliverables = $1, updated_at_ts = NOW() WHERE id = $2', [
+        JSON.stringify(all),
+        projectId
+      ]);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] Syncing projects.deliverables warning:', e?.message);
+    }
+
+    return all.find((d) => d.id === deliverableId) || null;
+  }
+
+  public async deleteProjectDeliverable(projectId: string, deliverableId: string, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM project_deliverables WHERE id = $1 AND project_id = $2', [deliverableId, projectId]);
+
+    const all = await this.getProjectDeliverables(projectId);
+    try {
+      await db.query('UPDATE projects SET deliverables = $1, updated_at_ts = NOW() WHERE id = $2', [
+        JSON.stringify(all),
+        projectId
+      ]);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] Syncing projects.deliverables warning:', e?.message);
+    }
+
+    return { success: true };
   }
 
   public async getDbStats(): Promise<any> {
@@ -12336,6 +13191,7 @@ export class PostgresService {
       'project_plan_overhead_allocations', 'project_plan_cost_summaries',
       'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
       'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',
+      'competitors', 'product_competitor_quotes', 'product_competitor_price_history', 'project_deliverables',
       'suppliers', 'materials', 'material_vendor_quotes', 'material_vendor_price_history', 'vendor_deletion_archives', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
@@ -12364,3 +13220,4 @@ export class PostgresService {
 }
 
 export const postgresService = new PostgresService();
+
