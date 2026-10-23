@@ -34,7 +34,7 @@ import { peekNextNumber, generateNextNumber } from '../services/autoNumberingSer
 import { formatCurrency, formatLKR, SUPPORTED_CURRENCIES, getStoredCurrency } from '../utils/currency';
 import { SearchableCategoryPicker } from './common/SearchableCategoryPicker';
 import { SearchablePartnerPicker, PartnerOption } from './common/SearchablePartnerPicker';
-import { persistentDatabase } from '../services/persistentDatabase';
+import { INITIAL_CATEGORY_HIERARCHY } from '../data/categoriesAndProfiles';
 import { api } from '../services/api';
 
 // ==========================================
@@ -1161,7 +1161,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Subcontractor Category & Sub-Category via SearchableCategoryPicker */}
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={category}
                   selectedSubCategory={subCategory}
                   onCategoryChange={(catName, node) => {
@@ -1173,13 +1173,11 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     if (node) setSubCategoryId(node.id);
                   }}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setCategory(newCat.name);
                     setCategoryId(newCat.id);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setSubCategory(newSub.name);
                     setSubCategoryId(newSub.id);
@@ -1350,7 +1348,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Connected Category & Sub-Category via SearchableCategoryPicker with search bar connected to DB */}
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={category}
                   selectedSubCategory={subCategory}
                   onCategoryChange={(catName, node) => {
@@ -1362,13 +1360,11 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     if (node) setSubCategoryId(node.id);
                   }}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setCategory(newCat.name);
                     setCategoryId(newCat.id);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setSubCategory(newSub.name);
                     setSubCategoryId(newSub.id);
@@ -1526,7 +1522,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={category}
                   selectedSubCategory={subCategory}
                   onCategoryChange={(catName, node) => {
@@ -1538,13 +1534,11 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     if (node) setSubCategoryId(node.id);
                   }}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setCategory(newCat.name);
                     setCategoryId(newCat.id);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setSubCategory(newSub.name);
                     setSubCategoryId(newSub.id);
@@ -1642,7 +1636,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={category}
                   selectedSubCategory={subCategory}
                   onCategoryChange={(catName, node) => {
@@ -1654,13 +1648,11 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     if (node) setSubCategoryId(node.id);
                   }}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setCategory(newCat.name);
                     setCategoryId(newCat.id);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setSubCategory(newSub.name);
                     setSubCategoryId(newSub.id);
@@ -1743,7 +1735,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               {/* Connected Category & Sub-Category via SearchableCategoryPicker */}
               <div className="bg-white p-3 rounded-xl border border-slate-200">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={category}
                   selectedSubCategory={subCategory}
                   onCategoryChange={(catName, node) => {
@@ -1755,13 +1747,11 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     if (node) setSubCategoryId(node.id);
                   }}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setCategory(newCat.name);
                     setCategoryId(newCat.id);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setSubCategory(newSub.name);
                     setSubCategoryId(newSub.id);

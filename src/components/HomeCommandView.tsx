@@ -56,7 +56,6 @@ import {
 } from '../types';
 import { ActiveTab } from './TopNavbar';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
-import { persistentDatabase } from '../services/persistentDatabase';
 import { api } from '../services/api';
 import {
   exportAllPriceHistoriesToCSV,
@@ -249,24 +248,21 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   const [newEventCategory, setNewEventCategory] = useState<'Audit' | 'Review' | 'Phase' | 'Stock' | 'Tariff'>('Audit');
   const [newEventLocation, setNewEventLocation] = useState('Room 101');
 
-  // Interactive Calendar Events List persisted in persistentDatabase
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => persistentDatabase.getCalendarEvents());
+  // Interactive Calendar Events List
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([
+    { id: 'ev-01', year: 2026, month: 9, day: 2, time: '10:00 AM', title: 'Tariff Audit', location: 'Audit Room 1', category: 'Tariff', badgeColor: 'bg-emerald-500' },
+    { id: 'ev-02', year: 2026, month: 9, day: 8, time: '09:30 AM', title: 'Margin Review', location: 'Boardroom', category: 'Review', badgeColor: 'bg-blue-600' },
+    { id: 'ev-03', year: 2026, month: 9, day: 14, time: '02:00 PM', title: 'Phase Signoff', location: 'Operations Center', category: 'Phase', badgeColor: 'bg-amber-500' },
+    { id: 'ev-04', year: 2026, month: 9, day: 22, time: '11:00 AM', title: 'Stock Audit', location: 'Central Bay', category: 'Stock', badgeColor: 'bg-teal-600' }
+  ]);
 
-  // Database live counts with guaranteed fallback so they never show 0
-  const projectList = projects && projects.length > 0 ? projects : persistentDatabase.getProjects();
-  const materialList = materials && materials.length > 0 ? materials : persistentDatabase.getMaterials();
-  const supplierList = suppliers && suppliers.length > 0 ? suppliers : persistentDatabase.getSuppliers();
-  const subcontractorList = subcontractors && subcontractors.length > 0 ? subcontractors : persistentDatabase.getSubcontractors();
-  const tariffList = outsourcedServices && outsourcedServices.length > 0 ? outsourcedServices : persistentDatabase.getOutsourced();
-  const inventoryList = inventory && inventory.length > 0 ? inventory : persistentDatabase.getInventory();
-
-  useEffect(() => {
-    const handleRestored = () => {
-      setCalendarEvents(persistentDatabase.getCalendarEvents());
-    };
-    window.addEventListener('fxtt-database-restored', handleRestored);
-    return () => window.removeEventListener('fxtt-database-restored', handleRestored);
-  }, []);
+  // Database live counts
+  const projectList = projects || [];
+  const materialList = materials || [];
+  const supplierList = suppliers || [];
+  const subcontractorList = subcontractors || [];
+  const tariffList = outsourcedServices || [];
+  const inventoryList = inventory || [];
 
   // News and Alerts (Clean One-Word Tags, Metrics, Best UI components)
   const newsAndAlerts: NewsAndAlertItem[] = useMemo(() => {
@@ -704,16 +700,14 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           : 'bg-purple-600'
     };
 
-    persistentDatabase.addCalendarEvent(newEv);
-    setCalendarEvents(persistentDatabase.getCalendarEvents());
+    setCalendarEvents((prev) => [newEv, ...prev]);
     setIsAddEventModalOpen(false);
     setNewEventTitle('');
     showToast(`Event added: ${newEv.title}`);
   };
 
   const handleDeleteEvent = (id: string) => {
-    persistentDatabase.deleteCalendarEvent(id);
-    setCalendarEvents(persistentDatabase.getCalendarEvents());
+    setCalendarEvents((prev) => prev.filter((e) => e.id !== id));
     showToast('Event removed.');
   };
 
@@ -2522,7 +2516,6 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   if (onAddOverheadItem) {
                     onAddOverheadItem(newItem);
                   }
-                  persistentDatabase.addOverhead(newItem);
                   showToast('Overhead item created');
                   setCreationPortalType(null);
                   onNavigateTab('overhead');
@@ -2636,7 +2629,6 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   if (onAddRevenueItem) {
                     onAddRevenueItem(newItem);
                   }
-                  persistentDatabase.addRevenueItem(newItem);
                   showToast('Revenue item created');
                   setCreationPortalType(null);
                   onNavigateTab('revenue');
@@ -2755,7 +2747,14 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                       ? (targetMat?.inStock || 100) + (Number(newTxQty) || 1)
                       : Math.max(0, (targetMat?.inStock || 100) - (Number(newTxQty) || 1))
                   };
-                  persistentDatabase.saveTransactions([transaction, ...persistentDatabase.getTransactions()]);
+                  api.createInventory({
+                    materialId: transaction.materialId,
+                    skuCode: transaction.materialCode,
+                    name: transaction.materialName,
+                    quantity: transaction.newAvailableQuantity,
+                    unit: transaction.unit,
+                    unitCost: transaction.price
+                  }).catch(console.error);
                   showToast(`Stock ${newTxType === 'IN' ? 'Receipt' : 'Issue'} logged`);
                   setCreationPortalType(null);
                   onNavigateTab('inventory');

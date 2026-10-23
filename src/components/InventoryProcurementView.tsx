@@ -36,7 +36,6 @@ import { generateBarcodeBits } from '../utils/barcodeGenerator';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
 import { generateNextNumber, peekNextNumber } from '../services/autoNumberingService';
 import { formatLKR } from '../utils/currency';
-import { persistentDatabase } from '../services/persistentDatabase';
 import { addBarcodeScanListener, playHardwareScanBeep } from '../services/globalBarcodeScanner';
 import { calcDiscountedLine } from '../utils/decimalMath';
 
@@ -178,8 +177,7 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
 
   // Transaction History (PostgreSQL authoritative source)
   const [recentTransactions, setRecentTransactions] = useState<InventoryTransaction[]>(() => {
-    if (propTransactions && propTransactions.length > 0) return propTransactions;
-    return persistentDatabase.getTransactions([]);
+    return propTransactions || [];
   });
 
   useEffect(() => {
@@ -187,13 +185,6 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
       setRecentTransactions(propTransactions);
     }
   }, [propTransactions]);
-
-  // Keep static database synced
-  useEffect(() => {
-    if (recentTransactions && recentTransactions.length > 0) {
-      persistentDatabase.saveTransactions(recentTransactions);
-    }
-  }, [recentTransactions]);
 
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
 

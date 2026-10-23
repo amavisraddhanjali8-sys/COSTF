@@ -66,7 +66,6 @@ import { INITIAL_CATEGORY_HIERARCHY, CategoryNode } from '../data/categoriesAndP
 import { exportCategoryCatalogPDF, exportPriceAuditLogPDF } from '../utils/pdfExport';
 import { exportAllPriceHistoriesToCSV } from '../utils/csvExport';
 import { DataImportExportModal } from './DataImportExportModal';
-import { persistentDatabase } from '../services/persistentDatabase';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
 import { api } from '../services/api';
 
@@ -348,35 +347,27 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     const row = rowToDelete;
     if (row.itemType === 'material' || cardType === 'material_category') {
       onDeleteMaterial?.(row.id);
-      persistentDatabase.deleteMaterial(row.id);
       api.deleteMaterial(row.id).catch(console.error);
     } else if (row.itemType === 'produce' || row.itemType === 'final_product' || cardType === 'product_category' || cardType === 'produce') {
       onDeleteProduceItem?.(row.id);
-      persistentDatabase.deleteProduceItem(row.id);
       api.deleteProduceItem(row.id).catch(console.error);
     } else if (row.itemType === 'subcontractor' || cardType === 'subcontractor') {
       onDeleteSubcontractor?.(row.id);
-      persistentDatabase.deleteSubcontractor(row.id);
       api.deleteSubcontractor(row.id).catch(console.error);
     } else if (row.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced') {
       onDeleteOutsourcedService?.(row.id);
-      persistentDatabase.deleteOutsourcedService(row.id);
       api.deleteOutsourcedService(row.id).catch(console.error);
     } else if (row.itemType === 'overhead' || cardType === 'overhead') {
       onDeleteOverheadItem?.(row.id);
-      persistentDatabase.deleteOverhead(row.id);
       api.deleteOverheadItem(row.id).catch(console.error);
     } else if (row.itemType === 'revenue' || cardType === 'revenue') {
       onDeleteRevenueItem?.(row.id);
-      persistentDatabase.deleteRevenueItem(row.id);
       api.deleteRevenueItem(row.id).catch(console.error);
     } else if (row.itemType === 'full_contract' || cardType === 'supplier') {
       onDeleteSupplier?.(row.id);
-      persistentDatabase.deleteSupplier(row.id);
       api.deleteSupplier(row.id).catch(console.error);
     } else if (row.itemType === 'project' || cardType === 'client' || cardType === 'project') {
       onDeleteProject?.(row.id);
-      persistentDatabase.deleteProject(row.id);
       api.deleteProject(row.id).catch(console.error);
     }
     setDeletedRowIds((prev) => new Set([...prev, row.id]));
@@ -391,35 +382,27 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       if (row) {
         if (row.itemType === 'material' || cardType === 'material_category') {
           onDeleteMaterial?.(row.id);
-          persistentDatabase.deleteMaterial(row.id);
           api.deleteMaterial(row.id).catch(console.error);
         } else if (row.itemType === 'produce' || row.itemType === 'final_product' || cardType === 'product_category' || cardType === 'produce') {
           onDeleteProduceItem?.(row.id);
-          persistentDatabase.deleteProduceItem(row.id);
           api.deleteProduceItem(row.id).catch(console.error);
         } else if (row.itemType === 'subcontractor' || cardType === 'subcontractor') {
           onDeleteSubcontractor?.(row.id);
-          persistentDatabase.deleteSubcontractor(row.id);
           api.deleteSubcontractor(row.id).catch(console.error);
         } else if (row.itemType === 'service' || cardType === 'service_provider' || cardType === 'outsourced') {
           onDeleteOutsourcedService?.(row.id);
-          persistentDatabase.deleteOutsourcedService(row.id);
           api.deleteOutsourcedService(row.id).catch(console.error);
         } else if (row.itemType === 'overhead' || cardType === 'overhead') {
           onDeleteOverheadItem?.(row.id);
-          persistentDatabase.deleteOverhead(row.id);
           api.deleteOverheadItem(row.id).catch(console.error);
         } else if (row.itemType === 'revenue' || cardType === 'revenue') {
           onDeleteRevenueItem?.(row.id);
-          persistentDatabase.deleteRevenueItem(row.id);
           api.deleteRevenueItem(row.id).catch(console.error);
         } else if (row.itemType === 'full_contract' || cardType === 'supplier') {
           onDeleteSupplier?.(row.id);
-          persistentDatabase.deleteSupplier(row.id);
           api.deleteSupplier(row.id).catch(console.error);
         } else if (row.itemType === 'project' || cardType === 'client' || cardType === 'project') {
           onDeleteProject?.(row.id);
-          persistentDatabase.deleteProject(row.id);
           api.deleteProject(row.id).catch(console.error);
         }
       }
@@ -1604,7 +1587,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
     // 7. OVERHEADS PORTAL CARD: View all overhead cost items
     else if (cardType === 'overhead') {
-      const activeOverheads = (overheads && overheads.length > 0) ? overheads : persistentDatabase.getOverheads();
+      const activeOverheads = overheads || [];
       const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'all-overheads' || cardTitle.toLowerCase().includes('all overhead');
       const filtered = isAll
         ? activeOverheads
@@ -1654,7 +1637,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
 
     // 8. REVENUE STREAMS PORTAL CARD: View all revenue catalogue deliverables
     else if (cardType === 'revenue') {
-      const activeRevenue = (revenueItems && revenueItems.length > 0) ? revenueItems : persistentDatabase.getRevenueItems();
+      const activeRevenue = revenueItems || [];
       const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'rev-all' || cardTitle.toLowerCase().includes('all revenue');
       const filtered = isAll
         ? activeRevenue
@@ -2015,7 +1998,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createMaterial(newMaterial).catch((err) => console.warn('API create material error:', err));
         }
-        persistentDatabase.addMaterial(newMaterial);
         showNotification(`Added new material ${newMaterial.code} (${newMaterial.name}) to database.`);
       }
 
@@ -2061,7 +2043,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createSubcontractor(newSub).catch((err) => console.warn('API create subcontractor error:', err));
         }
-        persistentDatabase.addSubcontractor(newSub);
         showNotification(`Added new subcontractor labour item ${newSub.code} (${newSub.name}) to database.`);
       }
 
@@ -2105,7 +2086,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createOutsourcedService(newOut).catch((err) => console.warn('API create outsourced error:', err));
         }
-        persistentDatabase.addOutsourcedService(newOut);
         showNotification(`Added new outsourced tariff ${newOut.code} (${newOut.name}) to database.`);
       }
 
@@ -2150,7 +2130,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createProduce(newProd).catch((err) => console.warn('API create produce error:', err));
         }
-        persistentDatabase.addProduceItem(newProd);
 
         showNotification(`Added new product variant ${newProd.code} (${newProd.name}) to database.`);
       }
@@ -2177,7 +2156,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createOverheadItem(newOvh).catch((err) => console.warn('API create overhead error:', err));
         }
-        persistentDatabase.addOverhead(newOvh);
         showNotification(`Added new overhead cost item ${newOvh.code} (${newOvh.name}) to database.`);
       }
 
@@ -2203,7 +2181,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createRevenueItem(newRev).catch((err) => console.warn('API create revenue error:', err));
         }
-        persistentDatabase.addRevenueItem(newRev);
         showNotification(`Added new revenue deliverable ${newRev.code} (${newRev.name}) to database.`);
       }
 
@@ -2247,7 +2224,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else {
           api.createProject(newProj).catch((err) => console.warn('API create project error:', err));
         }
-        persistentDatabase.addProject(newProj);
         showNotification(`Added new capital project ${newProj.code} (${newProj.name}) to database.`);
       }
 
@@ -2278,26 +2254,12 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           code: editingRow.code,
           productSubCategory: editingRow.subCategory
         });
-        persistentDatabase.updateProject(editingRow.id, {
-          quotedPrice: updatedCostRate,
-          name: editingRow.name,
-          code: editingRow.code,
-          productSubCategory: editingRow.subCategory
-        });
         api.updateProject(editingRow.id, { quotedPrice: updatedCostRate, name: editingRow.name, code: editingRow.code }).catch(console.error);
       }
 
       // 2. Products / Produce
       if ((cardType === 'product_category' || cardType === 'produce' || editingRow.itemType === 'produce' || editingRow.itemType === 'final_product') && onUpdateProduceItem) {
         onUpdateProduceItem(editingRow.id, {
-          name: editingRow.name,
-          code: editingRow.code,
-          subCategory: editingRow.subCategory,
-          unit: editingRow.unit,
-          costPrice: updatedCostRate,
-          retailPrice: updatedRetail
-        });
-        persistentDatabase.updateProduceItem(editingRow.id, {
           name: editingRow.name,
           code: editingRow.code,
           subCategory: editingRow.subCategory,
@@ -2326,14 +2288,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             retailPrice: updatedRetail
           });
         }
-        persistentDatabase.updateMaterial(editingRow.id, {
-          name: editingRow.name,
-          code: editingRow.code,
-          subCategory: editingRow.subCategory,
-          unit: editingRow.unit,
-          currentPrice: updatedCostRate,
-          retailPrice: updatedRetail
-        });
         api.updateMaterial(editingRow.id, { name: editingRow.name, code: editingRow.code, subCategory: editingRow.subCategory, unit: editingRow.unit, currentPrice: updatedCostRate, retailPrice: updatedRetail }).catch(console.error);
       }
 
@@ -2350,15 +2304,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             unit: editingRow.unit
           });
         }
-        persistentDatabase.updateSubcontractor(editingRow.id, {
-          baseRate: updatedCostRate,
-          rate: updatedCostRate,
-          retailRate: updatedRetail,
-          name: editingRow.name,
-          nicheServiceName: editingRow.name,
-          serviceSubCategory: editingRow.subCategory,
-          unit: editingRow.unit
-        });
         api.updateSubcontractor(editingRow.id, { rate: updatedCostRate, baseRate: updatedCostRate, name: editingRow.name, unit: editingRow.unit }).catch(console.error);
       }
 
@@ -2373,12 +2318,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             baseUnitType: editingRow.unit
           });
         }
-        persistentDatabase.updateOutsourcedService(editingRow.id, {
-          rate: updatedCostRate,
-          retailPrice: updatedRetail,
-          name: editingRow.name,
-          subCategory: editingRow.subCategory
-        });
         api.updateOutsourcedService(editingRow.id, { rate: updatedCostRate, retailPrice: updatedRetail, name: editingRow.name }).catch(console.error);
       }
 
@@ -2392,12 +2331,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             unitType: editingRow.unit
           });
         }
-        persistentDatabase.updateOverhead(editingRow.id, {
-          name: editingRow.name,
-          code: editingRow.code,
-          defaultRate: updatedCostRate,
-          unitType: editingRow.unit
-        });
         api.updateOverheadItem(editingRow.id, { name: editingRow.name, code: editingRow.code, defaultRate: updatedCostRate }).catch(console.error);
       }
 
@@ -2413,14 +2346,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             defaultRate: updatedRetail
           });
         }
-        persistentDatabase.updateRevenueItem(editingRow.id, {
-          name: editingRow.name,
-          code: editingRow.code,
-          subCategory: editingRow.subCategory,
-          unit: editingRow.unit,
-          costPrice: updatedCostRate,
-          defaultRate: updatedRetail
-        });
         api.updateRevenueItem(editingRow.id, { name: editingRow.name, code: editingRow.code, defaultRate: updatedRetail, costPrice: updatedCostRate }).catch(console.error);
       }
 
@@ -2431,9 +2356,6 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
             name: editingRow.name
           });
         }
-        persistentDatabase.updateSupplier(editingRow.id, {
-          name: editingRow.name
-        });
         api.updateSupplier(editingRow.id, { name: editingRow.name }).catch(console.error);
       }
 
@@ -4613,36 +4535,37 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
               onAddMaterial(m as any);
             } else if (onUpdateMaterial) {
               onUpdateMaterial(m.id || `mat-${Date.now()}`, m);
+            } else {
+              api.createMaterial(m as any).catch(console.error);
             }
-            persistentDatabase.addMaterial(m as any);
           });
           showNotification(`Imported ${items.length} items successfully into ${cardTitle}`);
         }}
         onImportProduce={(items) => {
           items.forEach((p) => {
             if (onAddProduceItem) onAddProduceItem(p);
-            persistentDatabase.addProduceItem(p as any);
+            else api.createProduce(p as any).catch(console.error);
           });
           showNotification(`Imported ${items.length} produce products / assemblies`);
         }}
         onImportSubcontractors={(subs) => {
           subs.forEach((s) => {
             if (onAddSubcontractor) onAddSubcontractor(s);
-            persistentDatabase.addSubcontractor(s as any);
+            else api.createSubcontractor(s as any).catch(console.error);
           });
           showNotification(`Imported ${subs.length} subcontractor labor rates`);
         }}
         onImportOutsourced={(svcs) => {
           svcs.forEach((s) => {
             if (onAddOutsourcedService) onAddOutsourcedService(s);
-            persistentDatabase.addOutsourcedService(s as any);
+            else api.createOutsourcedService(s as any).catch(console.error);
           });
           showNotification(`Imported ${svcs.length} outsourced service rates`);
         }}
         onImportSuppliers={(sups) => {
           sups.forEach((s) => {
             if (onAddSupplier) onAddSupplier(s);
-            persistentDatabase.addSupplier(s as any);
+            else api.createSupplier(s as any).catch(console.error);
           });
           showNotification(`Imported ${sups.length} suppliers`);
         }}

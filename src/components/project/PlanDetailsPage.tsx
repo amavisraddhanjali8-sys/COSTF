@@ -48,7 +48,6 @@ import { RevenueItemRateHistoryModal } from '../revenue/RevenueItemRateHistoryMo
 import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHistoryModal';
 import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistoryModal';
 import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
-import { persistentDatabase } from '../../services/persistentDatabase';
 import { round2 } from '../../utils/decimalMath';
 import { ApplyTariffToPlanModal } from '../tariffs/ApplyTariffToPlanModal';
 import {
@@ -128,10 +127,10 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
 
   // Barcode Scanning and Selection Modal (TASK 7)
   const [isBarcodeScannerModalOpen, setIsBarcodeScannerModalOpen] = useState(false);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => persistentDatabase.getSuppliers());
-  const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials());
-  const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>(() => persistentDatabase.getOutsourcedServices());
-  const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>(() => persistentDatabase.getSubcontractors());
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>([]);
+  const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>([]);
 
   const handleApplyPriceSnapshotToPlan = async (record: ProcurementPriceRecord) => {
     if (!plan) return;
@@ -243,6 +242,12 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     if (planId) {
       void loadPlan();
     }
+    api.getInitialData().then((data) => {
+      if (data.suppliers) setSuppliers(data.suppliers);
+      if (data.materials) setMaterials(data.materials);
+      if (data.outsourcedServices) setOutsourcedServices(data.outsourcedServices);
+      if (data.subcontractors) setSubcontractors(data.subcontractors);
+    }).catch(console.error);
   }, [planId]);
 
   const handleActivate = async () => {

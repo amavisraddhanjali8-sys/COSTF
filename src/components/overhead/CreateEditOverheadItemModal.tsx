@@ -11,10 +11,9 @@ import {
   FileText
 } from 'lucide-react';
 import { OverheadItem, OverheadCostType, OverheadCalculationMethod, OverheadCostBase } from '../../types';
-import { CategoryNode } from '../../data/categoriesAndProfiles';
+import { INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { api } from '../../services/api';
-import { persistentDatabase } from '../../services/persistentDatabase';
 import { getStoredCurrency } from '../../utils/currency';
 
 interface CreateEditOverheadItemModalProps {
@@ -211,18 +210,16 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
 
           {/* Category & Sub-Category via SearchableCategoryPicker */}
           <SearchableCategoryPicker
-            categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+            categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
             selectedCategory={category}
             selectedSubCategory={subCategory}
             onCategoryChange={(catName) => setCategory(catName)}
             onSubCategoryChange={(subName) => setSubCategory(subName)}
             onAddNewCategory={(newCat) => {
-              persistentDatabase.addCategory(newCat);
               api.createCategory(newCat).catch(console.error);
               setCategory(newCat.name);
             }}
             onAddNewSubCategory={(newSub) => {
-              persistentDatabase.addCategory(newSub);
               api.createCategory(newSub).catch(console.error);
               setSubCategory(newSub.name);
             }}

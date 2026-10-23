@@ -32,7 +32,6 @@ import {
   ProductCompetitorPriceHistoryRecord,
   ProjectDeliverableItem
 } from '../types';
-import { persistentDatabase } from './persistentDatabase';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
 import { authFetch as fetch } from './http';
 
@@ -109,7 +108,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch clients');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveClients(list);
     return list;
   },
 
@@ -127,7 +125,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create client');
     const saved = await res.json();
-    persistentDatabase.addClient(saved);
     return saved;
   },
 
@@ -139,7 +136,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update client');
     const saved = await res.json();
-    persistentDatabase.updateClient(id, saved);
     return saved;
   },
 
@@ -153,7 +149,6 @@ export const api = {
     const res = await fetch(`/api/clients/${id}/archive`, { method: 'POST' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to archive client');
     const updated = await res.json();
-    persistentDatabase.updateClient(id, updated);
     return updated;
   },
 
@@ -161,7 +156,6 @@ export const api = {
     const res = await fetch(`/api/clients/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete client');
     const out = await res.json().catch(() => ({ success: true }));
-    persistentDatabase.deleteClient(id);
     return out;
   },
 
@@ -230,7 +224,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch categories');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    if (list.length > 0) persistentDatabase.saveCategories(list);
     return list;
   },
 
@@ -265,7 +258,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch suppliers');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveSuppliers(list);
     return list;
   },
 
@@ -283,7 +275,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create supplier');
     const saved = await res.json();
-    persistentDatabase.addSupplier(saved);
     return saved;
   },
 
@@ -295,7 +286,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update supplier');
     const saved = await res.json();
-    persistentDatabase.updateSupplier(id, saved);
     return saved;
   },
 
@@ -307,14 +297,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to add supplier contract');
     const saved = await res.json();
-    persistentDatabase.updateSupplier(supplierId, saved);
     return saved;
   },
 
   async deleteSupplier(id: string): Promise<void> {
     const res = await fetch(`/api/suppliers/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete supplier');
-    persistentDatabase.deleteSupplier(id);
   },
 
   // --- Materials (PostgreSQL inno_cost) ---
@@ -323,7 +311,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch materials');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveMaterials(list);
     return list;
   },
 
@@ -341,7 +328,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create material');
     const saved = await res.json();
-    persistentDatabase.addMaterial(saved);
     return saved;
   },
 
@@ -353,7 +339,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update material');
     const saved = await res.json();
-    persistentDatabase.updateMaterial(id, saved);
     return saved;
   },
 
@@ -373,14 +358,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update material price');
     const saved = await res.json();
-    persistentDatabase.updateMaterial(id, saved);
     return saved;
   },
 
   async deleteMaterial(id: string): Promise<void> {
     const res = await fetch(`/api/materials/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete material');
-    persistentDatabase.deleteMaterial(id);
   },
 
   // --- Material Vendor Quotes & Price Matrix APIs ---
@@ -459,7 +442,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch outsourced services');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveOutsourcedServices(list);
     return list;
   },
 
@@ -481,7 +463,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create outsourced service');
     const saved = await res.json();
-    persistentDatabase.addOutsourcedService(saved);
     return saved;
   },
 
@@ -497,7 +478,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update outsourced service');
     const saved = await res.json();
-    persistentDatabase.updateOutsourcedService(id, saved);
     return saved;
   },
 
@@ -522,14 +502,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update outsourced rate');
     const saved = await res.json();
-    persistentDatabase.updateOutsourcedService(id, saved);
     return saved;
   },
 
   async deleteOutsourced(id: string): Promise<void> {
     const res = await fetch(`/api/outsourced/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete outsourced service');
-    persistentDatabase.deleteOutsourcedService(id);
   },
 
   async deleteOutsourcedService(id: string): Promise<void> {
@@ -542,7 +520,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch subcontractors');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveSubcontractors(list);
     return list;
   },
 
@@ -560,7 +537,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create subcontractor');
     const saved = await res.json();
-    persistentDatabase.addSubcontractor(saved);
     return saved;
   },
 
@@ -572,7 +548,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update subcontractor');
     const saved = await res.json();
-    persistentDatabase.updateSubcontractor(id, saved);
     return saved;
   },
 
@@ -603,14 +578,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update subcontractor rate');
     const saved = await res.json();
-    persistentDatabase.updateSubcontractor(id, saved);
     return saved;
   },
 
   async deleteSubcontractor(id: string): Promise<void> {
     const res = await fetch(`/api/subcontractors/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete subcontractor');
-    persistentDatabase.deleteSubcontractor(id);
   },
 
   // --- Produce Catalog (PostgreSQL inno_cost) ---
@@ -619,7 +592,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch produce items');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveProduceItems(list);
     return list;
   },
 
@@ -641,7 +613,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create produce item');
     const saved = await res.json();
-    persistentDatabase.addProduceItem(saved);
     return saved;
   },
 
@@ -657,7 +628,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update produce item');
     const saved = await res.json();
-    persistentDatabase.updateProduceItem(id, saved);
     return saved;
   },
 
@@ -681,7 +651,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update produce price');
     const saved = await res.json();
-    persistentDatabase.updateProduceItem(id, saved);
     return saved;
   },
 
@@ -700,7 +669,6 @@ export const api = {
   async deleteProduce(id: string): Promise<void> {
     const res = await fetch(`/api/produce/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete produce item');
-    persistentDatabase.deleteProduceItem(id);
   },
 
   async deleteProduceItem(id: string): Promise<void> {
@@ -727,7 +695,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch inventory');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveInventory(list);
     return list;
   },
 
@@ -745,7 +712,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create inventory record');
     const saved = await res.json();
-    persistentDatabase.saveInventory([saved, ...persistentDatabase.getInventory().filter((i) => i.id !== saved.id)]);
     return saved;
   },
 
@@ -761,7 +727,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update inventory record');
     const saved = await res.json();
-    persistentDatabase.saveInventory(persistentDatabase.getInventory().map((i) => (i.id === id ? saved : i)));
     return saved;
   },
 
@@ -772,7 +737,6 @@ export const api = {
   async deleteInventory(id: string): Promise<void> {
     const res = await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete inventory record');
-    persistentDatabase.saveInventory(persistentDatabase.getInventory().filter((i) => i.id !== id));
   },
 
   async deleteInventoryItem(id: string): Promise<void> {
@@ -785,7 +749,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch inventory transactions');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveTransactions(list);
     return list;
   },
 
@@ -852,7 +815,6 @@ export const api = {
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch projects');
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
-    persistentDatabase.saveProjects(list);
     return list;
   },
 
@@ -876,7 +838,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create project');
     const saved = await res.json();
-    persistentDatabase.addProject(saved);
     return saved;
   },
 
@@ -888,14 +849,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update project');
     const saved = await res.json();
-    persistentDatabase.updateProject(id, saved);
     return saved;
   },
 
   async deleteProject(id: string): Promise<void> {
     const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete project');
-    persistentDatabase.deleteProject(id);
   },
 
   async calculateAnalytics(projectData: Partial<Project>): Promise<any> {
@@ -1116,7 +1075,6 @@ export const api = {
     const res = await fetch(`/api/custom-tiles`);
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch custom tiles');
     const data = await res.json();
-    persistentDatabase.saveCustomTiles(data);
     return data;
   },
 
@@ -1128,7 +1086,6 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to create custom tile');
     const saved = await res.json();
-    persistentDatabase.saveCustomTiles([saved, ...persistentDatabase.getCustomTiles().filter((t) => t.id !== saved.id)]);
     return saved;
   },
 
@@ -1140,14 +1097,12 @@ export const api = {
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to update custom tile');
     const saved = await res.json();
-    persistentDatabase.saveCustomTiles(persistentDatabase.getCustomTiles().map((t) => (t.id === id ? saved : t)));
     return saved;
   },
 
   async deleteCustomTile(id: string): Promise<void> {
     const res = await fetch(`/api/custom-tiles/${id}`, { method: 'DELETE' });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete custom tile');
-    persistentDatabase.saveCustomTiles(persistentDatabase.getCustomTiles().filter((t) => t.id !== id));
   },
 
   // --- Database Export, Import, Migrations & Status (PostgreSQL inno_cost) ---

@@ -53,6 +53,8 @@ import { FXTTCardItemsListView } from './FXTTCardItemsListView';
 import { DataImportExportModal } from './DataImportExportModal';
 import { ImportEntityType } from '../utils/excelImport';
 import { ProcurementPriceHistoryModal } from './pricing/ProcurementPriceHistoryModal';
+import { CreateEditOverheadItemModal } from './overhead/CreateEditOverheadItemModal';
+import { FXTTPriceAuditLogFullScreenModal, FXTTPriceAuditEntry } from './FXTTPriceAuditLogFullScreenModal';
 import { TILE_GRADIENT_PRESETS, getThemeById, getRandomThemeIndex } from '../data/tileThemes';
 import {
   INITIAL_CLIENT_PROFILES,
@@ -60,7 +62,6 @@ import {
   CategoryNode,
   ClientProfile
 } from '../data/categoriesAndProfiles';
-import { persistentDatabase } from '../services/persistentDatabase';
 import { api } from '../services/api';
 import {
   Project,
@@ -425,7 +426,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   // Reactive state for categories hierarchy & client profiles
   const [categories, setCategories] = useState<CategoryNode[]>(() => {
     if (categoriesProp && categoriesProp.length > 0) return categoriesProp;
-    return persistentDatabase.getCategories();
+    return INITIAL_CATEGORY_HIERARCHY;
   });
   const [clientProfiles, setClientProfiles] = useState<ClientProfile[]>(() => {
     if (clientsProp && clientsProp.length > 0) return clientsProp;
@@ -554,12 +555,129 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       themeId: string;
       customGradient?: string;
     }>
-  >(() => persistentDatabase.getCustomTiles([]));
+  >([]);
 
-  // Sync customTiles mutations to persistent database
-  useEffect(() => {
-    persistentDatabase.saveCustomTiles(customTiles);
-  }, [customTiles]);
+  // Overhead Edit, Delete & FXTT Price Audit Log State
+  const [editingOverheadItem, setEditingOverheadItem] = useState<any | null>(null);
+  const [isOverheadEditModalOpen, setIsOverheadEditModalOpen] = useState(false);
+  const [fxttOverheadModalOpen, setFxttOverheadModalOpen] = useState(false);
+  const [fxttOverheadItem, setFxttOverheadItem] = useState<any | null>(null);
+  const [fxttOverheadHistory, setFxttOverheadHistory] = useState<FXTTPriceAuditEntry[]>([]);
+  const [loadingOverheadHistory, setLoadingOverheadHistory] = useState(false);
+
+  // Open FXTT modal loaded with overhead's real audit logs from PostgreSQL
+  const handleOpenOverheadFXTT = async (item: any) => {
+    setLoadingOverheadHistory(true);
+    setFxttOverheadItem({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      rate: Number(item.defaultRate) || 0,
+      unit: item.unitType === 'pct' ? '%' : (item.unitType || 'unit'),
+      category: item.category || 'Operating Overheads',
+      classification: 'overhead',
+      stockOrScope: `Method: ${item.defaultCalculationMethod || 'percentage_of_direct'} • Base: ${item.defaultCostBase || 'total_direct_cost'}`,
+      itemClassification: 'overhead'
+    });
+    setFxttOverheadModalOpen(true);
+
+    try {
+      // 1. Fetch audit records from backend API
+      const auditRes = await api.getOverheadAuditLogs({ limit: 100 });
+      const logs = Array.isArray(auditRes) ? auditRes : (auditRes as any)?.data || [];
+      const itemLogs = logs.filter((l: any) => l.overheadItemId === item.id || l.id === item.id);
+
+      if (itemLogs.length > 0) {
+        const mappedEntries: FXTTPriceAuditEntry[] = itemLogs.map((l: any, idx: number) => {
+          const prev = Number(l.previousState?.defaultRate ?? l.previousRate ?? item.defaultRate);
+          const curr = Number(l.newState?.defaultRate ?? l.newRate ?? item.defaultRate);
+          const changePct = prev > 0 ? Number((((curr - prev) / prev) * 100).toFixed(1)) : 0;
+          return {
+            id: l.id || `ovh-audit-${idx}`,
+            date: l.timestamp ? new Date(l.timestamp).toISOString().split('T')[0] : (item.effectiveDate || new Date().toISOString().split('T')[0]),
+            previousRate: prev,
+            newRate: curr,
+            changePct,
+            reason: l.action ? `${l.action.toUpperCase()} - Overhead rate revision` : 'Overhead schedule rate update',
+            approvedBy: l.changedBy || 'Financial Controller',
+            vendorOrContractor: 'Internal Organization Overhead',
+            status: 'Approved',
+            skuCode: item.code,
+            itemName: item.name,
+            unit: item.unitType || 'pct',
+            notes: l.details || `Base: ${item.defaultCostBase || 'total_direct_cost'} • Method: ${item.defaultCalculationMethod || 'percentage_of_direct'}`
+          };
+        });
+        setFxttOverheadHistory(mappedEntries);
+      } else if (Array.isArray(item.priceHistory) && item.priceHistory.length > 0) {
+        setFxttOverheadHistory(item.priceHistory.map((ph: any, idx: number) => ({
+          id: ph.id || `ovh-hist-${idx}`,
+          date: ph.date || new Date().toISOString().split('T')[0],
+          previousRate: Number(ph.previousRate || ph.previousPrice || item.defaultRate),
+          newRate: Number(ph.newRate || ph.newPrice || item.defaultRate),
+          changePct: Number(ph.changePct || 0),
+          reason: ph.reason || 'Overhead rate update',
+          approvedBy: ph.updatedBy || ph.approvedBy || 'Financial Controller',
+          skuCode: item.code,
+          itemName: item.name,
+          unit: item.unitType || 'pct'
+        })));
+      } else {
+        // Baseline entry
+        setFxttOverheadHistory([
+          {
+            id: `ovh-baseline-${item.id}`,
+            date: item.effectiveDate || new Date().toISOString().split('T')[0],
+            previousRate: Number(item.defaultRate) || 0,
+            newRate: Number(item.defaultRate) || 0,
+            changePct: 0,
+            reason: 'Baseline overhead onboarding rate in PostgreSQL database',
+            approvedBy: item.createdBy || 'Financial Controller',
+            vendorOrContractor: 'Internal Organization Overhead',
+            status: 'Active',
+            skuCode: item.code,
+            itemName: item.name,
+            unit: item.unitType || 'pct',
+            notes: `Calculation method: ${item.defaultCalculationMethod || 'percentage_of_direct'} on base ${item.defaultCostBase || 'total_direct_cost'}`
+          }
+        ]);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch overhead audit logs for FXTT table:', err);
+      setFxttOverheadHistory([
+        {
+          id: `ovh-fallback-${item.id}`,
+          date: item.effectiveDate || new Date().toISOString().split('T')[0],
+          previousRate: Number(item.defaultRate) || 0,
+          newRate: Number(item.defaultRate) || 0,
+          changePct: 0,
+          reason: 'Active overhead rate recorded in PostgreSQL',
+          approvedBy: 'Financial Controller',
+          skuCode: item.code,
+          itemName: item.name,
+          unit: item.unitType || 'pct'
+        }
+      ]);
+    } finally {
+      setLoadingOverheadHistory(false);
+    }
+  };
+
+  // Delete overhead item handler
+  const handleDeleteOverheadItemDirect = async (item: any) => {
+    if (!window.confirm(`Are you sure you want to delete overhead item "${item.name}" (${item.code})? This will permanently remove it from the PostgreSQL database.`)) {
+      return;
+    }
+    try {
+      if (onDeleteOverheadItem) onDeleteOverheadItem(item.id);
+      await api.deleteOverheadItem(item.id);
+      setOverheadItems((prev) => prev.filter((o) => o.id !== item.id));
+      showToast(`Overhead item "${item.name}" (${item.code}) deleted successfully.`);
+    } catch (err: any) {
+      console.error('Failed to delete overhead item:', err);
+      showToast(err?.message || 'Failed to delete overhead item from database.');
+    }
+  };
 
   // Card Detail Quick Modal
   const [activeDetailItem, setActiveDetailItem] = useState<{
@@ -643,7 +761,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       const newCategories = categories.map((c) => (c.id === cardId ? updatedCat : c));
       setCategories(newCategories);
       onUpdateCategories?.(newCategories);
-      persistentDatabase.saveCategories(newCategories);
       api.updateCategory(cardId, { themeId: newThemeId, customGradient: customGrad }).catch(console.error);
     }
 
@@ -712,7 +829,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     if (newNode.themeId || newNode.customGradient) {
       handleUpdateTileTheme(newNode.id, newNode.themeId, newNode.customGradient);
     }
-    persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
 
     if (newNode.group === 'overhead') {
@@ -754,7 +870,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     if (newNode.themeId || newNode.customGradient) {
       handleUpdateTileTheme(newNode.id, newNode.themeId, newNode.customGradient);
     }
-    persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch(console.error);
 
     if (newNode.group === 'product' || newNode.group === 'revenue') {
@@ -785,7 +900,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     } else if (entityType === 'produce' || entityType === 'product') {
       if (onAddProduceItem) onAddProduceItem(itemData);
       else api.createProduce(itemData).catch(console.error);
-      persistentDatabase.addProduceItem(itemData);
       showToast(`Product "${itemData.name}" created and stored in database.`);
     } else if (entityType === 'revenue') {
       const revPayload = {
@@ -804,7 +918,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       } else {
         api.createRevenueItem(revPayload).catch(console.error);
       }
-      persistentDatabase.addRevenueItem(revPayload as any);
       api.getRevenueItems({ limit: 100 }).then((res) => {
         setRevenueItems(Array.isArray(res) ? res : (res as any)?.data || []);
       }).catch(console.error);
@@ -828,7 +941,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       } else {
         api.createOverheadItem(overheadPayload).catch(console.error);
       }
-      persistentDatabase.addOverhead(overheadPayload as any);
       api.getOverheadItems({ limit: 100 }).then((res) => {
         setOverheadItems(Array.isArray(res) ? res : (res as any)?.data || []);
       }).catch(console.error);

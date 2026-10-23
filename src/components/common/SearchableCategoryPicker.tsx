@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { CategoryNode } from '../../data/categoriesAndProfiles';
 import { api } from '../../services/api';
-import { persistentDatabase } from '../../services/persistentDatabase';
 
 export interface SearchableCategoryPickerProps {
   categories: CategoryNode[];
@@ -148,7 +147,6 @@ export const SearchableCategoryPicker: React.FC<SearchableCategoryPickerProps> =
     };
 
     // Persist to central storage
-    persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch((err) => console.warn('Could not sync new category to backend:', err));
 
     if (targetGroup === 'overhead') {
@@ -196,7 +194,6 @@ export const SearchableCategoryPicker: React.FC<SearchableCategoryPickerProps> =
     };
 
     // Persist to central storage
-    persistentDatabase.addCategory(newNode);
     api.createCategory(newNode).catch((err) => console.warn('Could not sync new sub-category to backend:', err));
 
     if (targetGroup === 'product' || targetGroup === 'revenue') {

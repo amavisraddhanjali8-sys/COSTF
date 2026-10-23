@@ -53,7 +53,6 @@ import {
   ThemeMode,
   THEME_OPTIONS
 } from '../services/themeService';
-import { persistentDatabase } from '../services/persistentDatabase';
 import {
   searchAllSystemRecords,
   GlobalSearchResult,

@@ -72,7 +72,6 @@ import {
 } from './data/userAndAuditData';
 import { api } from './services/api';
 import { exportProjectQuotePDF } from './utils/pdfExport';
-import { persistentDatabase } from './services/persistentDatabase';
 import { gmailService } from './services/gmailService';
 import { applyThemeToDocument, initThemeListener, setStoredThemeMode } from './services/themeService';
 import { initGlobalBarcodeScanner, addBarcodeScanListener, BarcodeScanEventDetail } from './services/globalBarcodeScanner';
@@ -181,71 +180,24 @@ export default function App() {
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectPickerTarget, setProjectPickerTarget] = useState<'margins' | 'timelines' | 'resources' | 'cost-analysis' | 'general'>('general');
   
-  // Static & Stable persistent central database initialization
-  const [projects, setProjects] = useState<Project[]>(() => persistentDatabase.getProjects([]));
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => persistentDatabase.getProjects([])[0]?.id || '');
+  // Static & Stable PostgreSQL central database state initialization
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
   const activeCurrency = selectedProject?.currency || companyDetails?.currency || 'USD';
-  const [materials, setMaterials] = useState<MaterialItem[]>(() => persistentDatabase.getMaterials([]));
-  const [produceItems, setProduceItems] = useState<ProduceItem[]>(() => persistentDatabase.getProduceItems([]));
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => persistentDatabase.getSuppliers([]));
-  const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>(() => persistentDatabase.getOutsourcedServices([]));
-  const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>(() => persistentDatabase.getSubcontractors([]));
-  const [inventory, setInventory] = useState<InventoryItem[]>(() => persistentDatabase.getInventory([]));
-  const [transactions, setTransactions] = useState<InventoryTransaction[]>(() => persistentDatabase.getTransactions([]));
-  const [categories, setCategories] = useState<CategoryNode[]>(() => persistentDatabase.getCategories());
-  const [clients, setClients] = useState<ClientProfile[]>(() => persistentDatabase.getClients([]));
-  const [overheads, setOverheads] = useState<OverheadItem[]>(() => persistentDatabase.getOverheads([]));
-  const [revenueItems, setRevenueItems] = useState<RevenueItem[]>(() => persistentDatabase.getRevenueItems([]));
+  const [materials, setMaterials] = useState<MaterialItem[]>([]);
+  const [produceItems, setProduceItems] = useState<ProduceItem[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>([]);
+  const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [clients, setClients] = useState<ClientProfile[]>([]);
+  const [overheads, setOverheads] = useState<OverheadItem[]>([]);
+  const [revenueItems, setRevenueItems] = useState<RevenueItem[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  // Sync state mutations to static persistent database
-  useEffect(() => {
-    persistentDatabase.saveProjects(projects);
-  }, [projects]);
-
-  useEffect(() => {
-    persistentDatabase.saveMaterials(materials);
-  }, [materials]);
-
-  useEffect(() => {
-    persistentDatabase.saveProduceItems(produceItems);
-  }, [produceItems]);
-
-  useEffect(() => {
-    persistentDatabase.saveSuppliers(suppliers);
-  }, [suppliers]);
-
-  useEffect(() => {
-    persistentDatabase.saveOutsourcedServices(outsourcedServices);
-  }, [outsourcedServices]);
-
-  useEffect(() => {
-    persistentDatabase.saveSubcontractors(subcontractors);
-  }, [subcontractors]);
-
-  useEffect(() => {
-    persistentDatabase.saveOverheads(overheads);
-  }, [overheads]);
-
-  useEffect(() => {
-    persistentDatabase.saveRevenueItems(revenueItems);
-  }, [revenueItems]);
-
-  useEffect(() => {
-    persistentDatabase.saveInventory(inventory);
-  }, [inventory]);
-
-  useEffect(() => {
-    persistentDatabase.saveTransactions(transactions);
-  }, [transactions]);
-
-  useEffect(() => {
-    if (categories && categories.length > 0) {
-      persistentDatabase.saveCategories(categories);
-    }
-  }, [categories]);
 
   // Initialize Theme and Global Rapid Keystroke Barcode Scanner Listener
   useEffect(() => {
@@ -292,17 +244,24 @@ export default function App() {
     };
   }, [materials, produceItems, inventory]);
 
-  const handleReloadDatabase = () => {
-    setProjects(persistentDatabase.getProjects(INITIAL_PROJECTS));
-    setMaterials(persistentDatabase.getMaterials(INITIAL_MATERIALS));
-    setProduceItems(persistentDatabase.getProduceItems(INITIAL_PRODUCE_ITEMS));
-    setSuppliers(persistentDatabase.getSuppliers(INITIAL_SUPPLIERS));
-    setOutsourcedServices(persistentDatabase.getOutsourcedServices(INITIAL_OUTSOURCED_SERVICES));
-    setSubcontractors(persistentDatabase.getSubcontractors(INITIAL_SUBCONTRACTORS));
-    setInventory(persistentDatabase.getInventory(INITIAL_INVENTORY));
-    setTransactions(persistentDatabase.getTransactions([]));
-    setCategories(persistentDatabase.getCategories());
-    showToast('Central database synchronized from persistent static store.');
+  const handleReloadDatabase = async () => {
+    try {
+      const data = await api.getInitialData();
+      if (data) {
+        if (data.projects) setProjects(data.projects);
+        if (data.materials) setMaterials(data.materials);
+        if (data.produce) setProduceItems(data.produce);
+        if (data.suppliers) setSuppliers(data.suppliers);
+        if (data.outsourced) setOutsourcedServices(data.outsourced);
+        if (data.subcontractors) setSubcontractors(data.subcontractors);
+        if (data.inventory) setInventory(data.inventory);
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.categories) setCategories(data.categories);
+      }
+      showToast('Central database synchronized from PostgreSQL database.');
+    } catch {
+      showToast('Error syncing with PostgreSQL database.');
+    }
   };
 
   const dismissToast = (id: string) => {
@@ -666,7 +625,6 @@ export default function App() {
 
   const handleUpdateCategories = async (newCats: CategoryNode[]) => {
     setCategories(newCats);
-    persistentDatabase.saveCategories(newCats);
   };
 
   const handleAddClient = async (clientData: Partial<ClientProfile>) => {
@@ -742,11 +700,9 @@ export default function App() {
           ]);
           if (Array.isArray(ovhData) && ovhData.length > 0) {
             setOverheads(ovhData);
-            persistentDatabase.saveOverheads(ovhData);
           }
           if (Array.isArray(revData) && revData.length > 0) {
             setRevenueItems(revData);
-            persistentDatabase.saveRevenueItems(revData);
           }
         } catch (fetchErr) {
           console.warn('Could not refresh overheads or revenue catalogue:', fetchErr);
@@ -829,7 +785,6 @@ export default function App() {
 
   const handleDeleteMaterial = async (id: string) => {
     await api.deleteMaterial(id);
-    persistentDatabase.deleteMaterial(id);
     setMaterials(prev => prev.filter(m => m.id !== id));
     logAuditEvent('MATERIAL_DELETED', 'Materials', id, 'Material Item', `Deleted material record ${id} from catalog.`);
     showToast('Material item deleted from catalog.');
@@ -866,7 +821,6 @@ export default function App() {
 
   const handleDeleteSubcontractor = async (id: string) => {
     await api.deleteSubcontractor(id);
-    persistentDatabase.deleteSubcontractor(id);
     setSubcontractors(prev => prev.filter(s => s.id !== id));
     logAuditEvent('SUBCONTRACTOR_DELETED', 'Catalog', id, 'Subcontractor Rate', `Deleted subcontractor rate card ${id}.`);
     showToast('Subcontractor removed from enterprise directory.');
@@ -890,7 +844,6 @@ export default function App() {
   const handleAddOutsourcedService = async (item: Partial<OutsourcedService>) => {
     const created = await api.createOutsourcedService(item);
     if (created) {
-      persistentDatabase.addOutsourcedService(created);
       setOutsourcedServices(prev => [created, ...prev.filter(o => o.id !== created.id)]);
       showToast(`Outsourced tariff "${created.name}" registered.`);
     }
@@ -898,14 +851,12 @@ export default function App() {
 
   const handleUpdateOutsourcedService = async (id: string, updatedFields: Partial<OutsourcedService>) => {
     const saved = await api.updateOutsourcedService(id, updatedFields);
-    persistentDatabase.updateOutsourcedService(id, saved);
     setOutsourcedServices(prev => prev.map(o => o.id === id ? { ...o, ...saved } : o));
     showToast('Outsourced tariff updated.');
   };
 
   const handleDeleteOutsourcedService = async (id: string) => {
     await api.deleteOutsourcedService(id);
-    persistentDatabase.deleteOutsourcedService(id);
     setOutsourcedServices(prev => prev.filter(o => o.id !== id));
     logAuditEvent('OUTSOURCED_DELETED', 'Catalog', id, 'Outsourced Tariff', `Deleted outsourced service tariff ${id}.`);
     showToast('Outsourced service tariff removed.');
@@ -929,7 +880,6 @@ export default function App() {
 
   const handleDeleteSupplier = async (id: string) => {
     await api.deleteSupplier(id);
-    persistentDatabase.deleteSupplier(id);
     setSuppliers(prev => prev.filter(s => s.id !== id));
     logAuditEvent('SUPPLIER_DELETED', 'Materials', id, 'Supplier Record', `Deleted supplier ${id} from directory.`);
     showToast('Supplier removed from enterprise directory.');
@@ -976,7 +926,6 @@ export default function App() {
 
   const handleDeleteProduceItem = async (id: string) => {
     await api.deleteProduceItem(id);
-    persistentDatabase.deleteProduceItem(id);
     setProduceItems(prev => prev.filter(p => p.id !== id));
     logAuditEvent('PRODUCT_DELETED', 'Catalog', id, 'Produce Item', `Deleted product assembly ${id} from catalog.`);
     showToast('Product assembly deleted from catalog.');
@@ -988,14 +937,12 @@ export default function App() {
       const created = await api.createOverheadItem(itemData);
       const finalItem = created && created.id ? created : ({ ...itemData, id: `ovh-${Date.now()}` } as OverheadItem);
       setOverheads(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id)]);
-      persistentDatabase.addOverhead(finalItem);
       logAuditEvent('OVERHEAD_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created overhead item ${finalItem.name} (${finalItem.category}).`);
       showToast(`Overhead cost item "${finalItem.name}" registered across all portals.`);
     } catch (e: any) {
       console.warn('Overhead create API error:', e);
       const fallbackItem = { ...itemData, id: `ovh-${Date.now()}` } as OverheadItem;
       setOverheads(prev => [fallbackItem, ...prev.filter(o => o.id !== fallbackItem.id)]);
-      persistentDatabase.addOverhead(fallbackItem);
       showToast(`Overhead cost item "${fallbackItem.name}" saved to database.`);
     }
   };
@@ -1005,7 +952,6 @@ export default function App() {
       const saved = await api.updateOverheadItem(id, updatedFields);
       const finalItem = saved && saved.id ? saved : ({ ...updatedFields, id } as OverheadItem);
       setOverheads(prev => prev.map(o => o.id === id ? { ...o, ...finalItem } : o));
-      persistentDatabase.updateOverhead(id, finalItem);
       showToast('Overhead item updated across all portals.');
     } catch (e) {
       console.warn('Overhead update error:', e);
@@ -1018,7 +964,6 @@ export default function App() {
     } catch (e) {
       console.warn('Overhead delete error:', e);
     }
-    persistentDatabase.deleteOverhead(id);
     setOverheads(prev => prev.filter(o => o.id !== id));
     logAuditEvent('OVERHEAD_DELETED', 'Catalog', id, 'Overhead Item', `Deleted overhead record ${id}.`);
     showToast('Overhead record deleted.');
@@ -1030,7 +975,6 @@ export default function App() {
       const created = await api.createRevenueItem(itemData);
       const finalItem = created && created.id ? created : ({ ...itemData, id: `rev-${Date.now()}` } as RevenueItem);
       setRevenueItems(prev => [finalItem, ...prev.filter(r => r.id !== finalItem.id)]);
-      persistentDatabase.addRevenueItem(finalItem);
 
       logAuditEvent('REVENUE_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created revenue deliverable ${finalItem.name} (${finalItem.category}).`);
       showToast(`Revenue catalogue deliverable "${finalItem.name}" registered across all portals.`);
@@ -1038,7 +982,6 @@ export default function App() {
       console.warn('Revenue item create API error:', e);
       const fallbackItem = { ...itemData, id: `rev-${Date.now()}` } as RevenueItem;
       setRevenueItems(prev => [fallbackItem, ...prev.filter(r => r.id !== fallbackItem.id)]);
-      persistentDatabase.addRevenueItem(fallbackItem);
       showToast(`Revenue deliverable "${fallbackItem.name}" saved to database.`);
     }
   };
@@ -1048,7 +991,6 @@ export default function App() {
       const saved = await api.updateRevenueItem(id, updatedFields);
       const finalItem = saved && saved.id ? saved : ({ ...updatedFields, id } as RevenueItem);
       setRevenueItems(prev => prev.map(r => r.id === id ? { ...r, ...finalItem } : r));
-      persistentDatabase.updateRevenueItem(id, finalItem);
       showToast('Revenue item updated.');
     } catch (e) {
       console.warn('Revenue update error:', e);
@@ -1061,7 +1003,6 @@ export default function App() {
     } catch (e) {
       console.warn('Revenue delete error:', e);
     }
-    persistentDatabase.deleteRevenueItem(id);
     setRevenueItems(prev => prev.filter(r => r.id !== id));
     logAuditEvent('REVENUE_DELETED', 'Catalog', id, 'Revenue Item', `Deleted revenue catalogue item ${id}.`);
     showToast('Revenue deliverable deleted.');
@@ -1157,7 +1098,6 @@ export default function App() {
 
   const handleDeleteProject = async (id: string) => {
     await api.deleteProject(id);
-    persistentDatabase.deleteProject(id);
     setProjects(prev => prev.filter(p => p.id !== id));
     logAuditEvent('PROJECT_DELETED', 'Projects', id, 'Project Portfolio', `Deleted project record ${id}.`);
     showToast('Project removed from portfolio.');

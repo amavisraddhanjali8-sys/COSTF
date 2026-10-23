@@ -13,8 +13,7 @@ import {
   INITIAL_PROJECTS,
   INITIAL_PRODUCE_ITEMS
 } from '../data/initialData';
-import { INITIAL_CLIENT_PROFILES, INITIAL_CATEGORY_HIERARCHY } from '../data/categoriesAndProfiles';
-import { buildDefaultCategories } from '../services/persistentDatabase';
+import { INITIAL_CLIENT_PROFILES, INITIAL_CATEGORY_HIERARCHY, buildDefaultCategories } from '../data/categoriesAndProfiles';
 import { INITIAL_USERS, INITIAL_COMPANY_DETAILS, INITIAL_AUDIT_LOGS } from '../data/userAndAuditData';
 import { round2, round4, calcDiscountedLine, calcPctChange, decAdd, decSub, decMul, decDiv } from '../utils/decimalMath';
 import { calculatePlanFinancials } from '../utils/planCalculationService';

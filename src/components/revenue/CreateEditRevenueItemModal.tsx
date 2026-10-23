@@ -14,8 +14,7 @@ import {
 import { RevenueItem, RevenueCategory } from '../../types';
 import { api } from '../../services/api';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
-import { persistentDatabase } from '../../services/persistentDatabase';
-import { CategoryNode } from '../../data/categoriesAndProfiles';
+import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
 
 interface CreateEditRevenueItemModalProps {
   isOpen: boolean;
@@ -293,18 +292,16 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
 
           {/* Category & Subcategory via SearchableCategoryPicker */}
           <SearchableCategoryPicker
-            categories={persistentDatabase.getCategories()}
+            categories={INITIAL_CATEGORY_HIERARCHY}
             selectedCategory={category}
             selectedSubCategory={subCategory}
             onCategoryChange={(catName) => setCategory(catName)}
             onSubCategoryChange={(subName) => setSubCategory(subName)}
             onAddNewCategory={(newCat) => {
-              persistentDatabase.addCategory(newCat);
               api.createCategory(newCat).catch(console.error);
               setCategory(newCat.name);
             }}
             onAddNewSubCategory={(newSub) => {
-              persistentDatabase.addCategory(newSub);
               api.createCategory(newSub).catch(console.error);
               setSubCategory(newSub.name);
             }}

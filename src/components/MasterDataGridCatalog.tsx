@@ -67,12 +67,10 @@ import { parseSmartSearch, evaluateSmartSearch, SearchableField } from '../utils
 import { ItemDetailsAndPriceAuditModal } from './ItemDetailsAndPriceAuditModal';
 import { downloadCSV } from '../utils/csvExport';
 import { parseSpreadsheetFile, MAX_FILE_SIZE_BYTES } from '../utils/excelImport';
-import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
-import { persistentDatabase } from '../services/persistentDatabase';
 import { DataImportExportModal } from './DataImportExportModal';
 import { SearchableCategoryPicker } from './common/SearchableCategoryPicker';
 import { SearchablePartnerPicker, PartnerOption } from './common/SearchablePartnerPicker';
-import { CategoryNode } from '../data/categoriesAndProfiles';
+import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../data/categoriesAndProfiles';
 import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal';
 import { AppUser } from '../types';
 import { api } from '../services/api';
@@ -1163,10 +1161,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
             lastUpdated: today
           });
         }
-        persistentDatabase.updateMaterial(item.id, {
-          retailPrice: newPrice,
-          lastUpdated: today
-        });
+        api.updateMaterial(item.id, { retailPrice: newPrice }).catch(console.error);
         updatedCount++;
       } else if (item.rawType === 'product') {
         if (onEditRecord) {
@@ -1176,10 +1171,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
             lastUpdated: today
           });
         }
-        persistentDatabase.updateProduceItem(item.id, {
-          retailPrice: newPrice,
-          lastUpdated: today
-        });
+        api.updateProduceItem(item.id, { retailPrice: newPrice }).catch(console.error);
         updatedCount++;
       } else if (item.rawType === 'service') {
         if (onUpdateServiceRate) {
@@ -1191,10 +1183,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
             lastUpdated: today
           });
         }
-        persistentDatabase.updateOutsourcedService(item.id, {
-          rate: newPrice,
-          lastUpdated: today
-        });
+        api.updateOutsourcedService(item.id, { rate: newPrice }).catch(console.error);
         updatedCount++;
       } else if (item.rawType === 'subcontractor') {
         if (onEditRecord) {
@@ -1205,11 +1194,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
             lastUpdated: today
           });
         }
-        persistentDatabase.updateSubcontractor(item.id, {
-          baseRate: newPrice,
-          rate: newPrice,
-          lastUpdated: today
-        });
+        api.updateSubcontractor(item.id, { rate: newPrice, baseRate: newPrice }).catch(console.error);
         updatedCount++;
       }
     });
@@ -1279,7 +1264,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createProduce(prodPayload).catch((err) => console.warn('Could not create produce item:', err));
       }
-      persistentDatabase.addProduceItem(prodPayload as any);
 
       // Concurrently connect with Revenue Catalogue (products are deliverables that generate revenue)
       const revPayload = {
@@ -1300,7 +1284,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createRevenueItem(revPayload).catch((err) => console.warn('Could not sync revenue item:', err));
       }
-      persistentDatabase.addRevenueItem(revPayload as any);
 
       if (newItemCategory.trim()) {
         api.createRevenueCategory({ name: newItemCategory.trim(), isActive: true }).catch(console.error);
@@ -1370,7 +1353,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         };
         if (onAddProduceItem) onAddProduceItem(prodPayload);
         else api.createProduce(prodPayload).catch(console.error);
-        persistentDatabase.addProduceItem(prodPayload as any);
       }
 
       showToast(`Created new Revenue Catalogue Item connected to all portals: ${generatedCode}`);
@@ -1397,7 +1379,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createSubcontractor(subPayload).catch((err) => console.warn('Could not create subcontractor:', err));
       }
-      persistentDatabase.addSubcontractor(subPayload as any);
 
       showToast(`Created new Subcontractor trade rate & connected to directory: ${generatedCode}`);
     } else if (newItemType === 'service') {
@@ -1417,7 +1398,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createOutsourced(svcPayload).catch((err) => console.warn('Could not create outsourced service:', err));
       }
-      persistentDatabase.addOutsourcedService(svcPayload as any);
 
       showToast(`Created new Outsourced Tariff & connected to service providers: ${newItemName.trim()}`);
     } else {
@@ -1450,7 +1430,6 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       } else {
         api.createMaterial(matPayload).catch((err) => console.warn('Could not create material:', err));
       }
-      persistentDatabase.addMaterial(matPayload as any);
 
       showToast(`Created new Material & connected across inventory and portals: ${generatedCode}`);
     }
@@ -3293,7 +3272,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               </div>
 
               <SearchableCategoryPicker
-                categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                 selectedCategory={editCategory}
                 selectedSubCategory={editSubCategory}
                 onCategoryChange={(catName) => setEditCategory(catName)}
@@ -4019,19 +3998,17 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               {/* Connected Category & Sub-Category Fields with Live Searchable Dropdowns */}
               <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                 <SearchableCategoryPicker
-                  categories={categories && categories.length > 0 ? categories : persistentDatabase.getCategories()}
+                  categories={categories && categories.length > 0 ? categories : INITIAL_CATEGORY_HIERARCHY}
                   selectedCategory={newItemCategory}
                   selectedSubCategory={newItemSubCategory}
                   onCategoryChange={(catName) => setNewItemCategory(catName)}
                   onSubCategoryChange={(subName) => setNewItemSubCategory(subName)}
                   onAddNewCategory={(newCat) => {
-                    persistentDatabase.addCategory(newCat);
                     api.createCategory(newCat).catch(console.error);
                     setNewItemCategory(newCat.name);
                     showToast(`Created category "${newCat.name}" in database`);
                   }}
                   onAddNewSubCategory={(newSub) => {
-                    persistentDatabase.addCategory(newSub);
                     api.createCategory(newSub).catch(console.error);
                     setNewItemSubCategory(newSub.name);
                     showToast(`Created sub-category "${newSub.name}" in database`);
