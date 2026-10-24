@@ -14,7 +14,7 @@ import { OverheadItem, OverheadCostType, OverheadCalculationMethod, OverheadCost
 import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { api } from '../../services/api';
-import { getStoredCurrency } from '../../utils/currency';
+import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo, getStoredCurrency } from '../../utils/currency';
 
 interface CreateEditOverheadItemModalProps {
   isOpen: boolean;
@@ -44,12 +44,13 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
   const [defaultCostBase, setDefaultCostBase] = useState<OverheadCostBase>('total_direct_cost');
   const [defaultRate, setDefaultRate] = useState<number>(5);
   const [unitType, setUnitType] = useState('pct');
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY_CODE);
   const [status, setStatus] = useState<'Active' | 'Inactive' | 'Archived' | 'Under Review'>('Active');
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const activeCurrency = getStoredCurrency();
+  const activeCurrencyInfo = getCurrencyInfo(currency);
 
   useEffect(() => {
     if (itemToEdit) {
@@ -58,6 +59,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
       setBarcode(itemToEdit.barcode || '');
       setCategory(itemToEdit.category || 'Operating Overheads');
       setSubCategory(itemToEdit.subCategory || '');
+      setCurrency(itemToEdit.currency || DEFAULT_CURRENCY_CODE);
       setDescription(itemToEdit.description || '');
       setCostType(itemToEdit.costType || 'facility');
       setDefaultCalculationMethod(itemToEdit.defaultCalculationMethod || 'percentage_of_direct');
@@ -120,6 +122,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
         defaultCostBase,
         defaultRate: Number(defaultRate) || 0,
         unitType: defaultCalculationMethod === 'percentage_of_direct' ? 'pct' : unitType,
+        currency,
         effectiveDate,
         status,
         createdBy: itemToEdit?.createdBy || 'System Administrator',
@@ -271,8 +274,8 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
             </div>
           </div>
 
-          {/* Cost Base & Rate */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Cost Base, Rate & Currency */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
                 Applicable Cost Base
@@ -282,25 +285,27 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
                 onChange={(e) => setDefaultCostBase(e.target.value as OverheadCostBase)}
                 className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003049]"
               >
-                <option value="total_direct_cost">Total Direct Cost (Materials + Subs + Outsourced)</option>
+                <option value="total_direct_cost">Total Direct Cost</option>
                 <option value="material_cost">Material Cost Only</option>
                 <option value="labor_cost">Labor Cost Only</option>
-                <option value="subcontractor_cost">Subcontractor Cost Only</option>
-                <option value="outsourced_cost">Outsourced Services Cost Only</option>
-                <option value="planned_revenue">Planned Revenue (Commercial Quoted Price)</option>
-                <option value="units_produced">Units Produced (Batch Size)</option>
+                <option value="subcontractor_cost">Subcontractor Cost</option>
+                <option value="outsourced_cost">Outsourced Services</option>
+                <option value="planned_revenue">Planned Revenue</option>
+                <option value="units_produced">Units Produced</option>
               </select>
             </div>
 
             <div>
               <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                Default Rate / Amount {defaultCalculationMethod === 'percentage_of_direct' ? '(%)' : `(${activeCurrency})`}
+                Rate / Amount {defaultCalculationMethod === 'percentage_of_direct' ? '(%)' : `(${activeCurrencyInfo.symbol})`}
               </label>
               <div className="relative">
                 {defaultCalculationMethod === 'percentage_of_direct' ? (
                   <Percent className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 ) : (
-                  <DollarSign className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <span className="text-[11px] font-bold text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 font-mono">
+                    {activeCurrencyInfo.symbol}
+                  </span>
                 )}
                 <input
                   type="number"
@@ -312,6 +317,23 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
                   className="w-full pl-8 pr-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003049]"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                Currency
+              </label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003049] font-bold"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} ({c.symbol})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

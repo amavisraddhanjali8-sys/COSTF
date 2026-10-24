@@ -59,10 +59,9 @@ import { TILE_GRADIENT_PRESETS, getThemeById, getRandomThemeIndex } from '../dat
 import {
   INITIAL_CLIENT_PROFILES,
   INITIAL_CATEGORY_HIERARCHY,
-  CategoryNode,
-  ClientProfile
-} from '../data/categoriesAndProfiles';
+import { CategoryNode, ClientProfile } from '../data/categoriesAndProfiles';
 import { api } from '../services/api';
+import { formatCurrency } from '../utils/currency';
 import {
   Project,
   MaterialItem,
@@ -232,6 +231,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [selectedOverheadSubCatId, setSelectedOverheadSubCatId] = useState<string | null>(null);
   const [overheadViewMode, setOverheadViewMode] = useState<'hierarchy' | 'items_table'>('hierarchy');
   const [overheadItems, setOverheadItems] = useState<any[]>(overheadsProp || []);
+  const [editingOverheadItem, setEditingOverheadItem] = useState<any | null>(null);
+  const [isEditOverheadModalOpen, setIsEditOverheadModalOpen] = useState(false);
   const [revenueItems, setRevenueItems] = useState<any[]>(revenueItemsProp || []);
 
   // Synchronize when props update
@@ -5999,6 +6000,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                           <th className="py-2.5 px-3 font-semibold">Method</th>
                           <th className="py-2.5 px-3 font-semibold text-right">Default Rate</th>
                           <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -6021,18 +6023,39 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                               <td className="py-2.5 px-3 capitalize text-slate-600">{item.costType?.replace(/_/g, ' ')}</td>
                               <td className="py-2.5 px-3 capitalize text-slate-500">{item.defaultCalculationMethod?.replace(/_/g, ' ')}</td>
                               <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800">
-                                {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : `$${item.defaultRate}`}
+                                {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : formatCurrency(item.defaultRate, item.currency || 'LKR')}
                               </td>
                               <td className="py-2.5 px-3 text-center">
                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                                   {item.status || 'Active'}
                                 </span>
                               </td>
+                              <td className="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingOverheadItem(item);
+                                    setIsEditOverheadModalOpen(true);
+                                  }}
+                                  className="p-1 rounded text-slate-500 hover:text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors"
+                                  title="Edit Overhead Item"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteOverheadItemDirect(item)}
+                                  className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
+                                  title="Delete Overhead Item"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         {overheadItems.length === 0 && (
                           <tr>
-                            <td colSpan={7} className="py-6 text-center text-slate-400">
+                            <td colSpan={8} className="py-6 text-center text-slate-400">
                               No overhead items found. Click "+ Add Overhead Item" to create one.
                             </td>
                           </tr>
@@ -6086,6 +6109,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       <th className="py-2.5 px-3 font-semibold text-right">Applicable Base</th>
                       <th className="py-2.5 px-3 font-semibold text-right">Rate</th>
                       <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -6100,18 +6124,39 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                           <td className="py-2.5 px-3 capitalize text-slate-500">{item.defaultCalculationMethod?.replace(/_/g, ' ')}</td>
                           <td className="py-2.5 px-3 text-right capitalize text-slate-500 font-mono text-[11px]">{item.defaultCostBase?.replace(/_/g, ' ') || 'Direct'}</td>
                           <td className="py-2.5 px-3 text-right font-mono font-bold text-amber-800">
-                            {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : `$${item.defaultRate}`}
+                            {item.defaultCalculationMethod === 'percentage_of_direct' ? `${item.defaultRate}%` : formatCurrency(item.defaultRate, item.currency || 'LKR')}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                               {item.status || 'Active'}
                             </span>
                           </td>
+                          <td className="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingOverheadItem(item);
+                                setIsEditOverheadModalOpen(true);
+                              }}
+                              className="p-1 rounded text-slate-500 hover:text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors"
+                              title="Edit Overhead Item"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteOverheadItemDirect(item)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
+                              title="Delete Overhead Item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     {overheadItems.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="py-6 text-center text-slate-400">
+                        <td colSpan={9} className="py-6 text-center text-slate-400">
                           No overhead items recorded yet.
                         </td>
                       </tr>
@@ -7139,6 +7184,24 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         initialCategoryId={addItemCategoryId}
         initialSubCategoryId={addItemSubCategoryId}
         onSave={handleSaveItem}
+      />
+
+      {/* 8B. MODAL: DEDICATED EDIT OVERHEAD ITEM MODAL */}
+      <CreateEditOverheadItemModal
+        isOpen={isEditOverheadModalOpen}
+        itemToEdit={editingOverheadItem}
+        categories={categories}
+        onClose={() => {
+          setIsEditOverheadModalOpen(false);
+          setEditingOverheadItem(null);
+        }}
+        onSave={(updated) => {
+          setOverheadItems((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
+          if (onUpdateOverheadItem) onUpdateOverheadItem(updated.id, updated);
+          showToast(`Overhead item "${updated.name}" updated in database.`);
+          setIsEditOverheadModalOpen(false);
+          setEditingOverheadItem(null);
+        }}
       />
 
       {/* 9. MODAL: UNIVERSAL EDIT CARD MODAL */}

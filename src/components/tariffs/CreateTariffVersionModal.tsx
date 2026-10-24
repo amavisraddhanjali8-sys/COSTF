@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Tag, DollarSign, History, AlertCircle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Tariff, TariffVersion, TariffCalculationMethod } from '../../types';
+import { SUPPORTED_CURRENCIES, getCurrencyInfo, DEFAULT_CURRENCY_CODE } from '../../utils/currency';
+import { api } from '../../services/api';
 
 interface CreateTariffVersionModalProps {
   isOpen: boolean;
   tariff: Tariff | null;
   onClose: () => void;
-  onSave: (tariffId: string, versionData: any) => Promise<void>;
+  onSave?: (tariffId: string, versionData: any) => Promise<void>;
+  onSuccess?: () => Promise<void> | void;
   showToast: (msg: string) => void;
 }
 
@@ -15,11 +18,13 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
   tariff,
   onClose,
   onSave,
+  onSuccess,
   showToast
 }) => {
   const [rateOrPercentage, setRateOrPercentage] = useState<number>(0);
   const [fixedCharge, setFixedCharge] = useState<number>(0);
   const [calculationMethod, setCalculationMethod] = useState<TariffCalculationMethod>('percentage');
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY_CODE);
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [effectiveTo, setEffectiveTo] = useState('');
   const [sourceReference, setSourceReference] = useState('');
@@ -33,6 +38,7 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
       setRateOrPercentage(tariff.rateOrPercentage);
       setFixedCharge(tariff.fixedCharge || 0);
       setCalculationMethod(tariff.calculationMethod);
+      setCurrency(tariff.currency || DEFAULT_CURRENCY_CODE);
       setEffectiveFrom(new Date().toISOString().slice(0, 10));
       setEffectiveTo('');
       setSourceReference(tariff.sourceReference || '');
@@ -68,19 +74,27 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
     setError(null);
 
     try {
-      await onSave(tariff.id, {
+      const payload = {
         rateOrPercentage: Number(rateOrPercentage),
         fixedCharge: Number(fixedCharge) || 0,
         calculationMethod,
         applicableBase: tariff.applicableBase,
         unit: tariff.unit,
-        currency: tariff.currency,
+        currency,
         effectiveFrom,
         effectiveTo: effectiveTo.trim() || null,
         sourceReference: sourceReference.trim(),
         changeReason: changeReason.trim(),
         notes: notes.trim()
-      });
+      };
+
+      if (onSave) {
+        await onSave(tariff.id, payload);
+      } else {
+        await api.createTariffVersion(tariff.id, payload);
+      }
+
+      if (onSuccess) await onSuccess();
       showToast(`Tariff version v${nextVerNumber} created successfully.`);
       onClose();
     } catch (err: any) {
@@ -155,10 +169,10 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                New Rate / Percentage <span className="text-rose-500">*</span>
+                New Rate <span className="text-rose-500">*</span>
               </label>
               <input
                 type="number"
@@ -173,7 +187,7 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Fixed Mobilization Charge ($)
+                Fixed Charge
               </label>
               <input
                 type="number"
@@ -183,6 +197,23 @@ export const CreateTariffVersionModal: React.FC<CreateTariffVersionModalProps> =
                 onChange={(e) => setFixedCharge(parseFloat(e.target.value) || 0)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200"
               />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Currency
+              </label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} ({c.symbol})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

@@ -2301,6 +2301,40 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/tariffs/:id', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const success = await postgresService.deleteTariff(req.params.id, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!success) return res.status(404).json({ error: 'Tariff not found' });
+      res.json({ success: true, message: 'Tariff schedule deleted successfully' });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete tariff:', e);
+      res.status(500).json({ error: 'Failed to delete tariff', details: e?.message });
+    }
+  });
+
+  app.delete('/api/tariffs/:id/versions/:versionId', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const success = await postgresService.deleteTariffVersion(req.params.id, req.params.versionId, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      if (!success) return res.status(404).json({ error: 'Tariff version not found' });
+      res.json({ success: true, message: 'Tariff version deleted successfully' });
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to delete tariff version:', e);
+      res.status(500).json({ error: 'Failed to delete tariff version', details: e?.message });
+    }
+  });
+
   app.get('/api/tariffs/:id/resolve', async (req, res) => {
     try {
       const date = req.query.date ? String(req.query.date) : undefined;

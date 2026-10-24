@@ -48,6 +48,7 @@ import { downloadCSV } from '../../utils/csvExport';
 import { getStoredCurrentUser, saveStoredAuditLogs, getStoredAuditLogs } from '../../data/userAndAuditData';
 
 export const CURRENCY_OPTIONS = [
+  { code: 'LKR', symbol: 'Rs.', label: 'LKR (Rs.) - Sri Lanka Rupee' },
   { code: 'USD', symbol: '$', label: 'USD ($) - US Dollar' },
   { code: 'EUR', symbol: '€', label: 'EUR (€) - Euro' },
   { code: 'GBP', symbol: '£', label: 'GBP (£) - British Pound' },
@@ -61,8 +62,8 @@ export const CURRENCY_OPTIONS = [
 ];
 
 export function getCurrencySymbol(code?: string): string {
-  const match = CURRENCY_OPTIONS.find((c) => c.code === (code || 'USD'));
-  return match ? match.symbol : '$';
+  const match = CURRENCY_OPTIONS.find((c) => c.code === (code || 'LKR'));
+  return match ? match.symbol : 'Rs.';
 }
 
 export interface ProductCompetitorPriceMatrixModalProps {
@@ -99,8 +100,8 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
   const [loading, setLoading] = useState(true);
   const [searchFilter, setSearchFilter] = useState('');
 
-  // Active Matrix Currency (defaults to item currency or USD, selectable in UI)
-  const [activeCurrency, setActiveCurrency] = useState<string>(item.currency || 'USD');
+  // Active Matrix Currency (defaults to item currency or LKR, selectable in UI)
+  const [activeCurrency, setActiveCurrency] = useState<string>(item.currency || 'LKR');
 
   // Our Offering Rates state
   const [ourPrice, setOurPrice] = useState<number>(Number(item.ourPrice || 100));

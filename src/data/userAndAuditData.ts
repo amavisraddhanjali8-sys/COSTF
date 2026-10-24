@@ -23,7 +23,7 @@ export const INITIAL_COMPANY_DETAILS: CompanyDetails = {
   city: 'Colombo',
   country: 'Sri Lanka',
   website: 'https://www.fxtt-enterprise.com',
-  currency: 'USD',
+  currency: 'LKR',
   logoPosition: 'left',
   tagline: 'Cost, Procurement & Project Profitability Management'
 };

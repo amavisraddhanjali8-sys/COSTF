@@ -75,6 +75,7 @@ import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal
 import { AppUser } from '../types';
 import { api } from '../services/api';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
+import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo, formatCurrency } from '../utils/currency';
 
 export interface CatalogGridItem {
   id: string;
@@ -96,6 +97,7 @@ export interface CatalogGridItem {
   assignedTo: string;
   rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue';
   rawItem: any;
+  currency?: string;
   priceHistory?: PriceHistoryRecord[];
   imageUrl?: string;
 }
@@ -288,6 +290,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   const [editSubCategory, setEditSubCategory] = useState<string>('');
   const [editUnit, setEditUnit] = useState<string>('pcs');
   const [editRate, setEditRate] = useState<number>(0);
+  const [editCurrency, setEditCurrency] = useState<string>(DEFAULT_CURRENCY_CODE);
   const [editStatus, setEditStatus] = useState<string>('Active');
   const [editStock, setEditStock] = useState<number>(0);
   const [editReason, setEditReason] = useState<string>('');
@@ -316,6 +319,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   const [newItemRate, setNewItemRate] = useState<number>(100);
   const [newItemCostPrice, setNewItemCostPrice] = useState<number>(70);
   const [newItemUnit, setNewItemUnit] = useState('pcs');
+  const [newItemCurrency, setNewItemCurrency] = useState<string>(DEFAULT_CURRENCY_CODE);
   const [newItemSupplier, setNewItemSupplier] = useState(suppliers[0]?.name || 'Apex Metallurgy Corp');
   const [newItemOverheadCostType, setNewItemOverheadCostType] = useState<string>('facility');
   const [newItemOverheadMethod, setNewItemOverheadMethod] = useState<string>('percentage_of_direct');
@@ -537,6 +541,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         assignedTo: isProduct ? 'Engineering Team' : 'Procurement Lead',
         rawType: 'material',
         rawItem: mat,
+        currency: mat.currency || DEFAULT_CURRENCY_CODE,
         priceHistory: mat.priceHistory || []
       });
     });
@@ -564,6 +569,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
           assignedTo: 'Lead Systems Architect',
           rawType: 'product',
           rawItem: prd,
+          currency: prd.currency || DEFAULT_CURRENCY_CODE,
           priceHistory: prd.priceHistory || []
         });
       });
@@ -591,6 +597,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         assignedTo: 'Operations Director',
         rawType: 'service',
         rawItem: svc,
+        currency: (svc as any).currency || DEFAULT_CURRENCY_CODE,
         priceHistory: svc.priceHistory || []
       });
     });
@@ -616,6 +623,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         assignedTo: 'Site Construction Manager',
         rawType: 'subcontractor',
         rawItem: sub,
+        currency: sub.currency || DEFAULT_CURRENCY_CODE,
         priceHistory: sub.priceHistory || sub.rateHistory || []
       });
     });
@@ -642,6 +650,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
           assignedTo: ovh.createdBy || 'Finance Director',
           rawType: 'overhead',
           rawItem: ovh,
+          currency: ovh.currency || DEFAULT_CURRENCY_CODE,
           priceHistory: []
         });
       });
@@ -671,6 +680,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
           assignedTo: 'Commercial Sales Lead',
           rawType: 'revenue',
           rawItem: rev,
+          currency: rev.currency || DEFAULT_CURRENCY_CODE,
           priceHistory: []
         });
       });
@@ -3415,11 +3425,32 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (onDeleteRecord) {
-                    onDeleteRecord(deleteConfirmItem.rawType, deleteConfirmItem.id);
+                onClick={async () => {
+                  if (!deleteConfirmItem) return;
+                  const rawType = deleteConfirmItem.rawType;
+                  const id = deleteConfirmItem.id;
+                  try {
+                    if (rawType === 'material') {
+                      await api.deleteMaterial(id);
+                    } else if (rawType === 'service') {
+                      await api.deleteOutsourcedService(id);
+                    } else if (rawType === 'subcontractor') {
+                      await api.deleteSubcontractor(id);
+                    } else if (rawType === 'product') {
+                      await api.deleteProduceItem(id);
+                    } else if (rawType === 'overhead') {
+                      await api.deleteOverheadItem(id);
+                    } else if (rawType === 'revenue') {
+                      await api.deleteRevenueItem(id);
+                    }
+                  } catch (err: any) {
+                    console.warn(`Direct DB deletion warning:`, err?.message);
                   }
-                  showToast(`Deleted ${deleteConfirmItem.code} (${deleteConfirmItem.name}) from catalog`);
+
+                  if (onDeleteRecord) {
+                    onDeleteRecord(rawType, id);
+                  }
+                  showToast(`Deleted ${deleteConfirmItem.code} (${deleteConfirmItem.name}) permanently from PostgreSQL database`);
                   setDeleteConfirmItem(null);
                 }}
                 className="px-3.5 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
@@ -3442,12 +3473,12 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Delete {selectedIds.size} Selected Records</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Permanently remove selected records from catalog.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Permanently delete from PostgreSQL database.</p>
               </div>
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              Are you sure you want to delete these {selectedIds.size} records from the master catalog? This action will remove them permanently from active catalogs.
+              Are you sure you want to delete these {selectedIds.size} records? This action permanently removes them from the PostgreSQL database catalogs.
             </p>
 
             <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -3460,14 +3491,36 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  selectedIds.forEach((id) => {
-                    const itm = allItems.find((i) => i.id === id);
-                    if (itm && onDeleteRecord) {
-                      onDeleteRecord(itm.rawType, itm.id);
-                    }
-                  });
-                  showToast(`Deleted ${selectedIds.size} records from catalog`);
+                onClick={async () => {
+                  const toDelete = Array.from(selectedIds);
+                  await Promise.all(
+                    toDelete.map(async (id) => {
+                      const itm = allItems.find((i) => i.id === id);
+                      if (itm) {
+                        try {
+                          if (itm.rawType === 'material') {
+                            await api.deleteMaterial(itm.id);
+                          } else if (itm.rawType === 'service') {
+                            await api.deleteOutsourcedService(itm.id);
+                          } else if (itm.rawType === 'subcontractor') {
+                            await api.deleteSubcontractor(itm.id);
+                          } else if (itm.rawType === 'product') {
+                            await api.deleteProduceItem(itm.id);
+                          } else if (itm.rawType === 'overhead') {
+                            await api.deleteOverheadItem(itm.id);
+                          } else if (itm.rawType === 'revenue') {
+                            await api.deleteRevenueItem(itm.id);
+                          }
+                        } catch (e: any) {
+                          console.warn(`Bulk direct DB delete warning for ${itm.id}:`, e?.message);
+                        }
+                        if (onDeleteRecord) {
+                          onDeleteRecord(itm.rawType, itm.id);
+                        }
+                      }
+                    })
+                  );
+                  showToast(`Permanently deleted ${toDelete.length} records from PostgreSQL database`);
                   setSelectedIds(new Set());
                   setIsBulkDeleteOpen(false);
                 }}

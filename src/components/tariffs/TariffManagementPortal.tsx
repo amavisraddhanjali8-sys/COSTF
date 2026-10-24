@@ -6,28 +6,20 @@ import {
   Filter,
   History,
   RefreshCw,
-  Download,
+  Trash2,
+  Edit2,
   Calendar,
   Layers,
-  DollarSign,
-  Percent,
-  CheckCircle2,
-  Clock,
-  ArrowRight,
   Calculator,
   AlertCircle,
-  HelpCircle,
-  FileSpreadsheet,
-  ChevronRight,
   ShieldCheck,
-  Edit2,
-  Sparkles
+  Check
 } from 'lucide-react';
-import { Tariff, TariffVersion, AppUser } from '../../types';
+import { Tariff, TariffVersion, AppUser, TariffScopeType } from '../../types';
 import { api } from '../../services/api';
 import { CreateEditTariffModal } from './CreateEditTariffModal';
 import { CreateTariffVersionModal } from './CreateTariffVersionModal';
-import { formatCurrency } from '../../utils/currency';
+import { formatCurrency, DEFAULT_CURRENCY_CODE } from '../../utils/currency';
 
 interface TariffManagementPortalProps {
   currentUser: AppUser;
@@ -43,31 +35,31 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-  const [selectedMethod, setSelectedMethod] = useState<string>('ALL');
+  const [selectedScope, setSelectedScope] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
 
-  // Modals state
+  // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingTariff, setEditingTariff] = useState<Tariff | null>(null);
   const [versionModalTariff, setVersionModalTariff] = useState<Tariff | null>(null);
   const [historyDrawerTariff, setHistoryDrawerTariff] = useState<Tariff | null>(null);
 
-  // Interactive Test Sandbox State
+  // Deletion confirmation
+  const [deletingTariff, setDeletingTariff] = useState<Tariff | null>(null);
+  const [deletingVersion, setDeletingVersion] = useState<{ tariff: Tariff; version: any } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Test Sandbox
   const [testTariffId, setTestTariffId] = useState<string>('');
   const [testDate, setTestDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [testBaseAmount, setTestBaseAmount] = useState<number>(25000);
+  const [testBaseAmount, setTestBaseAmount] = useState<number>(10000);
   const [resolvedResult, setResolvedResult] = useState<any>(null);
-  const [resolvingTest, setResolvingTest] = useState<boolean>(false);
 
-  // Load tariffs
   const fetchTariffs = async () => {
     setLoading(true);
     try {
       const data = await api.getTariffs({
         search: searchQuery || undefined,
-        category: selectedCategory !== 'ALL' ? selectedCategory : undefined,
-        calculationMethod: selectedMethod !== 'ALL' ? selectedMethod : undefined,
         status: selectedStatus !== 'ALL' ? selectedStatus : undefined
       });
       setTariffs(data);
@@ -75,7 +67,7 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
         setTestTariffId(data[0].id);
       }
     } catch (err: any) {
-      showToast(err?.message || 'Failed to load tariffs from PostgreSQL');
+      showToast(err?.message || 'Failed to load tariffs');
     } finally {
       setLoading(false);
     }
@@ -83,9 +75,8 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
 
   useEffect(() => {
     void fetchTariffs();
-  }, [selectedCategory, selectedMethod, selectedStatus]);
+  }, [selectedStatus]);
 
-  // Handle Search Debounce
   useEffect(() => {
     const timer = setTimeout(() => {
       void fetchTariffs();
@@ -93,28 +84,24 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Test Sandbox Resolution
+  // Sandbox resolution
   useEffect(() => {
     if (!testTariffId) return;
     let cancelled = false;
-
     const runResolve = async () => {
-      setResolvingTest(true);
       try {
         const res = await api.resolveTariffVersion(testTariffId, testDate);
         if (!cancelled) setResolvedResult(res);
       } catch (e: any) {
         if (!cancelled) setResolvedResult(null);
-      } finally {
-        if (!cancelled) setResolvingTest(false);
       }
     };
-
     void runResolve();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [testTariffId, testDate]);
 
-  // Compute test output amount
   const calculatedTestAmount = useMemo(() => {
     if (!resolvedResult) return 0;
     const rate = resolvedResult.rateOrPercentage || 0;
@@ -132,24 +119,34 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
     return (testBaseAmount * rate) / 100;
   }, [resolvedResult, testBaseAmount]);
 
-  // Categories list
-  const categories = [
-    'ALL',
-    'Surface Finishing',
-    'Statutory & Customs',
-    'Quality & Inspection',
-    'Labour & Trades',
-    'Utility & Energy',
-    'Logistics & Freight'
+  // Scope rules list
+  const scopeTabs: Array<{ id: string; label: string }> = [
+    { id: 'ALL', label: 'All' },
+    { id: 'general', label: 'General' },
+    { id: 'project', label: 'Project' },
+    { id: 'product', label: 'Product' },
+    { id: 'material', label: 'Material' },
+    { id: 'subcontractor', label: 'Subcontractor' },
+    { id: 'supplier', label: 'Supplier' },
+    { id: 'overhead', label: 'Overhead' }
   ];
 
-  // Metric summaries
-  const totalTariffs = tariffs.length;
-  const totalVersions = tariffs.reduce((acc, t) => acc + (t.versionsCount || 1), 0);
-  const activeTariffs = tariffs.filter(t => t.status === 'Active').length;
-  const appliedCount = tariffs.reduce((acc, t) => acc + ((t as any).appliedPlansCount || 0), 0);
+  // Filtered tariffs
+  const filteredTariffs = useMemo(() => {
+    return tariffs.filter((t) => {
+      if (selectedScope !== 'ALL' && (t.scopeType || 'general') !== selectedScope) {
+        return false;
+      }
+      return true;
+    });
+  }, [tariffs, selectedScope]);
 
-  // Handle Create / Edit save
+  // Metrics
+  const totalTariffs = tariffs.length;
+  const activeTariffs = tariffs.filter((t) => t.status === 'Active').length;
+  const totalVersions = tariffs.reduce((acc, t) => acc + (t.versionsCount || 1), 0);
+
+  // Save Tariff (Create or Edit)
   const handleSaveTariff = async (data: any) => {
     if (editingTariff) {
       await api.updateTariff(editingTariff.id, data);
@@ -159,182 +156,159 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
     await fetchTariffs();
   };
 
-  // Handle Create Version save
-  const handleSaveVersion = async (tariffId: string, versionData: any) => {
-    await api.createTariffVersion(tariffId, versionData);
-    await fetchTariffs();
-    if (historyDrawerTariff?.id === tariffId) {
-      const full = await api.getTariffById(tariffId);
-      setHistoryDrawerTariff(full);
-    }
-  };
-
-  // View full version history drawer
-  const handleOpenHistory = async (tariff: Tariff) => {
+  // Delete Tariff
+  const handleConfirmDeleteTariff = async () => {
+    if (!deletingTariff) return;
+    setIsDeleting(true);
     try {
-      const full = await api.getTariffById(tariff.id);
-      setHistoryDrawerTariff(full);
-    } catch {
-      setHistoryDrawerTariff(tariff);
+      await api.deleteTariff(deletingTariff.id);
+      setTariffs((prev) => prev.filter((t) => t.id !== deletingTariff.id));
+      showToast(`Tariff "${deletingTariff.code}" deleted.`);
+      setDeletingTariff(null);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete tariff');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  // Export to CSV
-  const handleExportCSV = () => {
-    const headers = [
-      'Tariff Code',
-      'Name',
-      'Category',
-      'Calculation Method',
-      'Rate/Percentage',
-      'Fixed Charge',
-      'Unit',
-      'Applicable Base',
-      'Effective From',
-      'Effective To',
-      'Status',
-      'Source Reference',
-      'Versions Count'
-    ];
-    const rows = tariffs.map(t => [
-      `"${t.code}"`,
-      `"${t.name}"`,
-      `"${t.category}"`,
-      `"${t.calculationMethod}"`,
-      t.rateOrPercentage,
-      t.fixedCharge || 0,
-      `"${t.unit}"`,
-      `"${t.applicableBase}"`,
-      `"${t.effectiveFrom}"`,
-      `"${t.effectiveTo || 'Current'}"`,
-      `"${t.status}"`,
-      `"${t.sourceReference || ''}"`,
-      t.versionsCount || 1
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Enterprise_Tariff_Schedule_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('Tariff schedules exported to CSV.');
+  // Delete Version
+  const handleConfirmDeleteVersion = async () => {
+    if (!deletingVersion) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteTariffVersion(deletingVersion.tariff.id, deletingVersion.version.id);
+      showToast(`Version v${deletingVersion.version.versionNumber} deleted.`);
+      setDeletingVersion(null);
+      // Refresh drawer
+      const updated = await api.getTariffById(deletingVersion.tariff.id);
+      setHistoryDrawerTariff(updated);
+      await fetchTariffs();
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to delete version');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleOpenHistory = async (t: Tariff) => {
+    try {
+      const full = await api.getTariffById(t.id);
+      setHistoryDrawerTariff(full || t);
+    } catch {
+      setHistoryDrawerTariff(t);
+    }
+  };
+
+  const getScopeBadge = (scope?: string) => {
+    switch (scope) {
+      case 'project':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">Project</span>;
+      case 'product':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">Product</span>;
+      case 'material':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Material</span>;
+      case 'subcontractor':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300">Subcontractor</span>;
+      case 'supplier':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">Supplier</span>;
+      case 'overhead':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">Overhead</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">General</span>;
+    }
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Header Banner */}
-      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start space-x-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-md shrink-0">
+    <div className="space-y-4 max-w-7xl mx-auto pb-12">
+      {/* Header */}
+      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs">
               <Tag className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                Tariffs
+              <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <span>Tariffs</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-semibold">
+                  PostgreSQL
+                </span>
               </h1>
+              <p className="text-xs text-slate-500">
+                Scope rules, rates & multi-currency schedules
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold flex items-center space-x-1.5 cursor-pointer shadow-2xs"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export</span>
-            </button>
+          <div className="flex items-center space-x-2">
             <button
               type="button"
               onClick={fetchTariffs}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shadow-2xs"
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
               title="Refresh"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               type="button"
-              id="btn-add-tariff"
               onClick={() => {
                 setEditingTariff(null);
                 setIsCreateModalOpen(true);
               }}
-              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs transition-colors"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Tariff</span>
+              <span>New</span>
             </button>
           </div>
         </div>
 
-        {/* Telemetry Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Active</span>
-              <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            </div>
-            <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-              {activeTariffs} <span className="text-xs font-normal text-slate-400">/ {totalTariffs}</span>
+        {/* Minimal Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Total</div>
+            <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">
+              {totalTariffs}
             </div>
           </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Versions</span>
-              <History className="w-4 h-4 text-blue-500" />
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Active</div>
+            <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+              {activeTariffs}
             </div>
-            <div className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Versions</div>
+            <div className="text-lg font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5">
               {totalVersions}
             </div>
           </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Attached</span>
-              <Layers className="w-4 h-4 text-amber-500" />
-            </div>
-            <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-              {appliedCount}
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between text-slate-500 text-[11px] font-semibold">
-              <span>Status</span>
-              <DollarSign className="w-4 h-4 text-purple-500" />
-            </div>
-            <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1 flex items-center space-x-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-              <span>Active</span>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Currency</div>
+            <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
+              LKR (Rs.)
             </div>
           </div>
         </div>
       </div>
 
-      {/* Interactive Version Resolver & Calculation Sandbox */}
-      <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-slate-50 dark:from-slate-900 dark:via-blue-950/20 dark:to-slate-900 border border-blue-200 dark:border-blue-900/60 rounded-2xl p-5 shadow-xs">
-        <div className="flex items-center space-x-2 text-blue-900 dark:text-blue-300 mb-3">
-          <Calculator className="w-4 h-4" />
-          <h2 className="text-xs font-bold uppercase tracking-wide">
-            Sandbox
-          </h2>
+      {/* Sandbox */}
+      <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
+        <div className="flex items-center space-x-1.5 text-slate-700 dark:text-slate-300 mb-2">
+          <Calculator className="w-4 h-4 text-amber-600" />
+          <h2 className="text-xs font-bold uppercase tracking-wider">Test</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 text-xs">
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Test Tariff Schedule
-            </label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Schedule</label>
             <select
               value={testTariffId}
               onChange={(e) => setTestTariffId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold"
             >
-              {tariffs.map(t => (
+              {tariffs.map((t) => (
                 <option key={t.id} value={t.id}>
                   [{t.code}] {t.name}
                 </option>
@@ -343,241 +317,207 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Evaluation Date
-            </label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Date</label>
             <input
               type="date"
               value={testDate}
               onChange={(e) => setTestDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Base Amount / Qty ($)
-            </label>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1">Base Amount</label>
             <input
               type="number"
               value={testBaseAmount}
               onChange={(e) => setTestBaseAmount(parseFloat(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono font-bold"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono font-bold"
             />
           </div>
 
-          {/* Resolved Result Box */}
-          <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-blue-200 dark:border-blue-900 flex flex-col justify-between shadow-2xs">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-slate-500 font-bold uppercase">Resolved Version</span>
+          <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-amber-200 dark:border-amber-900/60 flex flex-col justify-between">
+            <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-between">
+              <span>Result</span>
               {resolvedResult && (
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
-                  v{resolvedResult.versionNumber} ({resolvedResult.matchType})
+                <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                  v{resolvedResult.versionNumber}
                 </span>
               )}
             </div>
-            <div className="text-base font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
-              {formatCurrency(calculatedTestAmount, resolvedResult?.currency || 'USD')}
-            </div>
-            <div className="text-[10px] text-slate-500">
-              Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">{resolvedResult?.rateOrPercentage || 0} {resolvedResult?.unit || '%'}</strong>
-              {resolvedResult?.fixedCharge ? ` + $${resolvedResult.fixedCharge} fixed` : ''}
+            <div className="text-base font-bold font-mono text-amber-600 dark:text-amber-400">
+              {formatCurrency(calculatedTestAmount, resolvedResult?.currency || DEFAULT_CURRENCY_CODE)}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs space-y-3">
-        {/* Search & Method / Status Row */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+      {/* Search & Scope Tabs */}
+      <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xs space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by code, title, process, or reference..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              placeholder="Search code or name..."
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
             />
           </div>
 
-          <div className="flex items-center space-x-2 text-xs">
-            <select
-              value={selectedMethod}
-              onChange={(e) => setSelectedMethod(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
-            >
-              <option value="ALL">All Calculation Methods</option>
-              <option value="percentage">Percentage (%)</option>
-              <option value="unit_rate">Unit Rate</option>
-              <option value="fixed_charge">Fixed Charge</option>
-              <option value="hybrid">Hybrid</option>
-            </select>
-
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="Active">Active Only</option>
-              <option value="Inactive">Inactive</option>
-              <option value="Archived">Archived</option>
-            </select>
-          </div>
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
+          >
+            <option value="ALL">All Status</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="Pending">Pending</option>
+            <option value="Archived">Archived</option>
+          </select>
         </div>
 
-        {/* Category Pills */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pt-1 pb-0.5 border-t border-slate-100 dark:border-slate-800/80">
-          {categories.map((cat) => (
+        {/* Scope Tabs */}
+        <div className="flex items-center space-x-1 overflow-x-auto pt-1 border-t border-slate-100 dark:border-slate-800">
+          {scopeTabs.map((tab) => (
             <button
-              key={cat}
+              key={tab.id}
               type="button"
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                selectedCategory === cat
+              onClick={() => setSelectedScope(tab.id)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                selectedScope === tab.id
                   ? 'bg-amber-600 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {cat === 'ALL' ? 'All Categories' : cat}
+              {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Main Tariffs Table */}
+      {/* Main Table */}
       <div className="bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 text-slate-500 font-bold uppercase text-[10px]">
-                <th className="py-3 px-4">Tariff Schedule</th>
-                <th className="py-3 px-4">Category & Scope</th>
-                <th className="py-3 px-4">Method & Base</th>
-                <th className="py-3 px-4 text-right">Active Rate</th>
-                <th className="py-3 px-4 text-right">Fixed Charge</th>
-                <th className="py-3 px-4">Effective Range</th>
-                <th className="py-3 px-4 text-center">Version Audit</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+              <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-slate-500 font-bold uppercase text-[10px]">
+                <th className="py-2.5 px-3">Code</th>
+                <th className="py-2.5 px-3">Name</th>
+                <th className="py-2.5 px-3">Scope</th>
+                <th className="py-2.5 px-3">Rule</th>
+                <th className="py-2.5 px-3 text-right">Rate</th>
+                <th className="py-2.5 px-3 text-right">Fixed</th>
+                <th className="py-2.5 px-3">Currency</th>
+                <th className="py-2.5 px-3">Range</th>
+                <th className="py-2.5 px-3 text-center">Version</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-              {loading && tariffs.length === 0 ? (
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {loading && filteredTariffs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
-                    <span>Loading tariffs from PostgreSQL...</span>
+                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-1 text-amber-500" />
+                    <span>Loading...</span>
                   </td>
                 </tr>
-              ) : tariffs.length === 0 ? (
+              ) : filteredTariffs.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    <Tag className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
-                    <p className="font-semibold text-slate-600 dark:text-slate-400">No tariff schedules found</p>
-                    <p className="text-[11px] text-slate-400 mt-1">Adjust filters or create a new tariff.</p>
+                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                    <p className="font-semibold">No tariffs found.</p>
                   </td>
                 </tr>
               ) : (
-                tariffs.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
-                    {/* Code & Title */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
-                          {t.code}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          t.status === 'Active'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        }`}>
-                          {t.status}
-                        </span>
-                      </div>
-                      <div className="font-bold text-slate-900 dark:text-slate-100 mt-1">
-                        {t.name}
-                      </div>
-                      {t.sourceReference && (
-                        <div className="text-[10px] text-slate-400 truncate max-w-xs mt-0.5">
-                          Ref: {t.sourceReference}
-                        </div>
+                filteredTariffs.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition-colors">
+                    {/* Code */}
+                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                      {t.code}
+                    </td>
+
+                    {/* Name */}
+                    <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200">
+                      <div>{t.name}</div>
+                      {t.scopeTargetName && (
+                        <div className="text-[10px] text-slate-400">Target: {t.scopeTargetName}</div>
                       )}
                     </td>
 
-                    {/* Category */}
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800">
-                        {t.category}
-                      </span>
+                    {/* Scope Badge */}
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      {getScopeBadge(t.scopeType)}
                     </td>
 
-                    {/* Method & Base */}
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 capitalize">
-                        {t.calculationMethod?.replace('_', ' ')}
-                      </div>
-                      <div className="text-[10px] text-slate-400 capitalize">
-                        Base: {t.applicableBase?.replace('_', ' ')}
-                      </div>
+                    {/* Rule (Method & Base) */}
+                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 dark:text-slate-400 capitalize">
+                      {t.calculationMethod?.replace('_', ' ')}
                     </td>
 
                     {/* Rate */}
-                    <td className="py-3 px-4 text-right">
-                      <div className="font-mono font-bold text-slate-900 dark:text-slate-100 text-sm">
-                        {t.rateOrPercentage} {t.unit}
-                      </div>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                      {t.rateOrPercentage} {t.unit}
                     </td>
 
-                    {/* Fixed Charge */}
-                    <td className="py-3 px-4 text-right font-mono text-slate-600 dark:text-slate-400">
-                      {t.fixedCharge ? formatCurrency(t.fixedCharge, t.currency) : '—'}
+                    {/* Fixed */}
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {t.fixedCharge ? formatCurrency(t.fixedCharge, t.currency || DEFAULT_CURRENCY_CODE) : '—'}
                     </td>
 
-                    {/* Effective Range */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center space-x-1 text-[11px] font-mono text-slate-700 dark:text-slate-300">
-                        <Calendar className="w-3 h-3 text-slate-400" />
-                        <span>{t.effectiveFrom}</span>
-                        <span>→</span>
-                        <span>{t.effectiveTo || 'Open'}</span>
-                      </div>
+                    {/* Currency */}
+                    <td className="py-2.5 px-3 font-mono font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                      {t.currency || DEFAULT_CURRENCY_CODE}
                     </td>
 
-                    {/* Versions Badge */}
-                    <td className="py-3 px-4 text-center">
+                    {/* Range */}
+                    <td className="py-2.5 px-3 whitespace-nowrap font-mono text-[11px] text-slate-500">
+                      {t.effectiveFrom} → {t.effectiveTo || 'Open'}
+                    </td>
+
+                    {/* Version */}
+                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => handleOpenHistory(t)}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-mono font-bold text-[11px] cursor-pointer transition-colors"
-                        title="View complete version history and audits"
+                        className="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100 cursor-pointer"
+                        title="View version trail"
                       >
-                        <History className="w-3 h-3" />
-                        <span>v{t.versionsCount || 1} ({t.versionsCount || 1} rev)</span>
+                        v{t.versionsCount || 1}
                       </button>
                     </td>
 
-                    {/* Actions */}
-                    <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                    {/* Actions: Edit & Delete & Version */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
                       <button
                         type="button"
                         onClick={() => setVersionModalTariff(t)}
-                        className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] cursor-pointer shadow-2xs"
-                        title="Add a new historical version with new rate without overwriting past rates"
+                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] cursor-pointer"
+                        title="Add New Version"
                       >
-                        + Version
+                        +V
                       </button>
+
                       <button
                         type="button"
                         onClick={() => {
                           setEditingTariff(t);
                           setIsCreateModalOpen(true);
                         }}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                        title="Edit master details"
+                        className="p-1 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        title="Edit Tariff"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDeletingTariff(t)}
+                        className="p-1 rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                        title="Delete Tariff"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>
@@ -588,18 +528,100 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
         </div>
       </div>
 
-      {/* Version History Drawer / Modal */}
+      {/* Delete Tariff Modal */}
+      {deletingTariff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete Tariff</h3>
+                <p className="text-[11px] text-slate-500 font-mono">{deletingTariff.code}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Delete tariff <strong>"{deletingTariff.name}"</strong>? This will remove the schedule and all versions from PostgreSQL.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingTariff(null)}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTariff}
+                disabled={isDeleting}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Version Modal */}
+      {deletingVersion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete Version</h3>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  v{deletingVersion.version.versionNumber} • {deletingVersion.tariff.code}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Delete version v{deletingVersion.version.versionNumber}? Remaining versions will be retained in PostgreSQL.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingVersion(null)}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteVersion}
+                disabled={isDeleting}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Version History Modal */}
       {historyDrawerTariff && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in-50 duration-150">
-          <div className="bg-white dark:bg-[#0b101b] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60">
-              <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                  <History className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center">
+                  <History className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    Historical Tariff Version Trail & Compliance Audit
+                    Versions
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
                     {historyDrawerTariff.code} • {historyDrawerTariff.name}
@@ -609,108 +631,69 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setHistoryDrawerTariff(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-[11px] text-amber-900 dark:text-amber-200 flex items-center justify-between">
-                <span>
-                  <strong>Master Rule:</strong> Historical tariff versions are retained immutably in PostgreSQL to guarantee that past project plan estimates never drift.
-                </span>
+            <div className="p-4 overflow-y-auto space-y-2.5 flex-1 text-xs">
+              <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => {
-                    setVersionModalTariff(historyDrawerTariff);
-                  }}
-                  className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer shrink-0 ml-3"
+                  onClick={() => setVersionModalTariff(historyDrawerTariff)}
+                  className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer"
                 >
                   + Add Version
                 </button>
               </div>
 
-              <div className="space-y-3">
-                {(historyDrawerTariff.versions || [historyDrawerTariff.currentVersion]).filter(Boolean).map((v: any, idx: number) => (
-                  <div
-                    key={v.id || idx}
-                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono text-xs px-2 py-0.5 rounded font-bold bg-blue-600 text-white">
-                          v{v.versionNumber}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          v.status === 'Active'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                        }`}>
-                          {v.status || 'Active'}
-                        </span>
-                        {idx === 0 && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                            Current Standard
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] font-mono text-slate-500">
-                        Effective: <strong>{v.effectiveFrom}</strong> → <strong>{v.effectiveTo || 'Open-ended'}</strong>
-                      </div>
+              {(historyDrawerTariff.versions || [historyDrawerTariff.currentVersion]).filter(Boolean).map((v: any, idx: number) => (
+                <div
+                  key={v.id || idx}
+                  className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
+                        v{v.versionNumber}
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100">
+                        {v.rateOrPercentage} {v.unit}
+                      </span>
+                      <span className="text-amber-700 dark:text-amber-400 font-mono font-semibold">
+                        {v.currency || historyDrawerTariff.currency || DEFAULT_CURRENCY_CODE}
+                      </span>
                     </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px]">
-                      <div>
-                        <span className="text-slate-400">Rate / Percentage:</span>
-                        <div className="font-mono font-bold text-slate-900 dark:text-slate-100 text-sm">
-                          {v.rateOrPercentage} {v.unit || '%'}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Fixed Charge:</span>
-                        <div className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                          {v.fixedCharge ? formatCurrency(v.fixedCharge, v.currency || 'USD') : '$0.00'}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Calculation Method:</span>
-                        <div className="font-semibold text-slate-700 dark:text-slate-300 capitalize">
-                          {v.calculationMethod?.replace('_', ' ')}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Recorded By:</span>
-                        <div className="text-slate-700 dark:text-slate-300 truncate">
-                          {v.createdBy || 'System User'}
-                        </div>
-                      </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                      {v.effectiveFrom} → {v.effectiveTo || 'Open'}
                     </div>
-
                     {v.changeReason && (
-                      <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-700 dark:text-slate-300">
-                        <strong className="text-slate-500">Audit Revision Reason:</strong> {v.changeReason}
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {v.changeReason}
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
-            </div>
 
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setHistoryDrawerTariff(null)}
-                className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold cursor-pointer"
-              >
-                Close History
-              </button>
+                  {/* Delete version button if multiple versions exist */}
+                  {(historyDrawerTariff.versions?.length || 1) > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setDeletingVersion({ tariff: historyDrawerTariff, version: v })}
+                      className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded cursor-pointer"
+                      title="Delete version"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Modals */}
+      {/* Create / Edit Tariff Modal */}
       <CreateEditTariffModal
         isOpen={isCreateModalOpen}
         tariff={editingTariff}
@@ -722,13 +705,24 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
         showToast={showToast}
       />
 
-      <CreateTariffVersionModal
-        isOpen={Boolean(versionModalTariff)}
-        tariff={versionModalTariff}
-        onClose={() => setVersionModalTariff(null)}
-        onSave={handleSaveVersion}
-        showToast={showToast}
-      />
+      {/* Create Tariff Version Modal */}
+      {versionModalTariff && (
+        <CreateTariffVersionModal
+          isOpen={Boolean(versionModalTariff)}
+          tariff={versionModalTariff}
+          onClose={() => setVersionModalTariff(null)}
+          onSuccess={async () => {
+            showToast(`New version recorded.`);
+            setVersionModalTariff(null);
+            await fetchTariffs();
+            if (historyDrawerTariff) {
+              const full = await api.getTariffById(historyDrawerTariff.id);
+              setHistoryDrawerTariff(full);
+            }
+          }}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 };

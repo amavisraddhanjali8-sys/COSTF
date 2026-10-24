@@ -28,7 +28,7 @@ export const SUPPORTED_CURRENCIES: CurrencyConfig[] = [
   { code: 'CNY', symbol: '¥', name: 'Chinese Yuan', decimals: 2, rateToUSD: 7.24 }
 ];
 
-export const DEFAULT_CURRENCY_CODE = 'USD';
+export const DEFAULT_CURRENCY_CODE = 'LKR';
 
 /**
  * Get active selected currency code from storage
@@ -150,10 +150,10 @@ export function formatLKR(
   return formatCurrency(amount, 'LKR', options);
 }
 
-export const CURRENCY_CODE = 'USD';
-export const CURRENCY_SYMBOL = '$';
-export const CURRENCY_NAME = 'US Dollar';
-export const CURRENCY_LOCAL_SYMBOL = '$';
+export const CURRENCY_CODE = 'LKR';
+export const CURRENCY_SYMBOL = 'Rs.';
+export const CURRENCY_NAME = 'Sri Lanka Rupee';
+export const CURRENCY_LOCAL_SYMBOL = 'Rs.';
 
 /**
  * Convert value between currencies based on live mid-market exchange rate table

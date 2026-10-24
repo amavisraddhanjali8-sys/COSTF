@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Tag, DollarSign, Calendar, Layers, Shield, HelpCircle, AlertCircle } from 'lucide-react';
-import { Tariff, TariffCalculationMethod, TariffApplicableBase, TariffStatus } from '../../types';
+import { X, Tag, DollarSign, Calendar, Layers, Shield, AlertCircle } from 'lucide-react';
+import { Tariff, TariffCalculationMethod, TariffApplicableBase, TariffStatus, TariffScopeType } from '../../types';
+import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo } from '../../utils/currency';
 
 interface CreateEditTariffModalProps {
   isOpen: boolean;
@@ -21,59 +22,64 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Surface Finishing');
+  const [category, setCategory] = useState('General Enterprise');
+  const [scopeType, setScopeType] = useState<TariffScopeType>('general');
+  const [scopeTargetName, setScopeTargetName] = useState('');
   const [calculationMethod, setCalculationMethod] = useState<TariffCalculationMethod>('percentage');
   const [rateOrPercentage, setRateOrPercentage] = useState<number>(10);
   const [fixedCharge, setFixedCharge] = useState<number>(0);
   const [unit, setUnit] = useState('%');
   const [applicableBase, setApplicableBase] = useState<TariffApplicableBase>('material_cost');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY_CODE);
   const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
   const [effectiveTo, setEffectiveTo] = useState('');
   const [status, setStatus] = useState<TariffStatus>('Active');
   const [sourceReference, setSourceReference] = useState('');
   const [description, setDescription] = useState('');
-  const [changeReason, setChangeReason] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const activeCurrencyInfo = getCurrencyInfo(currency);
 
   useEffect(() => {
     if (tariff) {
       setCode(tariff.code);
       setName(tariff.name);
-      setCategory(tariff.category);
+      setCategory(tariff.category || 'General Enterprise');
+      setScopeType(tariff.scopeType || 'general');
+      setScopeTargetName(tariff.scopeTargetName || '');
       setCalculationMethod(tariff.calculationMethod);
       setRateOrPercentage(tariff.rateOrPercentage);
       setFixedCharge(tariff.fixedCharge || 0);
       setUnit(tariff.unit || '%');
       setApplicableBase(tariff.applicableBase || 'material_cost');
-      setCurrency(tariff.currency || 'USD');
+      setCurrency(tariff.currency || DEFAULT_CURRENCY_CODE);
       setEffectiveFrom(tariff.effectiveFrom || new Date().toISOString().slice(0, 10));
       setEffectiveTo(tariff.effectiveTo || '');
       setStatus(tariff.status || 'Active');
       setSourceReference(tariff.sourceReference || '');
       setDescription(tariff.description || '');
       setNotes(tariff.notes || '');
-      setChangeReason('');
     } else {
       const rnd = Math.floor(100 + Math.random() * 900);
-      setCode(`TRF-CAT-${rnd}`);
+      setCode(`TRF-${rnd}`);
       setName('');
-      setCategory('Surface Finishing');
+      setCategory('General Enterprise');
+      setScopeType('general');
+      setScopeTargetName('');
       setCalculationMethod('percentage');
       setRateOrPercentage(10);
       setFixedCharge(0);
       setUnit('%');
       setApplicableBase('material_cost');
-      setCurrency('USD');
+      setCurrency(DEFAULT_CURRENCY_CODE);
       setEffectiveFrom(new Date().toISOString().slice(0, 10));
       setEffectiveTo('');
       setStatus('Active');
       setSourceReference('');
       setDescription('');
       setNotes('');
-      setChangeReason('Initial tariff registration');
     }
     setError(null);
   }, [tariff, isOpen]);
@@ -83,15 +89,15 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Tariff name is required.');
+      setError('Name is required.');
       return;
     }
     if (!code.trim()) {
-      setError('Tariff code is required.');
+      setError('Code is required.');
       return;
     }
     if (rateOrPercentage < 0) {
-      setError('Rate or percentage cannot be negative.');
+      setError('Rate cannot be negative.');
       return;
     }
 
@@ -103,6 +109,8 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
         code: code.trim().toUpperCase(),
         name: name.trim(),
         category: category.trim(),
+        scopeType,
+        scopeTargetName: scopeTargetName.trim(),
         calculationMethod,
         rateOrPercentage: Number(rateOrPercentage),
         fixedCharge: Number(fixedCharge) || 0,
@@ -114,116 +122,161 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
         status,
         sourceReference: sourceReference.trim(),
         description: description.trim(),
-        changeReason: changeReason.trim() || (isEditing ? 'Tariff details updated' : 'Initial tariff registration'),
-        notes: notes.trim()
+        notes: notes.trim(),
+        changeReason: isEditing ? 'Updated tariff parameters' : 'Created tariff schedule'
       });
-      showToast(isEditing ? `Tariff ${code} updated.` : `Tariff ${code} registered successfully.`);
+      showToast(isEditing ? `Tariff ${code} updated.` : `Tariff ${code} saved.`);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to save tariff schedule');
+      setError(err?.message || 'Failed to save tariff');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in-50 duration-150">
-      <div className="bg-white dark:bg-[#0b101b] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in-50 duration-150">
+      <div className="bg-white dark:bg-[#0b101b] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-xs">
-              <Tag className="w-5 h-5" />
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/60">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shadow-xs">
+              <Tag className="w-4 h-4" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                 {isEditing ? 'Edit Tariff' : 'New Tariff'}
               </h2>
+              <p className="text-[11px] text-slate-500">
+                Scope rule, active rate & currency
+              </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-3.5 flex-1 text-xs">
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 flex items-center space-x-2">
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 flex items-center space-x-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Row 1: Code & Scope Rule */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Tariff Code <span className="text-rose-500">*</span>
+                Code <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 value={code}
                 disabled={isEditing}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="e.g. TRF-ANOD-01, TRF-STEEL-DUTY"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono font-bold text-slate-800 dark:text-slate-200 disabled:opacity-60"
+                placeholder="e.g. TRF-01"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono font-bold text-slate-800 dark:text-slate-200 disabled:opacity-60"
                 required
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Tariff Category <span className="text-rose-500">*</span>
+                Scope Rule <span className="text-rose-500">*</span>
               </label>
               <select
-                value={category}
+                value={scopeType}
                 onChange={(e) => {
-                  setCategory(e.target.value);
-                  if (e.target.value === 'Statutory & Customs') {
-                    setCalculationMethod('percentage');
-                    setUnit('%');
-                    setApplicableBase('material_cost');
-                  } else if (e.target.value === 'Surface Finishing') {
-                    setCalculationMethod('unit_rate');
-                    setUnit('pcs');
-                    setApplicableBase('quantity');
-                  }
+                  const s = e.target.value as TariffScopeType;
+                  setScopeType(s);
+                  if (s === 'material') setApplicableBase('material_cost');
+                  else if (s === 'subcontractor') setApplicableBase('labour_cost');
+                  else if (s === 'overhead') setApplicableBase('total_direct_cost');
+                  else if (s === 'product') setApplicableBase('quantity');
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-semibold"
               >
-                <option value="Surface Finishing">Surface Finishing & Treatments</option>
-                <option value="Statutory & Customs">Statutory, Customs & Import Duties</option>
-                <option value="Quality & Inspection">Quality & Non-Destructive Testing (NDT)</option>
-                <option value="Labour & Trades">Specialized Labour & Heavy Trades</option>
-                <option value="Utility & Energy">Utility, Facility & Cleanroom Overhead</option>
-                <option value="Logistics & Freight">Logistics, Handling & Port Surcharge</option>
-                <option value="General Enterprise">General Enterprise Tariff</option>
+                <option value="general">General (All Scopes)</option>
+                <option value="project">Project-wise</option>
+                <option value="product">Product-wise</option>
+                <option value="material">Material-wise</option>
+                <option value="subcontractor">Subcontractor-wise</option>
+                <option value="supplier">Supplier-wise</option>
+                <option value="overhead">Overhead-wise</option>
               </select>
             </div>
           </div>
 
+          {/* Row 2: Name */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Tariff Name / Description <span className="text-rose-500">*</span>
+              Name <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. MIL-A-8625 Type III Hardcoat Anodizing Baseline Tariff"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              placeholder="e.g. Customs Import Surcharge, Anodizing Surface Finish"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium"
               required
             />
           </div>
 
+          {/* Row 3: Target Match / Category */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              >
+                <option value="General Enterprise">General</option>
+                <option value="Surface Finishing">Surface Finishing</option>
+                <option value="Statutory & Customs">Statutory & Duties</option>
+                <option value="Quality & Inspection">Quality & Inspection</option>
+                <option value="Labour & Trades">Labour & Trades</option>
+                <option value="Utility & Energy">Utility & Energy</option>
+                <option value="Logistics & Freight">Logistics & Freight</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Specific Scope Filter (Optional)
+              </label>
+              <input
+                type="text"
+                value={scopeTargetName}
+                onChange={(e) => setScopeTargetName(e.target.value)}
+                placeholder={
+                  scopeType === 'project'
+                    ? 'e.g. Project Code or Name'
+                    : scopeType === 'material'
+                    ? 'e.g. Steel, Aluminium profiles'
+                    : scopeType === 'supplier'
+                    ? 'e.g. Acme Metals, Global Fasteners'
+                    : 'Leave blank for all matching items'
+                }
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              />
+            </div>
+          </div>
+
+          {/* Row 4: Calculation Method, Rate & Currency */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Calculation Method
+                Method
               </label>
               <select
                 value={calculationMethod}
@@ -232,18 +285,18 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                   setCalculationMethod(m);
                   if (m === 'percentage') setUnit('%');
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
               >
-                <option value="percentage">Percentage of Base (%)</option>
-                <option value="unit_rate">Unit Rate (per Unit/Qty)</option>
-                <option value="fixed_charge">Fixed Lump-Sum Charge</option>
-                <option value="hybrid">Hybrid (Fixed + Percentage)</option>
+                <option value="percentage">Percentage (%)</option>
+                <option value="unit_rate">Unit Rate</option>
+                <option value="fixed_charge">Fixed Lump-Sum</option>
+                <option value="hybrid">Hybrid (Fixed + %)</option>
               </select>
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                {calculationMethod === 'percentage' ? 'Rate / Percentage (%)' : 'Unit Rate ($)'}
+                {calculationMethod === 'percentage' ? 'Rate (%)' : `Rate (${activeCurrencyInfo.symbol})`} <span className="text-rose-500">*</span>
               </label>
               <input
                 type="number"
@@ -251,14 +304,34 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                 min="0"
                 value={rateOrPercentage}
                 onChange={(e) => setRateOrPercentage(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 font-bold"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200 font-bold"
                 required
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Fixed Mobilization Charge ($)
+                Currency <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} ({c.symbol}) - {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Row 5: Fixed Charge, Applicable Base, Unit */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Fixed Charge ({activeCurrencyInfo.symbol})
               </label>
               <input
                 type="number"
@@ -266,28 +339,26 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                 min="0"
                 value={fixedCharge}
                 onChange={(e) => setFixedCharge(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-mono text-slate-800 dark:text-slate-200"
               />
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Applicable Base
+                Base
               </label>
               <select
                 value={applicableBase}
                 onChange={(e) => setApplicableBase(e.target.value as TariffApplicableBase)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
               >
-                <option value="material_cost">Direct Material Cost</option>
-                <option value="labour_cost">Subcontractor Labour Cost</option>
-                <option value="outsourced_cost">Outsourced Services Cost</option>
-                <option value="total_direct_cost">Total Direct Cost (Mat + Lab + Out)</option>
-                <option value="total_revenue">Total Quoted Revenue</option>
-                <option value="quantity">Item Quantity / Units</option>
-                <option value="fixed">Fixed Charge Only</option>
+                <option value="material_cost">Material Cost</option>
+                <option value="labour_cost">Labour Cost</option>
+                <option value="outsourced_cost">Outsourced Cost</option>
+                <option value="total_direct_cost">Total Direct Cost</option>
+                <option value="total_revenue">Total Revenue</option>
+                <option value="quantity">Quantity / Units</option>
+                <option value="fixed">Fixed Only</option>
               </select>
             </div>
 
@@ -299,8 +370,37 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                 type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                placeholder="%, pcs, hr, kg, run"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                placeholder="%, pcs, hr, kg"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              />
+            </div>
+          </div>
+
+          {/* Row 6: Effective Range & Status */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Effective From <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Effective To
+              </label>
+              <input
+                type="date"
+                value={effectiveTo}
+                onChange={(e) => setEffectiveTo(e.target.value)}
+                placeholder="Open"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
               />
             </div>
 
@@ -311,87 +411,46 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as TariffStatus)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
               >
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
-                <option value="Pending">Pending Approval</option>
+                <option value="Pending">Pending</option>
                 <option value="Archived">Archived</option>
               </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Effective From Date <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="date"
-                value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Effective To Date (Optional)
-              </label>
-              <input
-                type="date"
-                value={effectiveTo}
-                onChange={(e) => setEffectiveTo(e.target.value)}
-                placeholder="Leave blank for open-ended"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-              />
-            </div>
-          </div>
-
+          {/* Row 7: Notes */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Statutory or Source Reference
+              Notes
             </label>
             <input
               type="text"
-              value={sourceReference}
-              onChange={(e) => setSourceReference(e.target.value)}
-              placeholder="e.g. National Gazette 2026/04, Supplier Contract Ref SLA-2026-V1"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional reference details"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
             />
           </div>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Reason for Creation / Modification <span className="text-rose-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={changeReason}
-              onChange={(e) => setChangeReason(e.target.value)}
-              placeholder="e.g. Q1 annual tariff revision, gazetted customs escalation, SLA update"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-              required
-            />
-          </div>
-
-          {/* Footer */}
+          {/* Footer Buttons */}
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
             <button
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold cursor-pointer"
+              className="px-4 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs cursor-pointer disabled:opacity-60"
+              className="px-5 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs cursor-pointer transition-all flex items-center space-x-1.5 disabled:opacity-50"
             >
-              {loading ? 'Saving...' : isEditing ? 'Save Changes' : 'Register Tariff'}
+              <span>{loading ? 'Saving...' : isEditing ? 'Update' : 'Save'}</span>
             </button>
           </div>
         </form>

@@ -886,6 +886,7 @@ export interface OverheadItem {
   defaultRate: number;
   defaultCostBase: OverheadCostBase;
   unitType?: string;
+  currency?: string;
   effectiveDate: string;
   status: 'Active' | 'Inactive' | 'Archived' | 'Under Review';
   themeId?: string;
@@ -1423,6 +1424,7 @@ export interface BarcodeLookupResult {
 export type TariffCalculationMethod = 'percentage' | 'unit_rate' | 'fixed_charge' | 'tiered_volume' | 'hybrid';
 export type TariffApplicableBase = 'material_cost' | 'labour_cost' | 'outsourced_cost' | 'total_direct_cost' | 'total_revenue' | 'quantity' | 'fixed';
 export type TariffStatus = 'Active' | 'Inactive' | 'Archived' | 'Pending';
+export type TariffScopeType = 'general' | 'project' | 'product' | 'material' | 'subcontractor' | 'supplier' | 'overhead';
 
 export interface Tariff {
   id: string;
@@ -1435,6 +1437,9 @@ export interface Tariff {
   unit: string;
   applicableBase: TariffApplicableBase;
   currency: string;
+  scopeType?: TariffScopeType;
+  scopeTargetId?: string;
+  scopeTargetName?: string;
   effectiveFrom: string;
   effectiveTo?: string | null;
   status: TariffStatus;
@@ -1461,6 +1466,9 @@ export interface TariffVersion {
   applicableBase: TariffApplicableBase;
   unit: string;
   currency: string;
+  scopeType?: TariffScopeType;
+  scopeTargetId?: string;
+  scopeTargetName?: string;
   effectiveFrom: string;
   effectiveTo?: string | null;
   status: 'Active' | 'Superseded' | 'Draft' | 'Archived';

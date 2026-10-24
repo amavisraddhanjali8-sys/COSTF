@@ -1682,6 +1682,22 @@ export const api = {
     return await res.json();
   },
 
+  async deleteTariff(id: string): Promise<boolean> {
+    const res = await fetch(`/api/tariffs/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete tariff schedule');
+    return true;
+  },
+
+  async deleteTariffVersion(tariffId: string, versionId: string): Promise<boolean> {
+    const res = await fetch(`/api/tariffs/${encodeURIComponent(tariffId)}/versions/${encodeURIComponent(versionId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete tariff version');
+    return true;
+  },
+
   async createTariffVersion(tariffId: string, data: Partial<TariffVersion>): Promise<TariffVersion> {
     const res = await fetch(`/api/tariffs/${encodeURIComponent(tariffId)}/versions`, {
       method: 'POST',

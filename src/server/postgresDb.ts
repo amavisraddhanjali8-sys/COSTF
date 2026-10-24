@@ -872,6 +872,14 @@ export class PostgresService {
         CONSTRAINT uq_tariff_version UNIQUE (tariff_id, version_number)
       );
 
+      ALTER TABLE tariffs ADD COLUMN IF NOT EXISTS scope_type TEXT DEFAULT 'general';
+      ALTER TABLE tariffs ADD COLUMN IF NOT EXISTS scope_target_id TEXT DEFAULT '';
+      ALTER TABLE tariffs ADD COLUMN IF NOT EXISTS scope_target_name TEXT DEFAULT '';
+      ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_type TEXT DEFAULT 'general';
+      ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_target_id TEXT DEFAULT '';
+      ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_target_name TEXT DEFAULT '';
+      ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'LKR';
+
       CREATE TABLE IF NOT EXISTS media_assets (
         id TEXT PRIMARY KEY,
         filename TEXT,
@@ -6899,7 +6907,10 @@ export class PostgresService {
           fixedCharge: Number(r.fixed_charge || 0),
           unit: r.unit,
           applicableBase: r.applicable_base,
-          currency: r.currency || 'USD',
+          currency: r.currency || 'LKR',
+          scopeType: r.scope_type || 'general',
+          scopeTargetId: r.scope_target_id || '',
+          scopeTargetName: r.scope_target_name || '',
           effectiveFrom: r.effective_from ? String(r.effective_from).slice(0, 10) : '',
           effectiveTo: r.effective_to ? String(r.effective_to).slice(0, 10) : null,
           status: r.status,
@@ -6922,7 +6933,10 @@ export class PostgresService {
             calculationMethod: curVer.calculation_method,
             applicableBase: curVer.applicable_base,
             unit: curVer.unit,
-            currency: curVer.currency,
+            currency: curVer.currency || 'LKR',
+            scopeType: curVer.scope_type || r.scope_type || 'general',
+            scopeTargetId: curVer.scope_target_id || '',
+            scopeTargetName: curVer.scope_target_name || '',
             effectiveFrom: curVer.effective_from ? String(curVer.effective_from).slice(0, 10) : '',
             effectiveTo: curVer.effective_to ? String(curVer.effective_to).slice(0, 10) : null,
             status: curVer.status,
@@ -6966,7 +6980,10 @@ export class PostgresService {
       calculationMethod: v.calculation_method,
       applicableBase: v.applicable_base,
       unit: v.unit,
-      currency: v.currency,
+      currency: v.currency || 'LKR',
+      scopeType: v.scope_type || r.scope_type || 'general',
+      scopeTargetId: v.scope_target_id || '',
+      scopeTargetName: v.scope_target_name || '',
       effectiveFrom: v.effective_from ? String(v.effective_from).slice(0, 10) : '',
       effectiveTo: v.effective_to ? String(v.effective_to).slice(0, 10) : null,
       status: v.status,
@@ -6989,7 +7006,10 @@ export class PostgresService {
       fixedCharge: Number(r.fixed_charge || 0),
       unit: r.unit,
       applicableBase: r.applicable_base,
-      currency: r.currency || 'USD',
+      currency: r.currency || 'LKR',
+      scopeType: r.scope_type || 'general',
+      scopeTargetId: r.scope_target_id || '',
+      scopeTargetName: r.scope_target_name || '',
       effectiveFrom: r.effective_from ? String(r.effective_from).slice(0, 10) : '',
       effectiveTo: r.effective_to ? String(r.effective_to).slice(0, 10) : null,
       status: r.status,
@@ -7026,9 +7046,12 @@ export class PostgresService {
       const calculationMethod = String(data.calculationMethod || 'percentage');
       const rateOrPercentage = round4(Number(data.rateOrPercentage ?? data.rate ?? 0));
       const fixedCharge = round4(Number(data.fixedCharge ?? 0));
-      const unit = String(data.unit || 'unit').trim();
+      const unit = String(data.unit || '%').trim();
       const applicableBase = String(data.applicableBase || 'material_cost');
-      const currency = String(data.currency || 'USD');
+      const currency = String(data.currency || 'LKR');
+      const scopeType = String(data.scopeType || data.scope || 'general');
+      const scopeTargetId = String(data.scopeTargetId || '');
+      const scopeTargetName = String(data.scopeTargetName || '');
       const todayIso = new Date().toISOString().slice(0, 10);
       const effectiveFrom = formatSqlDate(data.effectiveFrom, todayIso);
       const effectiveTo = data.effectiveTo ? formatSqlDate(data.effectiveTo, '') : null;
@@ -7044,16 +7067,19 @@ export class PostgresService {
       await q(
         `INSERT INTO tariffs (
           id, code, name, category, calculation_method, rate_or_percentage, fixed_charge,
-          unit, applicable_base, currency, effective_from, effective_to, status,
+          unit, applicable_base, currency, scope_type, scope_target_id, scope_target_name,
+          effective_from, effective_to, status,
           source_reference, description, notes, created_by, updated_by, created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11::date, $12::date, $13,
-          $14, $15, $16, $17, $18, NOW(), NOW()
+          $8, $9, $10, $11, $12, $13,
+          $14::date, $15::date, $16,
+          $17, $18, $19, $20, $21, NOW(), NOW()
         )`,
         [
           id, code, name, category, calculationMethod, rateOrPercentage, fixedCharge,
-          unit, applicableBase, currency, effectiveFrom, effectiveTo, status,
+          unit, applicableBase, currency, scopeType, scopeTargetId, scopeTargetName,
+          effectiveFrom, effectiveTo, status,
           sourceReference, description, notes, actorName, actorName
         ]
       );
@@ -7063,16 +7089,18 @@ export class PostgresService {
       await q(
         `INSERT INTO tariff_versions (
           id, tariff_id, tariff_code, version_number, rate_or_percentage, fixed_charge,
-          calculation_method, applicable_base, unit, currency, effective_from, effective_to,
-          status, source_reference, change_reason, notes, created_by, created_at, updated_at
+          calculation_method, applicable_base, unit, currency, scope_type, scope_target_id, scope_target_name,
+          effective_from, effective_to, status, source_reference, change_reason, notes, created_by, created_at, updated_at
         ) VALUES (
           $1, $2, $3, 1, $4, $5,
-          $6, $7, $8, $9, $10::date, $11::date,
-          'Active', $12, $13, $14, $15, NOW(), NOW()
+          $6, $7, $8, $9, $10, $11, $12,
+          $13::date, $14::date,
+          'Active', $15, $16, $17, $18, NOW(), NOW()
         )`,
         [
           versionId, id, code, rateOrPercentage, fixedCharge,
-          calculationMethod, applicableBase, unit, currency, effectiveFrom, effectiveTo,
+          calculationMethod, applicableBase, unit, currency, scopeType, scopeTargetId, scopeTargetName,
+          effectiveFrom, effectiveTo,
           sourceReference, data.changeReason || 'Initial baseline tariff version', notes, actorName
         ]
       );
@@ -7096,8 +7124,8 @@ export class PostgresService {
           id,
           name,
           data.changeReason || 'Created enterprise tariff definition',
-          JSON.stringify({ code, name, category, calculationMethod, rateOrPercentage, fixedCharge, effectiveFrom, effectiveTo }),
-          `Created tariff schedule '${code}' - ${name} (${rateOrPercentage} ${unit})`
+          JSON.stringify({ code, name, category, calculationMethod, rateOrPercentage, fixedCharge, currency, scopeType, effectiveFrom, effectiveTo }),
+          `Created tariff schedule '${code}' - ${name} (${rateOrPercentage} ${unit}, ${currency}, scope: ${scopeType})`
         ]
       );
 
@@ -7112,6 +7140,9 @@ export class PostgresService {
         unit,
         applicableBase,
         currency,
+        scopeType,
+        scopeTargetId,
+        scopeTargetName,
         effectiveFrom,
         effectiveTo,
         status,
@@ -7139,6 +7170,19 @@ export class PostgresService {
       const status = data.status !== undefined ? String(data.status) : existing.status;
       const sourceReference = data.sourceReference !== undefined ? String(data.sourceReference) : (existing.source_reference || '');
       const notes = data.notes !== undefined ? String(data.notes) : (existing.notes || '');
+
+      const calculationMethod = data.calculationMethod !== undefined ? String(data.calculationMethod) : existing.calculation_method;
+      const rateOrPercentage = data.rateOrPercentage !== undefined ? round4(Number(data.rateOrPercentage)) : Number(existing.rate_or_percentage);
+      const fixedCharge = data.fixedCharge !== undefined ? round4(Number(data.fixedCharge)) : Number(existing.fixed_charge || 0);
+      const unit = data.unit !== undefined ? String(data.unit) : existing.unit;
+      const applicableBase = data.applicableBase !== undefined ? String(data.applicableBase) : existing.applicable_base;
+      const currency = data.currency !== undefined ? String(data.currency) : (existing.currency || 'LKR');
+      const scopeType = data.scopeType !== undefined ? String(data.scopeType) : (existing.scope_type || 'general');
+      const scopeTargetId = data.scopeTargetId !== undefined ? String(data.scopeTargetId) : (existing.scope_target_id || '');
+      const scopeTargetName = data.scopeTargetName !== undefined ? String(data.scopeTargetName) : (existing.scope_target_name || '');
+      const effectiveFrom = data.effectiveFrom !== undefined ? formatSqlDate(data.effectiveFrom, String(existing.effective_from).slice(0, 10)) : String(existing.effective_from).slice(0, 10);
+      const effectiveTo = data.effectiveTo !== undefined ? (data.effectiveTo ? formatSqlDate(data.effectiveTo, '') : null) : existing.effective_to;
+
       const actorName = actor?.name || 'System User';
       const actorId = actor?.id || 'usr-system';
       const actorRole = actor?.role || 'PROJECT_MANAGER';
@@ -7146,10 +7190,44 @@ export class PostgresService {
       await q(
         `UPDATE tariffs SET
           name = $1, category = $2, description = $3, status = $4,
-          source_reference = $5, notes = $6, updated_by = $7, updated_at = NOW()
-         WHERE id = $8`,
-        [name, category, description, status, sourceReference, notes, actorName, id]
+          source_reference = $5, notes = $6, calculation_method = $7,
+          rate_or_percentage = $8, fixed_charge = $9, unit = $10,
+          applicable_base = $11, currency = $12, scope_type = $13,
+          scope_target_id = $14, scope_target_name = $15,
+          effective_from = $16::date, effective_to = $17::date,
+          updated_by = $18, updated_at = NOW()
+         WHERE id = $19`,
+        [
+          name, category, description, status,
+          sourceReference, notes, calculationMethod,
+          rateOrPercentage, fixedCharge, unit,
+          applicableBase, currency, scopeType,
+          scopeTargetId, scopeTargetName,
+          effectiveFrom, effectiveTo,
+          actorName, id
+        ]
       );
+
+      // Sync latest version in tariff_versions
+      const latestVerRes = await q('SELECT id FROM tariff_versions WHERE tariff_id = $1 ORDER BY version_number DESC LIMIT 1', [id]);
+      if (latestVerRes.rows.length > 0) {
+        await q(
+          `UPDATE tariff_versions SET
+            rate_or_percentage = $1, fixed_charge = $2, calculation_method = $3,
+            applicable_base = $4, unit = $5, currency = $6, scope_type = $7,
+            scope_target_id = $8, scope_target_name = $9,
+            effective_from = $10::date, effective_to = $11::date, status = $12,
+            source_reference = $13, notes = $14, updated_at = NOW()
+           WHERE id = $15`,
+          [
+            rateOrPercentage, fixedCharge, calculationMethod,
+            applicableBase, unit, currency, scopeType,
+            scopeTargetId, scopeTargetName,
+            effectiveFrom, effectiveTo, status,
+            sourceReference, notes, latestVerRes.rows[0].id
+          ]
+        );
+      }
 
       // Record audit event in same transaction
       const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -7170,9 +7248,9 @@ export class PostgresService {
           id,
           name,
           data.changeReason || 'Updated tariff master definition',
-          JSON.stringify({ name: existing.name, category: existing.category, status: existing.status }),
-          JSON.stringify({ name, category, status }),
-          `Updated tariff master '${existing.code}': status ${existing.status} -> ${status}`
+          JSON.stringify({ name: existing.name, rate: existing.rate_or_percentage, currency: existing.currency, status: existing.status }),
+          JSON.stringify({ name, rate: rateOrPercentage, currency, status, scopeType }),
+          `Updated tariff schedule '${existing.code}': rate ${existing.rate_or_percentage} -> ${rateOrPercentage} (${currency}, scope: ${scopeType})`
         ]
       );
 
@@ -7181,12 +7259,121 @@ export class PostgresService {
         code: existing.code,
         name,
         category,
+        calculationMethod,
+        rateOrPercentage,
+        fixedCharge,
+        unit,
+        applicableBase,
+        currency,
+        scopeType,
+        scopeTargetId,
+        scopeTargetName,
+        effectiveFrom,
+        effectiveTo,
         status,
         description,
         sourceReference,
         notes,
         updatedBy: actorName
       };
+    });
+  }
+
+  public async deleteTariff(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
+    return this.withTransaction(async (q) => {
+      const curRes = await q('SELECT * FROM tariffs WHERE id = $1 FOR UPDATE', [id]);
+      if (curRes.rows.length === 0) return false;
+      const existing = curRes.rows[0];
+
+      await q('DELETE FROM plan_tariffs WHERE tariff_id = $1', [id]);
+      await q('DELETE FROM tariff_versions WHERE tariff_id = $1', [id]);
+      await q('DELETE FROM tariffs WHERE id = $1', [id]);
+
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, change_reason, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'DELETE_TARIFF', 'DELETE_TARIFF', 'Tariffs',
+          'Tariff', $6, $6, $7, 'Deleted tariff schedule from database', $8, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          id,
+          existing.name,
+          `Deleted tariff schedule '${existing.code}' - ${existing.name}`
+        ]
+      );
+
+      return true;
+    });
+  }
+
+  public async deleteTariffVersion(
+    tariffId: string,
+    versionId: string,
+    actor?: { id?: string; name?: string; role?: string }
+  ): Promise<boolean> {
+    return this.withTransaction(async (q) => {
+      const vRes = await q('SELECT * FROM tariff_versions WHERE id = $1 AND tariff_id = $2 FOR UPDATE', [versionId, tariffId]);
+      if (vRes.rows.length === 0) return false;
+      const ver = vRes.rows[0];
+
+      const countRes = await q('SELECT COUNT(*)::int as cnt FROM tariff_versions WHERE tariff_id = $1', [tariffId]);
+      if (Number(countRes.rows[0]?.cnt || 0) <= 1) {
+        throw Object.assign(new Error('Cannot delete the only remaining version of a tariff schedule. Delete the entire tariff instead.'), { status: 400 });
+      }
+
+      await q('DELETE FROM tariff_versions WHERE id = $1', [versionId]);
+
+      const latestRes = await q('SELECT * FROM tariff_versions WHERE tariff_id = $1 ORDER BY version_number DESC LIMIT 1', [tariffId]);
+      if (latestRes.rows.length > 0) {
+        const latest = latestRes.rows[0];
+        await q(
+          `UPDATE tariffs SET
+            rate_or_percentage = $1, fixed_charge = $2, calculation_method = $3,
+            applicable_base = $4, unit = $5, effective_from = $6::date, effective_to = $7::date,
+            updated_at = NOW()
+           WHERE id = $8`,
+          [latest.rate_or_percentage, latest.fixed_charge, latest.calculation_method, latest.applicable_base, latest.unit, latest.effective_from, latest.effective_to, tariffId]
+        );
+      }
+
+      const actorName = actor?.name || 'System User';
+      const actorId = actor?.id || 'usr-system';
+      const actorRole = actor?.role || 'PROJECT_MANAGER';
+      const auditLogId = `aud-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      await q(
+        `INSERT INTO audit_logs (
+          id, timestamp, actor_id, actor_name, actor_role, action, action_type, module,
+          entity_type, entity_id, record_id, record_name, change_reason, details, ip_address, status, created_at_ts
+        ) VALUES (
+          $1, $2, $3, $4, $5, 'DELETE_TARIFF_VERSION', 'DELETE_TARIFF_VERSION', 'Tariffs',
+          'TariffVersion', $6, $6, $7, 'Deleted tariff version', $8, '127.0.0.1', 'Success', NOW()
+        )`,
+        [
+          auditLogId,
+          new Date().toISOString(),
+          actorId,
+          actorName,
+          actorRole,
+          versionId,
+          `Version ${ver.version_number}`,
+          `Deleted version v${ver.version_number} of tariff schedule ${ver.tariff_code}`
+        ]
+      );
+
+      return true;
     });
   }
 
