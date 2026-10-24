@@ -11,7 +11,7 @@ import {
   FileText
 } from 'lucide-react';
 import { OverheadItem, OverheadCostType, OverheadCalculationMethod, OverheadCostBase } from '../../types';
-import { INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
+import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { api } from '../../services/api';
 import { getStoredCurrency } from '../../utils/currency';

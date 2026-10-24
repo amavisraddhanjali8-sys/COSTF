@@ -2749,12 +2749,12 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   };
                   api.createInventory({
                     materialId: transaction.materialId,
-                    skuCode: transaction.materialCode,
+                    sku: transaction.materialCode,
                     name: transaction.materialName,
                     quantity: transaction.newAvailableQuantity,
                     unit: transaction.unit,
                     unitCost: transaction.price
-                  }).catch(console.error);
+                  } as any).catch(console.error);
                   showToast(`Stock ${newTxType === 'IN' ? 'Receipt' : 'Issue'} logged`);
                   setCreationPortalType(null);
                   onNavigateTab('inventory');

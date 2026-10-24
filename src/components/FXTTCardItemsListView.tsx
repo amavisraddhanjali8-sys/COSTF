@@ -741,6 +741,118 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       return { material, quotes };
     }
 
+    // 5. Overhead Items & Rate Absorption
+    if (row.itemType === 'overhead' || cardType === 'overhead') {
+      const rawOvh = (row.rawItem as OverheadItem) || overheads?.find((o) => o.id === row.id);
+      const ovhRate = Number(row.rate || rawOvh?.defaultRate || 0);
+      const isPct = rawOvh?.defaultCalculationMethod === 'percentage_of_direct' || row.unit === 'pct' || row.unit === '%';
+
+      const volumePricing: VolumePriceTier[] = [
+        {
+          minQty: 1,
+          maxQty: 50000,
+          unitPrice: ovhRate,
+          discountPct: 0,
+          label: isPct ? `Standard Direct Allocation (${ovhRate}%)` : `Standard Base Absorption ($${ovhRate})`
+        },
+        {
+          minQty: 50001,
+          maxQty: 250000,
+          unitPrice: Number((ovhRate * 0.9).toFixed(2)),
+          discountPct: 10,
+          label: isPct ? `High-Volume Scope (${Number((ovhRate * 0.9).toFixed(2))}%)` : `Tier 2 High Absorption ($${Number((ovhRate * 0.9).toFixed(2))})`
+        },
+        {
+          minQty: 250001,
+          unitPrice: Number((ovhRate * 0.8).toFixed(2)),
+          discountPct: 20,
+          label: isPct ? `Enterprise Scale Absorption (${Number((ovhRate * 0.8).toFixed(2))}%)` : `Tier 3 Enterprise Absorption ($${Number((ovhRate * 0.8).toFixed(2))})`
+        }
+      ];
+
+      const priceHistory: Array<{
+        id: string;
+        date: string;
+        previousPrice: number;
+        newPrice: number;
+        changePct: number;
+        reason: string;
+        updatedBy: string;
+      }> = (rawOvh?.linkedPlans || []).map((lp, idx) => ({
+        id: lp.allocationId || `ovh-alloc-${idx}`,
+        date: lp.effectiveDate || new Date().toISOString().slice(0, 10),
+        previousPrice: Number(lp.allocationRate) || ovhRate,
+        newPrice: Number(lp.allocationRate) || ovhRate,
+        changePct: 0,
+        reason: `Allocated to ${lp.planName || lp.planNumber} (${lp.allocationMethod})`,
+        updatedBy: lp.allocatedBy || 'Financial Controller'
+      }));
+
+      if (priceHistory.length === 0) {
+        priceHistory.push({
+          id: `ovh-base-${row.id}`,
+          date: rawOvh?.effectiveDate || new Date().toISOString().slice(0, 10),
+          previousPrice: ovhRate,
+          newPrice: ovhRate,
+          changePct: 0,
+          reason: 'Baseline overhead rate schedule established in PostgreSQL',
+          updatedBy: rawOvh?.createdBy || 'Financial Controller'
+        });
+      }
+
+      const quotes: MaterialVendorQuote[] = [
+        {
+          vendorId: 'corp-fin-01',
+          vendorName: 'Internal Organization Financial Schedule',
+          country: 'United States',
+          currentPrice: ovhRate,
+          currency: 'USD',
+          leadTimeDays: 1,
+          moq: 1,
+          isPreferred: true,
+          status: 'Preferred',
+          lastUpdated: rawOvh?.effectiveDate || '',
+          contactEmail: 'finance@fxtt-enterprise.com',
+          contactPhone: '+1 415 252 7217',
+          notes: `Method: ${rawOvh?.defaultCalculationMethod || 'percentage_of_direct'} • Base: ${rawOvh?.defaultCostBase || 'total_direct_cost'}`,
+          volumePricing,
+          priceHistory: priceHistory.map((ph) => ({
+            id: ph.id,
+            date: ph.date,
+            price: ph.newPrice,
+            previousPrice: ph.previousPrice,
+            changePct: ph.changePct,
+            reason: ph.reason,
+            updatedBy: ph.updatedBy
+          }))
+        }
+      ];
+
+      const material: MaterialItem = {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        category: row.category,
+        subCategory: row.subCategory,
+        moreSubCategory: row.moreSubCategory || rawOvh?.defaultCalculationMethod || 'Absorption',
+        itemClassification: 'raw_material',
+        supplierId: 'corp-fin-01',
+        supplierName: 'Internal Organization Overhead',
+        unit: row.unit || (isPct ? '%' : 'unit'),
+        retailPrice: ovhRate,
+        defaultDiscountPct: 0,
+        volumePricing,
+        vendorQuotes: quotes,
+        inStock: 99999,
+        reorderPoint: 0,
+        leadTimeDays: 1,
+        lastUpdated: rawOvh?.effectiveDate || '',
+        priceHistory
+      };
+
+      return { material, quotes };
+    }
+
     // Default material fallback
     const fallbackMat = existingMat || {
       id: row.id,

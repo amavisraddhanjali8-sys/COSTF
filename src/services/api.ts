@@ -102,6 +102,47 @@ async function parseErrorResponse(res: Response, fallbackMsg: string): Promise<E
 }
 
 export const api = {
+  async getInitialData(): Promise<any> {
+    const [
+      projects,
+      materials,
+      produce,
+      suppliers,
+      outsourced,
+      subcontractors,
+      inventory,
+      transactions,
+      categories,
+      overheads,
+      revenueItems
+    ] = await Promise.all([
+      this.getProjects().catch(() => []),
+      this.getMaterials().catch(() => []),
+      this.getProduce().catch(() => []),
+      this.getSuppliers().catch(() => []),
+      this.getOutsourcedServices().catch(() => []),
+      this.getSubcontractors().catch(() => []),
+      this.getInventory().catch(() => []),
+      this.getInventoryTransactions().catch(() => []),
+      this.getCategories().catch(() => []),
+      this.getOverheadItems().catch(() => []),
+      this.getRevenueItemsList().catch(() => [])
+    ]);
+    return {
+      projects,
+      materials,
+      produce,
+      suppliers,
+      outsourced,
+      subcontractors,
+      inventory,
+      transactions,
+      categories,
+      overheads,
+      revenueItems
+    };
+  },
+
   // --- Clients (PostgreSQL inno_cost) ---
   async getClients(params?: ListQueryParams): Promise<any[]> {
     const res = await fetch(`/api/clients?${buildQueryString(params)}`);

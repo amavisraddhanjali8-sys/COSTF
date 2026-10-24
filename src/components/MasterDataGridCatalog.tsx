@@ -74,6 +74,7 @@ import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../data/categoriesAndP
 import { MaterialVendorPriceMatrixModal } from './MaterialVendorPriceMatrixModal';
 import { AppUser } from '../types';
 import { api } from '../services/api';
+import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
 
 export interface CatalogGridItem {
   id: string;

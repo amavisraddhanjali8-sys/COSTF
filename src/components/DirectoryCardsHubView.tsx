@@ -1099,7 +1099,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
         if (isCategory) {
           api.deleteCategory(id).catch(console.error);
-          persistentDatabase.deleteCategory(id);
 
           // Recursively collect all descendant child category IDs
           const childIds = new Set<string>();
@@ -1147,7 +1146,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           outsourcedServices.some((o) => o.id === id)
         ) {
           api.deleteOutsourcedService(id).catch(console.error);
-          persistentDatabase.deleteOutsourcedService(id);
           if (onDeleteOutsourcedService) onDeleteOutsourcedService(id);
           showToast(`Service tariff "${title}" deleted.`);
         } else if (entityType === 'Service Provider') {
@@ -1173,7 +1171,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         } else if (entityType === 'Project' || portalTab === 'projects') {
           if (onDeleteProject) onDeleteProject(id);
           api.deleteProject(id).catch(console.error);
-          persistentDatabase.deleteProject(id);
           showToast(`Project "${title}" deleted.`);
         } else if (entityType === 'Client Profile' || portalTab === 'clients') {
           if (onDeleteClient) onDeleteClient(id);
@@ -1183,7 +1180,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         } else if (entityType === 'Supplier Profile' || portalTab === 'suppliers') {
           if (onDeleteSupplier) onDeleteSupplier(id);
           api.deleteSupplier(id).catch(console.error);
-          persistentDatabase.deleteSupplier(id);
           showToast(`Supplier "${title}" deleted.`);
         } else if (portalTab === 'materials-hierarchy' || materials.some((m) => m.id === id)) {
           if (onDeleteMaterial) onDeleteMaterial(id);
@@ -1213,7 +1209,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         };
         const updated = [copy, ...categories];
         setCategories(updated);
-        persistentDatabase.addCategory(copy);
         api.createCategory(copy).catch(console.error);
         onUpdateCategories?.(updated);
       }
@@ -1551,7 +1546,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
     const updatedTiles = [newTile, ...customTiles];
     setCustomTiles(updatedTiles);
-    persistentDatabase.saveCustomTiles(updatedTiles);
     api.createCustomTile(newTile).catch(console.error);
 
     // If tile represents a category type, also create a CategoryNode in the hierarchy
@@ -1575,7 +1569,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         metaBadge: newCardTag || 'CATEGORY',
         actionText: 'VIEW ITEMS'
       };
-      persistentDatabase.addCategory(newCatNode);
       api.createCategory(newCatNode).catch(console.error);
       setCategories((prev) => [newCatNode, ...prev]);
       onUpdateCategories?.([newCatNode, ...categories]);
@@ -7187,35 +7180,30 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           onImportMaterials={(items) => {
             items.forEach((m) => {
               if (onAddMaterial) onAddMaterial(m as any);
-              persistentDatabase.addMaterial(m as any);
             });
             showToast(`Successfully imported ${items.length} materials into database!`);
           }}
           onImportProduce={(items) => {
             items.forEach((p) => {
               if (onAddProduceItem) onAddProduceItem(p);
-              persistentDatabase.addProduceItem(p as any);
             });
             showToast(`Successfully imported ${items.length} product/produce items into database!`);
           }}
           onImportSubcontractors={(subs) => {
             subs.forEach((s) => {
               if (onAddSubcontractor) onAddSubcontractor(s);
-              persistentDatabase.addSubcontractor(s as any);
             });
             showToast(`Successfully imported ${subs.length} subcontractor trade rates into database!`);
           }}
           onImportOutsourced={(svcs) => {
             svcs.forEach((s) => {
               if (onAddOutsourcedService) onAddOutsourcedService(s);
-              persistentDatabase.addOutsourcedService(s as any);
             });
             showToast(`Successfully imported ${svcs.length} outsourced service rates into database!`);
           }}
           onImportSuppliers={(sups) => {
             sups.forEach((s) => {
               if (onAddSupplier) onAddSupplier(s);
-              persistentDatabase.addSupplier(s as any);
             });
             showToast(`Successfully imported ${sups.length} suppliers into database!`);
           }}

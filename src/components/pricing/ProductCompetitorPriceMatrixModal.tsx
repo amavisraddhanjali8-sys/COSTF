@@ -47,6 +47,24 @@ import { api } from '../../services/api';
 import { downloadCSV } from '../../utils/csvExport';
 import { getStoredCurrentUser, saveStoredAuditLogs, getStoredAuditLogs } from '../../data/userAndAuditData';
 
+export const CURRENCY_OPTIONS = [
+  { code: 'USD', symbol: '$', label: 'USD ($) - US Dollar' },
+  { code: 'EUR', symbol: '€', label: 'EUR (€) - Euro' },
+  { code: 'GBP', symbol: '£', label: 'GBP (£) - British Pound' },
+  { code: 'JPY', symbol: '¥', label: 'JPY (¥) - Japanese Yen' },
+  { code: 'CAD', symbol: 'CA$', label: 'CAD (CA$) - Canadian Dollar' },
+  { code: 'AUD', symbol: 'A$', label: 'AUD (A$) - Australian Dollar' },
+  { code: 'CHF', symbol: 'CHF', label: 'CHF - Swiss Franc' },
+  { code: 'INR', symbol: '₹', label: 'INR (₹) - Indian Rupee' },
+  { code: 'CNY', symbol: '¥', label: 'CNY (¥) - Chinese Yuan' },
+  { code: 'SGD', symbol: 'S$', label: 'SGD (S$) - Singapore Dollar' }
+];
+
+export function getCurrencySymbol(code?: string): string {
+  const match = CURRENCY_OPTIONS.find((c) => c.code === (code || 'USD'));
+  return match ? match.symbol : '$';
+}
+
 export interface ProductCompetitorPriceMatrixModalProps {
   item: {
     id: string;
@@ -80,6 +98,9 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
   const [history, setHistory] = useState<ProductCompetitorPriceHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchFilter, setSearchFilter] = useState('');
+
+  // Active Matrix Currency (defaults to item currency or USD, selectable in UI)
+  const [activeCurrency, setActiveCurrency] = useState<string>(item.currency || 'USD');
 
   // Our Offering Rates state
   const [ourPrice, setOurPrice] = useState<number>(Number(item.ourPrice || 100));
@@ -134,7 +155,9 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     name: string;
     basePrice: number;
     moq: number;
+    currency: string;
     tiers: VolumePriceTier[];
+    targetQuote?: ProductCompetitorQuote;
   } | null>(null);
 
   // Commit Price dialog state (+ Change button)
@@ -147,6 +170,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     changeBasePrice: boolean;
     newBasePrice: number;
     newCost: number;
+    currency: string;
     effectiveDate: string;
     reason: string;
     quoteRef: string;
@@ -170,6 +194,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     changeBasePrice: true,
     newBasePrice: 100,
     newCost: 65,
+    currency: 'USD',
     effectiveDate: new Date().toISOString().slice(0, 10),
     reason: 'Market Rate Calibration',
     quoteRef: `QT-${item.code || 'PRD'}-${Date.now().toString().slice(-4)}`,
@@ -192,6 +217,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     website: '',
     notes: 'Direct market rival tracked for product quotation benchmarking.',
     startingPrice: ourPrice > 0 ? Number((ourPrice * 1.05).toFixed(2)) : 5000,
+    currency: activeCurrency,
     moq: 1,
     leadTimeDays: 14,
     quoteRef: `QT-COMP-${Date.now().toString().slice(-4)}`,
@@ -322,7 +348,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         newPrice: t.unitPrice,
         currentDiscountPct: t.discountPct,
         discountPct: t.discountPct,
-        selected: false
+        selected: true
       }));
 
       setSelectedQuoteForCommit({ isOur: true });
@@ -330,6 +356,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         changeBasePrice: true,
         newBasePrice: ourPrice,
         newCost: ourCost,
+        currency: activeCurrency,
         effectiveDate: today,
         reason: 'Offering price calibration aligned with competitor benchmarks',
         quoteRef: `QT-${item.code || 'PRD'}-${Date.now().toString().slice(-4)}`,
@@ -351,7 +378,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         newPrice: t.unitPrice,
         currentDiscountPct: t.discountPct,
         discountPct: t.discountPct,
-        selected: false
+        selected: true
       }));
 
       setSelectedQuoteForCommit({ isOur: false, quote });
@@ -359,6 +386,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         changeBasePrice: true,
         newBasePrice: Number(quote.currentPrice),
         newCost: 0,
+        currency: quote.currency || activeCurrency,
         effectiveDate: today,
         reason: 'Market competitor rate revision and volume restructuring',
         quoteRef: `QT-${quote.competitorName.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`,
@@ -370,6 +398,151 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
     }
   };
 
+  // Add new volume tier range
+  const handleAddNewRangeToCommit = () => {
+    setCommitForm((prev) => {
+      const ranges = prev.selectedRanges;
+      let nextMin = 1;
+      let nextMax: number | undefined = 10;
+      let prevDiscount = 0;
+      if (ranges.length > 0) {
+        const last = ranges[ranges.length - 1];
+        nextMin = (last.maxQty || last.minQty || 0) + 1;
+        nextMax = nextMin + 25;
+        prevDiscount = Math.min(60, (last.discountPct || 0) + 5);
+      }
+      const newPrice = Number((prev.newBasePrice * (1 - prevDiscount / 100)).toFixed(2));
+      const newRange = {
+        rangeIndex: ranges.length,
+        label: `${nextMin}–${nextMax} (Volume Tier)`,
+        minQty: nextMin,
+        currentMinQty: nextMin,
+        maxQty: nextMax,
+        currentMaxQty: nextMax,
+        currentPrice: newPrice,
+        newPrice: newPrice,
+        currentDiscountPct: prevDiscount,
+        discountPct: prevDiscount,
+        selected: true
+      };
+      return { ...prev, selectedRanges: [...ranges, newRange] };
+    });
+  };
+
+  // Delete volume tier range
+  const handleDeleteRangeFromCommit = (indexToDelete: number) => {
+    setCommitForm((prev) => ({
+      ...prev,
+      selectedRanges: prev.selectedRanges
+        .filter((_, idx) => idx !== indexToDelete)
+        .map((r, i) => ({ ...r, rangeIndex: i }))
+    }));
+  };
+
+  // Update volume tier field
+  const handleUpdateRangeField = (
+    idx: number,
+    field: 'minQty' | 'maxQty' | 'label' | 'newPrice' | 'discountPct' | 'selected',
+    val: any
+  ) => {
+    setCommitForm((prev) => {
+      const updated = [...prev.selectedRanges];
+      const target = { ...updated[idx] };
+      if (field === 'newPrice') {
+        const p = parseFloat(val) || 0;
+        target.newPrice = p;
+        if (prev.newBasePrice > 0) {
+          target.discountPct = Number((((prev.newBasePrice - p) / prev.newBasePrice) * 100).toFixed(1));
+        }
+      } else if (field === 'discountPct') {
+        const disc = parseFloat(val) || 0;
+        target.discountPct = disc;
+        target.newPrice = Number((prev.newBasePrice * (1 - disc / 100)).toFixed(2));
+      } else if (field === 'minQty') {
+        target.minQty = parseInt(val, 10) || 1;
+        if (target.label.includes('–') || target.label.includes('+')) {
+          target.label = `${target.minQty}–${target.maxQty || '+'} (Volume Tier)`;
+        }
+      } else if (field === 'maxQty') {
+        target.maxQty = val === '' ? undefined : parseInt(val, 10) || undefined;
+        if (target.label.includes('–') || target.label.includes('+')) {
+          target.label = `${target.minQty}–${target.maxQty || '+'} (Volume Tier)`;
+        }
+      } else if (field === 'label') {
+        target.label = val;
+      } else if (field === 'selected') {
+        target.selected = Boolean(val);
+      }
+      updated[idx] = target;
+      return { ...prev, selectedRanges: updated };
+    });
+  };
+
+  // Add Competitor Column volume tier helpers
+  const handleAddNewTierToAddCompetitor = () => {
+    setNewCompetitorForm((prev) => {
+      const existing = prev.volumeTiers || [];
+      const last = existing[existing.length - 1];
+      const nextMin = last && last.maxQty ? last.maxQty + 1 : (last ? last.minQty + 50 : 1);
+      const nextMax = nextMin + 49;
+      const base = Number(prev.startingPrice) || 100;
+      const nextDisc = (last ? (last.discountPct || 0) + 5 : 5);
+      const nextPrice = Number((base * (1 - nextDisc / 100)).toFixed(2));
+      return {
+        ...prev,
+        volumeTiers: [
+          ...existing,
+          {
+            minQty: nextMin,
+            maxQty: nextMax,
+            unitPrice: nextPrice,
+            discountPct: nextDisc,
+            label: `${nextMin}–${nextMax} (Volume Tier)`
+          }
+        ]
+      };
+    });
+  };
+
+  const handleDeleteTierFromAddCompetitor = (idxToDelete: number) => {
+    setNewCompetitorForm((prev) => ({
+      ...prev,
+      volumeTiers: (prev.volumeTiers || []).filter((_, i) => i !== idxToDelete)
+    }));
+  };
+
+  const handleUpdateTierInAddCompetitor = (
+    idx: number,
+    field: 'minQty' | 'maxQty' | 'label' | 'unitPrice' | 'discountPct',
+    val: any
+  ) => {
+    setNewCompetitorForm((prev) => {
+      const updated = [...(prev.volumeTiers || [])];
+      const target = { ...updated[idx] };
+      const base = Number(prev.startingPrice) || 100;
+
+      if (field === 'unitPrice') {
+        const p = parseFloat(val) || 0;
+        target.unitPrice = p;
+        if (base > 0) {
+          target.discountPct = Number((((base - p) / base) * 100).toFixed(1));
+        }
+      } else if (field === 'discountPct') {
+        const d = parseFloat(val) || 0;
+        target.discountPct = d;
+        target.unitPrice = Number((base * (1 - d / 100)).toFixed(2));
+      } else if (field === 'minQty') {
+        target.minQty = parseInt(val, 10) || 1;
+      } else if (field === 'maxQty') {
+        target.maxQty = val === '' ? undefined : parseInt(val, 10) || undefined;
+      } else if (field === 'label') {
+        target.label = val;
+      }
+      updated[idx] = target;
+      return { ...prev, volumeTiers: updated };
+    });
+  };
+
   // Submit commit price revision
   const handleSubmitPriceCommit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -377,37 +550,27 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
 
     const today = commitForm.effectiveDate || new Date().toISOString().slice(0, 10);
     const newPrice = Number(commitForm.newBasePrice);
+    const activeCurr = commitForm.currency || activeCurrency;
+
+    // Build finalized VolumePriceTier list from commitForm.selectedRanges
+    const selectedRanges = commitForm.selectedRanges.filter((r) => r.selected);
+    const finalRangesSource = selectedRanges.length > 0 ? selectedRanges : commitForm.selectedRanges;
+    const updatedTiers: VolumePriceTier[] = finalRangesSource.map((r) => ({
+      minQty: Number(r.minQty) || 1,
+      maxQty: r.maxQty ? Number(r.maxQty) : undefined,
+      unitPrice: Number(r.newPrice),
+      discountPct: Number(r.discountPct),
+      label: r.label || `${r.minQty}–${r.maxQty || '+'} Tier`
+    }));
 
     if (selectedQuoteForCommit.isOur) {
       // 1. Revision for Our Offering Rate
       const oldPrice = ourPrice;
       const changePct = oldPrice > 0 ? Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2)) : 0;
 
-      // Update changed tiers if any selected
-      const updatedTiers = ourVolumePricing.map((tier, idx) => {
-        const found = commitForm.selectedRanges.find((r) => r.rangeIndex === idx && r.selected);
-        if (found) {
-          return {
-            ...tier,
-            minQty: found.minQty,
-            maxQty: found.maxQty,
-            unitPrice: Number(found.newPrice),
-            discountPct: Number(found.discountPct)
-          };
-        }
-        // If base price changed, recalculate proportional discount
-        if (commitForm.changeBasePrice) {
-          const disc = tier.discountPct || 0;
-          return {
-            ...tier,
-            unitPrice: Number((newPrice * (1 - disc / 100)).toFixed(2))
-          };
-        }
-        return tier;
-      });
-
       setOurPrice(newPrice);
       setOurCost(Number(commitForm.newCost));
+      setActiveCurrency(activeCurr);
       setOurVolumePricing(updatedTiers);
 
       const newHist = {
@@ -439,10 +602,22 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
             quoteRef: commitForm.quoteRef,
             updatedBy: commitForm.updatedBy
           });
+          await api.updateRevenueItem(item.id, {
+            defaultRate: newPrice,
+            costPrice: Number(commitForm.newCost),
+            currency: activeCurr
+          });
         } else {
           await api.updateProduceItem(item.id, {
             retailPrice: newPrice,
-            costPrice: Number(commitForm.newCost)
+            costPrice: Number(commitForm.newCost),
+            currency: activeCurr,
+            bundlesAndRanges: updatedTiers.map((t) => ({
+              minQty: t.minQty,
+              unitPrice: t.unitPrice,
+              discountPct: t.discountPct,
+              label: t.label
+            }))
           });
         }
       } catch (err: any) {
@@ -455,36 +630,18 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
       const q = selectedQuoteForCommit.quote;
       const oldPrice = Number(q.currentPrice);
       const changePct = oldPrice > 0 ? Number((((newPrice - oldPrice) / oldPrice) * 100).toFixed(2)) : 0;
-
-      const updatedTiers = (q.volumePricing || []).map((tier, idx) => {
-        const found = commitForm.selectedRanges.find((r) => r.rangeIndex === idx && r.selected);
-        if (found) {
-          return {
-            ...tier,
-            minQty: found.minQty,
-            maxQty: found.maxQty,
-            unitPrice: Number(found.newPrice),
-            discountPct: Number(found.discountPct)
-          };
-        }
-        if (commitForm.changeBasePrice) {
-          const disc = tier.discountPct || 0;
-          return {
-            ...tier,
-            unitPrice: Number((newPrice * (1 - disc / 100)).toFixed(2))
-          };
-        }
-        return tier;
-      });
+      const currSymbol = getCurrencySymbol(activeCurr);
 
       const appliedSummary: string[] = [
-        `Competitor base rate revised: $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct}%)`
+        `Competitor base rate revised: ${currSymbol}${oldPrice.toFixed(2)} → ${currSymbol}${newPrice.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct}%)`,
+        `Volume tiers updated: ${updatedTiers.length} quantity breaks active`
       ];
 
       try {
         await api.commitProductCompetitorPrice(item.id, q.id, {
           price: newPrice,
           ourPrice: ourPrice,
+          currency: activeCurr,
           revisionDate: today,
           reason: commitForm.reason || 'Competitor market quote update',
           quoteRef: commitForm.quoteRef,
@@ -498,7 +655,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         // Reload fresh data from PostgreSQL database
         await loadDatabaseData();
       } catch (err: any) {
-        console.error('Failed to commit competitor price revision:', err);
+        console.error('Failed to commit competitor price revision to PostgreSQL:', err);
         // Fallback local update
         setQuotes((prev) =>
           prev.map((quote) =>
@@ -506,6 +663,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
               ? {
                   ...quote,
                   currentPrice: newPrice,
+                  currency: activeCurr,
                   volumePricing: updatedTiers,
                   priceHistory: [
                     {
@@ -583,7 +741,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         ourPrice: ourPrice,
         moq: Number(newCompetitorForm.moq),
         leadTimeDays: Number(newCompetitorForm.leadTimeDays),
-        currency: 'USD',
+        currency: newCompetitorForm.currency || activeCurrency || 'USD',
         notes: newCompetitorForm.notes,
         reason: newCompetitorForm.quoteReason,
         quoteRef: newCompetitorForm.quoteRef,
@@ -1242,19 +1400,49 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
             </div>
 
             <form onSubmit={handleSubmitPriceCommit} className="p-4 space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              {/* Currency Selector & Selling Rate */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">
+                    Currency Type
+                  </label>
+                  <select
+                    value={commitForm.currency}
+                    onChange={(e) => setCommitForm({ ...commitForm, currency: e.target.value })}
+                    className="w-full px-2 py-1.5 border border-slate-300 rounded font-semibold text-xs text-slate-800 bg-white focus:outline-none focus:border-[#003049]"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-slate-600 font-medium mb-1">
                     New Selling Rate ({item.unit || 'unit'})
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={commitForm.newBasePrice}
-                    onChange={(e) => setCommitForm({ ...commitForm, newBasePrice: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-slate-500 font-bold text-xs pointer-events-none">
+                      {getCurrencySymbol(commitForm.currency)}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={commitForm.newBasePrice}
+                      onChange={(e) => {
+                        const newBase = parseFloat(e.target.value) || 0;
+                        const updatedRanges = commitForm.selectedRanges.map((r) => ({
+                          ...r,
+                          newPrice: Number((newBase * (1 - (r.discountPct || 0) / 100)).toFixed(2))
+                        }));
+                        setCommitForm({ ...commitForm, newBasePrice: newBase, selectedRanges: updatedRanges });
+                      }}
+                      className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                    />
+                  </div>
                 </div>
 
                 {selectedQuoteForCommit.isOur ? (
@@ -1262,14 +1450,19 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                     <label className="block text-slate-600 font-medium mb-1">
                       Direct Unit Cost / COGS
                     </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={commitForm.newCost}
-                      onChange={(e) => setCommitForm({ ...commitForm, newCost: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
-                    />
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-slate-500 font-bold text-xs pointer-events-none">
+                        {getCurrencySymbol(commitForm.currency)}
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={commitForm.newCost}
+                        onChange={(e) => setCommitForm({ ...commitForm, newCost: parseFloat(e.target.value) || 0 })}
+                        className="w-full pl-6 pr-2 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                      />
+                    </div>
                   </div>
                 ) : (
                   <div>
@@ -1327,65 +1520,136 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 />
               </div>
 
-              {/* Volume Ranges / Quantity Breaks selection */}
-              {commitForm.selectedRanges.length > 0 && (
-                <div className="border border-slate-200 rounded-lg p-2.5 bg-slate-50 space-y-2">
-                  <div className="font-semibold text-slate-700 flex items-center justify-between">
+              {/* Volume Ranges / Quantity Breaks section (Fully Editable, Addable, Deletable) */}
+              <div className="border border-slate-200 rounded-lg p-2.5 bg-slate-50 space-y-2">
+                <div className="font-semibold text-slate-700 flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5">
+                    <Layers className="w-3.5 h-3.5 text-[#003049]" />
                     <span>Volume Pricing & Quantity Breaks ({commitForm.selectedRanges.length})</span>
-                    <span className="text-[10px] text-slate-400">Select to update tiers</span>
                   </div>
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] text-slate-400 hidden sm:inline">Every range can be edited, added or deleted</span>
+                    <button
+                      type="button"
+                      onClick={handleAddNewRangeToCommit}
+                      className="px-2 py-0.5 bg-[#003049] hover:bg-[#002235] text-white rounded text-[11px] font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                      title="Add a new volume pricing tier range"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Add Range</span>
+                    </button>
+                  </div>
+                </div>
+
+                {commitForm.selectedRanges.length > 0 ? (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
                     {commitForm.selectedRanges.map((rng, idx) => (
-                      <div key={idx} className="flex items-center space-x-2 text-[11px] bg-white p-1.5 rounded border border-slate-200">
+                      <div
+                        key={idx}
+                        className={`flex flex-wrap items-center gap-1.5 text-[11px] p-1.5 rounded border transition-colors ${
+                          rng.selected ? 'bg-white border-slate-300 shadow-2xs' : 'bg-slate-100/70 border-slate-200 opacity-60'
+                        }`}
+                      >
+                        {/* Checkbox */}
                         <input
                           type="checkbox"
                           checked={rng.selected}
-                          onChange={(e) => {
-                            const updated = [...commitForm.selectedRanges];
-                            updated[idx].selected = e.target.checked;
-                            setCommitForm({ ...commitForm, selectedRanges: updated });
-                          }}
-                          className="rounded text-[#003049]"
+                          onChange={(e) => handleUpdateRangeField(idx, 'selected', e.target.checked)}
+                          className="rounded text-[#003049] cursor-pointer"
+                          title="Toggle tier active status"
                         />
-                        <span className="font-mono text-slate-700 w-28 truncate">{rng.label}</span>
-                        <span className="text-slate-400">Price:</span>
+
+                        {/* Quantity Range Inputs: Min Qty - Max Qty */}
+                        <div className="flex items-center space-x-1 shrink-0 bg-slate-50 px-1 py-0.5 rounded border border-slate-200">
+                          <span className="text-[10px] text-slate-400">Qty:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={rng.minQty}
+                            onChange={(e) => handleUpdateRangeField(idx, 'minQty', e.target.value)}
+                            className="w-11 px-1 py-0.5 text-center border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800"
+                            title="Minimum quantity threshold"
+                          />
+                          <span className="text-slate-400">–</span>
+                          <input
+                            type="number"
+                            min={rng.minQty}
+                            placeholder="+"
+                            value={rng.maxQty ?? ''}
+                            onChange={(e) => handleUpdateRangeField(idx, 'maxQty', e.target.value)}
+                            className="w-11 px-1 py-0.5 text-center border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800"
+                            title="Maximum quantity threshold (leave blank for unlimited +)"
+                          />
+                        </div>
+
+                        {/* Label input */}
                         <input
-                          type="number"
-                          step="0.01"
-                          disabled={!rng.selected}
-                          value={rng.newPrice}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value) || 0;
-                            const updated = [...commitForm.selectedRanges];
-                            updated[idx].newPrice = val;
-                            if (commitForm.newBasePrice > 0) {
-                              updated[idx].discountPct = Number((((commitForm.newBasePrice - val) / commitForm.newBasePrice) * 100).toFixed(1));
-                            }
-                            setCommitForm({ ...commitForm, selectedRanges: updated });
-                          }}
-                          className="w-20 px-1 py-0.5 border border-slate-300 rounded font-mono text-xs disabled:bg-slate-100"
+                          type="text"
+                          value={rng.label}
+                          onChange={(e) => handleUpdateRangeField(idx, 'label', e.target.value)}
+                          placeholder="Tier description"
+                          className="flex-1 min-w-[90px] px-1.5 py-0.5 border border-slate-300 rounded font-sans text-[11px] bg-white text-slate-800 focus:outline-none focus:border-[#003049]"
+                          title="Custom label for this tier"
                         />
-                        <span className="text-slate-400">Disc:</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          disabled={!rng.selected}
-                          value={rng.discountPct}
-                          onChange={(e) => {
-                            const disc = parseFloat(e.target.value) || 0;
-                            const updated = [...commitForm.selectedRanges];
-                            updated[idx].discountPct = disc;
-                            updated[idx].newPrice = Number((commitForm.newBasePrice * (1 - disc / 100)).toFixed(2));
-                            setCommitForm({ ...commitForm, selectedRanges: updated });
-                          }}
-                          className="w-14 px-1 py-0.5 border border-slate-300 rounded font-mono text-xs disabled:bg-slate-100"
-                        />
-                        <span className="text-slate-400">%</span>
+
+                        {/* Unit Price input with currency symbol */}
+                        <div className="flex items-center space-x-1 shrink-0">
+                          <span className="text-slate-400 text-[10px]">Price:</span>
+                          <div className="relative">
+                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 font-mono text-slate-500 text-[10px] pointer-events-none">
+                              {getCurrencySymbol(commitForm.currency)}
+                            </span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={rng.newPrice}
+                              onChange={(e) => handleUpdateRangeField(idx, 'newPrice', e.target.value)}
+                              className="w-20 pl-4 pr-1 py-0.5 border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-900 font-semibold focus:outline-none focus:border-[#003049]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Discount % input */}
+                        <div className="flex items-center space-x-0.5 shrink-0">
+                          <span className="text-slate-400 text-[10px]">Disc:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={rng.discountPct}
+                            onChange={(e) => handleUpdateRangeField(idx, 'discountPct', e.target.value)}
+                            className="w-12 px-1 py-0.5 border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800 text-right focus:outline-none focus:border-[#003049]"
+                          />
+                          <span className="text-slate-500 text-[10px]">%</span>
+                        </div>
+
+                        {/* Delete Range Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRangeFromCommit(idx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer shrink-0 ml-auto"
+                          title={`Delete quantity tier "${rng.label}"`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="py-4 text-center bg-white rounded border border-dashed border-slate-300 p-3 space-y-1.5">
+                    <p className="text-[11px] text-slate-500">
+                      No quantity tiers defined for this offering yet.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleAddNewRangeToCommit}
+                      className="px-2.5 py-1 bg-[#003049] text-white rounded text-[11px] font-semibold cursor-pointer inline-flex items-center space-x-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ Add First Quantity Tier</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button
@@ -1522,21 +1786,50 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 </div>
               )}
 
-              {/* Price & Parameters */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* Currency & Parameters */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Currency Type</label>
+                  <select
+                    value={newCompetitorForm.currency}
+                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, currency: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-semibold text-xs text-slate-800 bg-white focus:outline-none focus:border-[#003049]"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-slate-600 font-medium mb-1">
                     Quoted Price ({item.unit || 'unit'})
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={newCompetitorForm.startingPrice}
-                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, startingPrice: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-slate-500 font-bold text-xs pointer-events-none">
+                      {getCurrencySymbol(newCompetitorForm.currency)}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={newCompetitorForm.startingPrice}
+                      onChange={(e) => {
+                        const newBase = parseFloat(e.target.value) || 0;
+                        const updated = (newCompetitorForm.volumeTiers || []).map((t) => ({
+                          ...t,
+                          unitPrice: Number((newBase * (1 - (t.discountPct || 0) / 100)).toFixed(2))
+                        }));
+                        setNewCompetitorForm({ ...newCompetitorForm, startingPrice: newBase, volumeTiers: updated });
+                      }}
+                      className="w-full pl-6 pr-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
+                    />
+                  </div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-600 font-medium mb-1">MOQ</label>
                   <input
@@ -1555,17 +1848,108 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:border-[#003049]"
                   />
                 </div>
+                <div>
+                  <label className="block text-slate-600 font-medium mb-1">Quote Reference #</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCompetitorForm.quoteRef}
+                    onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, quoteRef: e.target.value })}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Quote Reference #</label>
-                <input
-                  type="text"
-                  required
-                  value={newCompetitorForm.quoteRef}
-                  onChange={(e) => setNewCompetitorForm({ ...newCompetitorForm, quoteRef: e.target.value })}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:border-[#003049]"
-                />
+              {/* Volume Pricing & Quantity Breaks Section (Editable, Addable, Deletable) */}
+              <div className="border border-slate-200 rounded-lg p-2.5 bg-slate-50 space-y-2">
+                <div className="font-semibold text-slate-700 flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5">
+                    <Layers className="w-3.5 h-3.5 text-[#003049]" />
+                    <span>Volume Pricing & Quantity Breaks ({(newCompetitorForm.volumeTiers || []).length})</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddNewTierToAddCompetitor}
+                    className="px-2 py-0.5 bg-[#003049] hover:bg-[#002235] text-white rounded text-[11px] font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ Add Range</span>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                  {(newCompetitorForm.volumeTiers || []).map((tier, idx) => (
+                    <div
+                      key={idx}
+                      className="flex flex-wrap items-center gap-1.5 text-[11px] p-1.5 rounded border bg-white border-slate-300 shadow-2xs"
+                    >
+                      <div className="flex items-center space-x-1 shrink-0 bg-slate-50 px-1 py-0.5 rounded border border-slate-200">
+                        <span className="text-[10px] text-slate-400">Qty:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={tier.minQty}
+                          onChange={(e) => handleUpdateTierInAddCompetitor(idx, 'minQty', e.target.value)}
+                          className="w-11 px-1 py-0.5 text-center border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800"
+                        />
+                        <span className="text-slate-400">–</span>
+                        <input
+                          type="number"
+                          min={tier.minQty}
+                          placeholder="+"
+                          value={tier.maxQty ?? ''}
+                          onChange={(e) => handleUpdateTierInAddCompetitor(idx, 'maxQty', e.target.value)}
+                          className="w-11 px-1 py-0.5 text-center border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800"
+                        />
+                      </div>
+
+                      <input
+                        type="text"
+                        value={tier.label}
+                        onChange={(e) => handleUpdateTierInAddCompetitor(idx, 'label', e.target.value)}
+                        placeholder="Tier description"
+                        className="flex-1 min-w-[75px] px-1.5 py-0.5 border border-slate-300 rounded font-sans text-[11px] bg-white text-slate-800 focus:outline-none focus:border-[#003049]"
+                      />
+
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <span className="text-slate-400 text-[10px]">Price:</span>
+                        <div className="relative">
+                          <span className="absolute left-1.5 top-1/2 -translate-y-1/2 font-mono text-slate-500 text-[10px] pointer-events-none">
+                            {getCurrencySymbol(newCompetitorForm.currency)}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={tier.unitPrice}
+                            onChange={(e) => handleUpdateTierInAddCompetitor(idx, 'unitPrice', e.target.value)}
+                            className="w-18 pl-4 pr-1 py-0.5 border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-900 font-semibold focus:outline-none focus:border-[#003049]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-0.5 shrink-0">
+                        <span className="text-slate-400 text-[10px]">Disc:</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={tier.discountPct}
+                          onChange={(e) => handleUpdateTierInAddCompetitor(idx, 'discountPct', e.target.value)}
+                          className="w-11 px-1 py-0.5 border border-slate-300 rounded font-mono text-[11px] bg-white text-slate-800 text-right focus:outline-none focus:border-[#003049]"
+                        />
+                        <span className="text-slate-500 text-[10px]">%</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTierFromAddCompetitor(idx)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer shrink-0 ml-auto"
+                        title="Delete tier"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
@@ -1589,80 +1973,103 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
       )}
 
       {/* MODAL 3: VIEW VOLUME PRICING BREAKS & RANGES (View button) */}
-      {viewingRangesEntity && (
-        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Layers className="w-4 h-4 text-[#fdf0d5]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-white">
-                  Volume Price Ranges: {viewingRangesEntity.name}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingRangesEntity(null)}
-                className="text-white/70 hover:text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                <div>
-                  <span className="text-slate-500 block text-[10px] uppercase font-bold">Standard Base Rate</span>
-                  <span className="text-sm font-bold font-mono text-[#003049]">
-                    ${viewingRangesEntity.basePrice.toFixed(2)} / {item.unit || 'unit'}
-                  </span>
+      {viewingRangesEntity && (() => {
+        const entityCurr = viewingRangesEntity.currency || activeCurrency;
+        const currSym = getCurrencySymbol(entityCurr);
+        return (
+          <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="bg-[#003049] text-white px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Layers className="w-4 h-4 text-[#fdf0d5]" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                    Volume Price Ranges: {viewingRangesEntity.name}
+                  </h3>
                 </div>
-                <div className="text-right">
-                  <span className="text-slate-500 block text-[10px] uppercase font-bold">Base MOQ</span>
-                  <span className="text-xs font-semibold text-slate-800 font-mono">
-                    {viewingRangesEntity.moq} {item.unit || 'unit'}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Quantity Brackets & Discount Tiers
-                </h4>
-                <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
-                  {viewingRangesEntity.tiers.map((t, idx) => (
-                    <div key={idx} className="p-2 flex items-center justify-between hover:bg-slate-50">
-                      <div>
-                        <div className="font-semibold text-slate-800">{t.label}</div>
-                        <div className="text-[10px] text-slate-500 font-mono">
-                          Quantity: {t.minQty} {t.maxQty ? `– ${t.maxQty}` : '+'} {item.unit || 'units'}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold font-mono text-[#003049]">
-                          ${t.unitPrice.toFixed(2)}
-                        </div>
-                        <div className="text-[10px] text-emerald-600 font-semibold">
-                          {t.discountPct > 0 ? `-${t.discountPct}% Discount` : 'Base Tier (0%)'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
                 <button
                   type="button"
                   onClick={() => setViewingRangesEntity(null)}
-                  className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-medium cursor-pointer"
+                  className="text-white/70 hover:text-white cursor-pointer"
                 >
-                  Close
+                  <X className="w-4 h-4" />
                 </button>
+              </div>
+
+              <div className="p-4 space-y-3 text-xs">
+                <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                  <div>
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Standard Base Rate ({entityCurr})</span>
+                    <span className="text-sm font-bold font-mono text-[#003049]">
+                      {currSym}{viewingRangesEntity.basePrice.toFixed(2)} / {item.unit || 'unit'}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-500 block text-[10px] uppercase font-bold">Base MOQ</span>
+                    <span className="text-xs font-semibold text-slate-800 font-mono">
+                      {viewingRangesEntity.moq} {item.unit || 'unit'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span>Quantity Brackets & Discount Tiers</span>
+                    <span className="text-[10px] font-mono text-slate-400">{entityCurr}</span>
+                  </h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
+                    {viewingRangesEntity.tiers.map((t, idx) => (
+                      <div key={idx} className="p-2 flex items-center justify-between hover:bg-slate-50">
+                        <div>
+                          <div className="font-semibold text-slate-800">{t.label}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            Quantity: {t.minQty} {t.maxQty ? `– ${t.maxQty}` : '+'} {item.unit || 'units'}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold font-mono text-[#003049]">
+                            {currSym}{t.unitPrice.toFixed(2)}
+                          </div>
+                          <div className="text-[10px] text-emerald-600 font-semibold">
+                            {t.discountPct > 0 ? `-${t.discountPct}% Discount` : 'Base Tier (0%)'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {viewingRangesEntity.tiers.length === 0 && (
+                      <div className="p-3 text-center text-slate-400 text-[11px]">
+                        No volume break tiers configured for this quote.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const quoteToEdit = quotes.find((q) => q.competitorName === viewingRangesEntity.name);
+                      const isOur = viewingRangesEntity.isOur ?? (viewingRangesEntity.name.toLowerCase().includes('our') || viewingRangesEntity.name.toLowerCase().includes('in-house'));
+                      setViewingRangesEntity(null);
+                      handleOpenCommitPrice(isOur, quoteToEdit);
+                    }}
+                    className="px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded font-medium cursor-pointer flex items-center space-x-1.5 shadow-2xs text-xs"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Edit Ranges & Rates</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewingRangesEntity(null)}
+                    className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-medium cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 4: VIEW CHANGES / AUDIT DIFF MODAL */}
       {activeAuditModal && (

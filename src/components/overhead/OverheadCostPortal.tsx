@@ -22,6 +22,7 @@ import {
   Sliders,
   CheckCircle2,
   Sparkles,
+  Table,
   X
 } from 'lucide-react';
 import { OverheadItem, OverheadCategory, OverheadAuditLog, Project, CategoryNode } from '../../types';
@@ -30,6 +31,8 @@ import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 import { CreateEditOverheadItemModal } from './CreateEditOverheadItemModal';
 import { ModernTileCard } from '../ModernTileCard';
 import { bizStore } from '../../services/bizStore';
+import { FXTTPriceAuditLogFullScreenModal, FXTTPriceAuditEntry } from '../FXTTPriceAuditLogFullScreenModal';
+import { FXTTCardItemsListView } from '../FXTTCardItemsListView';
 
 interface OverheadCostPortalProps {
   currentUser?: any;
@@ -52,8 +55,96 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   const [auditLogs, setAuditLogs] = useState<OverheadAuditLog[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Top level views: Cards View (default), Catalogue Table, Audit Log
-  const [activeSubTab, setActiveSubTab] = useState<'cards' | 'catalogue' | 'audit'>('cards');
+  // Top level views: Cards View (default), Catalogue Table, FXTT Table View, Audit Log
+  const [activeSubTab, setActiveSubTab] = useState<'cards' | 'catalogue' | 'fxtt' | 'audit'>('cards');
+
+  // FXTT Price Audit Log modal state for overheads
+  const [fxttAuditItem, setFxttAuditItem] = useState<any | null>(null);
+  const [fxttAuditHistory, setFxttAuditHistory] = useState<FXTTPriceAuditEntry[]>([]);
+  const [isFxttAuditOpen, setIsFxttAuditOpen] = useState(false);
+
+  // Open FXTT price changes and rate audit modal for any overhead item
+  const handleOpenOverheadPriceAudit = async (item: OverheadItem) => {
+    setFxttAuditItem({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      rate: Number(item.defaultRate) || 0,
+      unit: item.unitType === 'pct' ? '%' : (item.unitType || 'unit'),
+      category: item.category || 'Operating Overheads',
+      classification: 'overhead',
+      stockOrScope: `Method: ${item.defaultCalculationMethod || 'percentage_of_direct'} • Base: ${item.defaultCostBase || 'total_direct_cost'}`
+    });
+    setIsFxttAuditOpen(true);
+
+    try {
+      const logs = await api.getOverheadAuditLogs({ limit: 100 });
+      const itemLogs = (Array.isArray(logs) ? logs : (logs as any)?.data || []).filter(
+        (l: any) => l.overheadItemId === item.id || l.id === item.id
+      );
+
+      if (itemLogs.length > 0) {
+        setFxttAuditHistory(
+          itemLogs.map((l: any, idx: number) => {
+            const prev = Number(l.previousState?.defaultRate ?? item.defaultRate);
+            const curr = Number(l.newState?.defaultRate ?? item.defaultRate);
+            const changePct = prev > 0 ? Number((((curr - prev) / prev) * 100).toFixed(1)) : 0;
+            return {
+              id: l.id || `ovh-log-${idx}`,
+              date: l.createdAt ? new Date(l.createdAt).toISOString().split('T')[0] : (item.effectiveDate || new Date().toISOString().split('T')[0]),
+              previousRate: prev,
+              newRate: curr,
+              changePct,
+              reason: l.changeDescription || `${l.action} - Overhead rate change`,
+              approvedBy: l.actorName || 'Financial Controller',
+              vendorOrContractor: 'Internal Organization Overhead',
+              status: 'Approved',
+              skuCode: item.code,
+              itemName: item.name,
+              unit: item.unitType || 'pct',
+              notes: `Base: ${item.defaultCostBase || 'total_direct_cost'} • Method: ${item.defaultCalculationMethod || 'percentage_of_direct'}`
+            };
+          })
+        );
+      } else {
+        const entries: FXTTPriceAuditEntry[] = (item.linkedPlans || []).map((lp, idx) => ({
+          id: lp.allocationId || `alloc-${idx}`,
+          date: lp.effectiveDate || new Date().toISOString().split('T')[0],
+          previousRate: Number(lp.allocationRate) || item.defaultRate,
+          newRate: Number(lp.allocationRate) || item.defaultRate,
+          changePct: 0,
+          reason: `Allocation to plan ${lp.planName || lp.planNumber} (${lp.allocationMethod})`,
+          approvedBy: lp.allocatedBy || 'Financial Controller',
+          vendorOrContractor: 'Internal Organization Overhead',
+          status: 'Active',
+          skuCode: item.code,
+          itemName: item.name,
+          unit: item.unitType || 'pct'
+        }));
+
+        if (entries.length === 0) {
+          entries.push({
+            id: `base-${item.id}`,
+            date: item.effectiveDate || new Date().toISOString().split('T')[0],
+            previousRate: Number(item.defaultRate) || 0,
+            newRate: Number(item.defaultRate) || 0,
+            changePct: 0,
+            reason: 'Baseline overhead rate schedule established in PostgreSQL',
+            approvedBy: item.createdBy || 'Financial Controller',
+            vendorOrContractor: 'Internal Organization Overhead',
+            status: 'Active',
+            skuCode: item.code,
+            itemName: item.name,
+            unit: item.unitType || 'pct',
+            notes: `Method: ${item.defaultCalculationMethod} • Base: ${item.defaultCostBase}`
+          });
+        }
+        setFxttAuditHistory(entries);
+      }
+    } catch (e) {
+      console.warn('Could not load overhead audit logs:', e);
+    }
+  };
 
   // Hierarchy drilldown state
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
@@ -336,6 +427,19 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => setActiveSubTab('fxtt')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  activeSubTab === 'fxtt'
+                    ? 'bg-white dark:bg-[#003049] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400'
+                }`}
+                title="View full interactive FXTT Data Grid with Price Changes and Rate Revision Logs"
+              >
+                <Table className="w-3.5 h-3.5 text-emerald-500" />
+                <span>FXTT Table View ({items.length})</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveSubTab('audit')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   activeSubTab === 'audit'
@@ -577,6 +681,13 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       customGradient={style.customGradient}
                       onChangeTheme={(tId, grad) => handleUpdateTileTheme(subCat.id, tId, grad)}
                       onAction={() => setSelectedSubCatId(subCat.id)}
+                      onEdit={() => {
+                        setSelectedCatId(subCat.parentId || selectedCatId);
+                        setNewCatName(subCat.name);
+                        setNewCatCode(subCat.code || '');
+                        setNewCatBrief(subCat.brief || '');
+                        setIsCreateSubCatModalOpen(true);
+                      }}
                       onDelete={() => handleDeleteCategory(subCat.id, subCat.name)}
                       extraMeta={
                         <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
@@ -679,15 +790,34 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                           }
                         }}
                         extraMeta={
-                          <div className="flex items-center justify-between text-[11px] text-white/95 pt-1">
-                            <span className="font-mono font-bold bg-black/30 px-2 py-0.5 rounded text-[11px]">
-                              {item.defaultCalculationMethod === 'percentage_of_direct'
-                                ? `${item.defaultRate}% of direct`
-                                : formatCurrency(item.defaultRate, activeCurrency)}
-                            </span>
-                            <span className="bg-emerald-500/80 text-white px-1.5 py-0.2 rounded text-[10px] font-bold">
-                              {item.status || 'Active'}
-                            </span>
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between text-[11px] text-white/95">
+                              <span className="font-mono font-bold bg-black/30 px-2 py-0.5 rounded text-[11px]">
+                                {item.defaultCalculationMethod === 'percentage_of_direct'
+                                  ? `${item.defaultRate}% of direct`
+                                  : formatCurrency(item.defaultRate, activeCurrency)}
+                              </span>
+                              <span className="bg-emerald-500/80 text-white px-1.5 py-0.2 rounded text-[10px] font-bold">
+                                {item.status || 'Active'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between pt-0.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenOverheadPriceAudit(item);
+                                }}
+                                className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-semibold px-2 py-0.5 rounded cursor-pointer flex items-center space-x-1 transition-colors"
+                                title="View price changes and revision history in FXTT table"
+                              >
+                                <History className="w-3 h-3 text-[#fdf0d5]" />
+                                <span>FXTT Changes</span>
+                              </button>
+                              <span className="text-[10px] text-white/70 font-mono">
+                                {item.code}
+                              </span>
+                            </div>
                           </div>
                         }
                       />
@@ -818,6 +948,14 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       <div className="flex items-center justify-end space-x-1">
                         <button
                           type="button"
+                          onClick={() => handleOpenOverheadPriceAudit(item)}
+                          className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-950/40 rounded text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                          title="View Price Changes & Rate Revision History in FXTT Table"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             setItemToEdit(item);
                             setIsCreateEditOpen(true);
@@ -855,6 +993,42 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* 3. TAB: FXTT TABLE VIEW (Full interactive FXTT Grid with Price History & Rate Audit) */}
+      {activeSubTab === 'fxtt' && (
+        <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-2 shadow-xs">
+          <FXTTCardItemsListView
+            cardType="overhead"
+            cardId="all-overheads"
+            cardTitle="Overhead Indirect Costs & Absorption Rates"
+            cardSubtitle={`${items.length} Overhead Items, Facility Absorption, SG&A Burdens & Rate History`}
+            cardTag="OVERHEAD DIRECTORY"
+            materials={[]}
+            suppliers={[]}
+            outsourcedServices={[]}
+            subcontractors={[]}
+            projects={projects}
+            overheads={items}
+            onClose={() => setActiveSubTab('cards')}
+            onUpdatePrice={async (id, price, reason) => {
+              await api.updateOverheadItem(id, { defaultRate: price });
+              await loadData();
+              if (showToast) showToast(`Updated overhead rate to ${price}`);
+            }}
+            onDeleteOverheadItem={async (id) => {
+              await api.deleteOverheadItem(id);
+              await loadData();
+              if (showToast) showToast('Overhead item deleted from PostgreSQL database.');
+            }}
+            onAddOverheadItem={async (newItem) => {
+              await api.createOverheadItem(newItem as any);
+              await loadData();
+              if (showToast) showToast(`Added overhead item ${newItem.name}`);
+            }}
+            isModal={false}
+          />
         </div>
       )}
 
@@ -1054,6 +1228,27 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
           if (showToast) showToast(`Overhead item "${saved.name}" saved successfully.`);
         }}
       />
+
+      {/* MODAL: FXTT Full Screen Price Changes Audit Log */}
+      {isFxttAuditOpen && fxttAuditItem && (
+        <FXTTPriceAuditLogFullScreenModal
+          isOpen={isFxttAuditOpen}
+          onClose={() => {
+            setIsFxttAuditOpen(false);
+            setFxttAuditItem(null);
+          }}
+          item={fxttAuditItem}
+          customHistory={fxttAuditHistory}
+          onOpenItemDetails={(it) => {
+            setIsFxttAuditOpen(false);
+            const found = items.find((o) => o.id === it.id);
+            if (found) {
+              setItemToEdit(found);
+              setIsCreateEditOpen(true);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

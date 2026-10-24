@@ -13345,6 +13345,8 @@ export class PostgresService {
       ? data.appliedChangesSummary
       : [`Price revision: $${prevPrice.toFixed(2)} → $${newPrice.toFixed(2)} (${changePct >= 0 ? '+' : ''}${changePct}%)`];
 
+    const currency = data.currency || quote.currency || 'USD';
+
     // 1. Update product_competitor_quotes
     await db.query(
       `UPDATE product_competitor_quotes SET
@@ -13355,9 +13357,10 @@ export class PostgresService {
         moq = $5,
         lead_time_days = $6,
         last_quoted_date = $7,
+        currency = $8,
         updated_at = NOW()
-      WHERE id = $8`,
-      [newPrice, delta, spreadPct, JSON.stringify(volumePricing), moq, leadTime, revisionDate, quoteId]
+      WHERE id = $9`,
+      [newPrice, delta, spreadPct, JSON.stringify(volumePricing), moq, leadTime, revisionDate, currency, quoteId]
     );
 
     // 2. Insert into product_competitor_price_history
