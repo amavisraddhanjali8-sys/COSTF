@@ -1695,7 +1695,7 @@ async function startServer() {
 
   app.post('/api/resources/:id/allocate', async (req, res) => {
     try {
-      const { projectId, phaseId, quantity, unit, unitCost } = req.body;
+      const { projectId, phaseId, quantity, unit, unitCost, planId } = req.body;
       if (!projectId || quantity === undefined) {
         return res.status(400).json({ error: 'projectId and quantity are required' });
       }
@@ -1705,7 +1705,8 @@ async function startServer() {
         phaseId,
         Number(quantity),
         unit,
-        unitCost
+        unitCost,
+        planId
       );
       res.json(result);
     } catch (e: any) {
@@ -2597,7 +2598,7 @@ async function startServer() {
 
   app.post('/api/resources/:id/allocate', async (req, res) => {
     try {
-      const { projectId, phaseId, quantity, unit, unitCost } = req.body || {};
+      const { projectId, phaseId, quantity, unit, unitCost, planId } = req.body || {};
       if (!projectId || !phaseId) {
         return res.status(400).json({ error: 'projectId and phaseId are required for allocation' });
       }
@@ -2607,7 +2608,8 @@ async function startServer() {
         phaseId,
         Number(quantity) || 1,
         unit,
-        unitCost !== undefined ? Number(unitCost) : undefined
+        unitCost !== undefined ? Number(unitCost) : undefined,
+        planId
       );
       res.json(result);
     } catch (e: any) {

@@ -15,6 +15,7 @@ import { OverheadCostPortal } from './components/overhead/OverheadCostPortal';
 import { RevenueCataloguePortal } from './components/revenue/RevenueCataloguePortal';
 import { ProjectMarginsLandingView } from './components/project/ProjectMarginsLandingView';
 import { ProjectTimelinesLandingView } from './components/project/ProjectTimelinesLandingView';
+import { ProjectResourcesLandingView } from './components/project/ProjectResourcesLandingView';
 import { TariffManagementPortal } from './components/tariffs/TariffManagementPortal';
 import { ProcurementPriceHistoryModal } from './components/pricing/ProcurementPriceHistoryModal';
 import { SettingsView } from './components/SettingsView';
@@ -47,8 +48,10 @@ import {
   AuditLogRecord,
   OverheadItem,
   RevenueItem,
-  ProjectItem
+  ProjectItem,
+  EnterpriseResource
 } from './types';
+import { getStoredCurrency } from './utils/currency';
 import { permissionService } from './services/permissionService';
 import {
   INITIAL_PROJECTS,
@@ -179,6 +182,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [marginsViewMode, setMarginsViewMode] = useState<'landing' | 'detail'>('landing');
   const [timelinesViewMode, setTimelinesViewMode] = useState<'landing' | 'detail'>('landing');
+  const [resourcesViewMode, setResourcesViewMode] = useState<'landing' | 'detail'>('landing');
   const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const [projectPickerTarget, setProjectPickerTarget] = useState<'margins' | 'timelines' | 'resources' | 'cost-analysis' | 'general'>('general');
   
@@ -189,9 +193,9 @@ export default function App() {
   const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
   const [globalCurrency, setGlobalCurrency] = useState<string>(() => {
     try {
-      return localStorage.getItem('fxtt_active_currency') || 'USD';
+      return getStoredCurrency() || 'LKR';
     } catch {
-      return 'USD';
+      return 'LKR';
     }
   });
 
@@ -205,7 +209,7 @@ export default function App() {
     return () => window.removeEventListener('fxtt-currency-changed', handleCurrency);
   }, []);
 
-  const activeCurrency = selectedProject?.currency || globalCurrency || companyDetails?.currency || 'USD';
+  const activeCurrency = selectedProject?.currency || globalCurrency || companyDetails?.currency || 'LKR';
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [produceItems, setProduceItems] = useState<ProduceItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -217,6 +221,7 @@ export default function App() {
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [overheads, setOverheads] = useState<OverheadItem[]>([]);
   const [revenueItems, setRevenueItems] = useState<RevenueItem[]>([]);
+  const [enterpriseResources, setEnterpriseResources] = useState<EnterpriseResource[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   // Initialize Theme and Global Rapid Keystroke Barcode Scanner Listener
@@ -712,11 +717,12 @@ export default function App() {
           saveStoredRequests(d.accountRequests);
         }
 
-        // Concurrently fetch overheads and revenue catalogue items
+        // Concurrently fetch overheads, revenue catalogue items, and enterprise resources
         try {
-          const [ovhData, revData] = await Promise.all([
+          const [ovhData, revData, resData] = await Promise.all([
             api.getOverheadItems({ limit: 200 }).catch(() => []),
-            api.getRevenueItemsList({ limit: 200 }).catch(() => [])
+            api.getRevenueItemsList({ limit: 200 }).catch(() => []),
+            api.getResources().catch(() => [])
           ]);
           if (Array.isArray(ovhData) && ovhData.length > 0) {
             setOverheads(ovhData);
@@ -724,8 +730,11 @@ export default function App() {
           if (Array.isArray(revData) && revData.length > 0) {
             setRevenueItems(revData);
           }
+          if (Array.isArray(resData) && resData.length > 0) {
+            setEnterpriseResources(resData);
+          }
         } catch (fetchErr) {
-          console.warn('Could not refresh overheads or revenue catalogue:', fetchErr);
+          console.warn('Could not refresh overheads, revenue catalogue, or resources:', fetchErr);
         }
 
         setIsDataReady(true);
@@ -1282,6 +1291,10 @@ export default function App() {
           setTimelinesViewMode('landing');
           setActiveTab('project-timelines');
         }}
+        onOpenResourcesLanding={() => {
+          setResourcesViewMode('landing');
+          setActiveTab('resource-allocation');
+        }}
       />
 
       {/* Main Content Viewport - Full Width without unnecessary blank side margins */}
@@ -1322,6 +1335,8 @@ export default function App() {
                 setMarginsViewMode('landing');
               } else if (tabId === 'project-timelines') {
                 setTimelinesViewMode('landing');
+              } else if (tabId === 'resource-allocation') {
+                setResourcesViewMode('landing');
               }
               setActiveTab(tabId as any);
             }}
@@ -1525,22 +1540,39 @@ export default function App() {
         )}
 
         {activeTab === 'resource-allocation' && (
-          <ResourceAllocationView
-            selectedProject={selectedProject}
-            projects={projects}
-            onSelectProject={(p) => setSelectedProjectId(p.id)}
-            onOpenProjectPicker={() => {
-              setProjectPickerTarget('resources');
-              setIsProjectPickerOpen(true);
-            }}
-            subcontractors={subcontractors}
-            outsourcedServices={outsourcedServices}
-            suppliers={suppliers}
-            currentUser={currentUser}
-            onUpdateProject={handleUpdateProject}
-            onNavigateToSubcontractors={() => setActiveTab('subcontractors')}
-            onNavigateToOutsourced={() => setActiveTab('outsourced')}
-          />
+          resourcesViewMode === 'landing' ? (
+            <ProjectResourcesLandingView
+              projects={projects}
+              resources={enterpriseResources}
+              onSelectProject={(p) => {
+                setSelectedProjectId(p.id);
+                setResourcesViewMode('detail');
+              }}
+              onOpenCreateResource={() => {
+                setResourcesViewMode('detail');
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { openCreate: true } }));
+                }, 50);
+              }}
+              onViewAllResources={() => {
+                setResourcesViewMode('detail');
+              }}
+            />
+          ) : (
+            <ResourceAllocationView
+              selectedProject={selectedProject}
+              projects={projects}
+              onSelectProject={(p) => setSelectedProjectId(p.id)}
+              onNavigateToLanding={() => setResourcesViewMode('landing')}
+              subcontractors={subcontractors}
+              outsourcedServices={outsourcedServices}
+              suppliers={suppliers}
+              currentUser={currentUser}
+              onUpdateProject={handleUpdateProject}
+              onNavigateToSubcontractors={() => setActiveTab('subcontractors')}
+              onNavigateToOutsourced={() => setActiveTab('outsourced')}
+            />
+          )
         )}
 
         {activeTab === 'project-timelines' && (

@@ -69,6 +69,7 @@ interface ResourceAllocationViewProps {
   currentUser?: AppUser;
   onSelectProject?: (proj: Project) => void;
   onOpenProjectPicker?: () => void;
+  onNavigateToLanding?: () => void;
   onNavigateToSubcontractors: () => void;
   onNavigateToOutsourced: () => void;
   onUpdateProject?: (updatedProject: Project) => void;
@@ -84,6 +85,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
   currentUser,
   onSelectProject,
   onOpenProjectPicker,
+  onNavigateToLanding,
   onNavigateToSubcontractors,
   onNavigateToOutsourced,
   onUpdateProject,
@@ -200,7 +202,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
           quantity: item.quantity,
           unit: item.unit,
           totalCost: itemSpend,
-          currency: proj.currency || 'USD'
+          currency: proj.currency || 'LKR'
         };
 
         if (existing) {
@@ -223,7 +225,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
             baseRate: item.unitCost || 0,
             operationalCharge: 0,
             chargeType: 'hourly',
-            currency: proj.currency || 'USD',
+            currency: proj.currency || 'LKR',
             supplierName: item.supplierOrProvider || 'Assigned Provider',
             competitorCompany: 'Industry Standard',
             competitorRate: Math.round((item.unitCost || 0) * 1.15),
@@ -349,7 +351,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
     baseRate: 75,
     operationalCharge: 0,
     chargeType: 'hourly',
-    currency: 'USD',
+    currency: activeProj?.currency || 'LKR',
     supplierName: '',
     competitorCompany: '',
     competitorRate: 85,
@@ -382,8 +384,26 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
   const [allocatingResource, setAllocatingResource] = useState<EnterpriseResource | null>(null);
   const [allocTargetProject, setAllocTargetProject] = useState<string>(activeProj?.id || '');
   const [allocTargetPhase, setAllocTargetPhase] = useState<string>(activeProj?.phases?.[0]?.id || 'phase-01');
+  const [allocTargetPlan, setAllocTargetPlan] = useState<string>('');
+  const [targetProjectPlans, setTargetProjectPlans] = useState<any[]>([]);
   const [allocQty, setAllocQty] = useState<number>(40);
   const [allocRate, setAllocRate] = useState<number>(75);
+
+  useEffect(() => {
+    if (allocTargetProject) {
+      api.getProjectPlans(allocTargetProject)
+        .then((plans) => {
+          setTargetProjectPlans(plans || []);
+          const activePlan = plans?.find((p: any) => p.is_active || p.isActive) || plans?.[0];
+          if (activePlan) {
+            setAllocTargetPlan(activePlan.id);
+          } else {
+            setAllocTargetPlan('');
+          }
+        })
+        .catch(() => setTargetProjectPlans([]));
+    }
+  }, [allocTargetProject]);
 
   // 5. Delete confirmation
   const [resourceToDelete, setResourceToDelete] = useState<EnterpriseResource | null>(null);
@@ -398,7 +418,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
     try {
       const created = await api.createResource({
         ...formData,
-        currency: activeProj?.currency || 'USD'
+        currency: formData.currency || activeProj?.currency || 'LKR'
       });
       setDbResources((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
       setIsCreateModalOpen(false);
@@ -505,7 +525,8 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
         allocTargetPhase,
         allocQty,
         allocatingResource.unit,
-        allocRate
+        allocRate,
+        allocTargetPlan || undefined
       );
 
       // Refresh resources from PostgreSQL
@@ -684,34 +705,35 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
             </button>
           </div>
 
-          {/* Project Selector Box */}
+          {/* Projects Navigation Button */}
+          {onNavigateToLanding && (
+            <button
+              type="button"
+              onClick={onNavigateToLanding}
+              className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer transition-colors shadow-2xs"
+              title="All Projects"
+            >
+              <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+              <span>Projects</span>
+            </button>
+          )}
+
+          {/* Clean Selected Project Tag */}
           {activeProj && (
-            <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1">
-              <span className="text-[11px] font-semibold text-slate-500 uppercase">Project:</span>
-              <select
-                value={activeProj.id}
-                onChange={(e) => {
-                  const found = projects.find((p) => p.id === e.target.value);
-                  if (found && onSelectProject) {
-                    onSelectProject(found);
-                    setScope('selected');
-                  }
-                }}
-                className="bg-transparent text-xs font-bold text-[#0078d4] dark:text-sky-300 focus:outline-none cursor-pointer max-w-[180px] truncate"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id} className="text-slate-900 bg-white">
-                    {p.code} - {p.name}
-                  </option>
-                ))}
-              </select>
-              {onOpenProjectPicker && (
+            <div className="flex items-center space-x-1.5 bg-blue-50/80 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 rounded-lg px-2.5 py-1">
+              <span className="font-mono text-xs font-bold text-[#0078d4] dark:text-sky-300">
+                {activeProj.code}
+              </span>
+              <span className="text-xs text-slate-500 max-w-[140px] truncate hidden sm:inline">
+                - {activeProj.name}
+              </span>
+              {onNavigateToLanding && (
                 <button
                   type="button"
-                  onClick={onOpenProjectPicker}
-                  className="text-xs font-semibold text-[#0078d4] dark:text-sky-400 hover:underline ml-1 cursor-pointer"
+                  onClick={onNavigateToLanding}
+                  className="text-[11px] font-semibold text-[#0078d4] dark:text-sky-400 hover:underline ml-1 cursor-pointer"
                 >
-                  Browse
+                  Switch
                 </button>
               )}
             </div>
@@ -730,7 +752,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                 baseRate: 75,
                 operationalCharge: 0,
                 chargeType: 'hourly',
-                currency: activeProj?.currency || 'USD',
+                currency: activeProj?.currency || 'LKR',
                 supplierName: '',
                 competitorCompany: '',
                 competitorRate: 85,
@@ -1314,9 +1336,6 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                     Add Resource
                   </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Configure labour, machinery, equipment, or tool cost record.
-                  </p>
                 </div>
               </div>
               <button
@@ -1331,11 +1350,11 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="col-span-2">
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Resource Name *
+                  Name *
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Senior Avionics Systems Engineer / CAT 320 Excavator"
+                  placeholder="e.g. Senior Avionics Specialist / CNC Machining Center"
                   value={formData.name || ''}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none"
@@ -1344,7 +1363,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Resource Type *
+                  Type *
                 </label>
                 <select
                   value={formData.type || 'labour'}
@@ -1357,6 +1376,23 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                   <option value="tool">Tools</option>
                   <option value="material">Materials</option>
                   <option value="subcontractor">Subcontractor</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Currency *
+                </label>
+                <select
+                  value={formData.currency || activeProj?.currency || 'LKR'}
+                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none cursor-pointer font-bold"
+                >
+                  <option value="LKR">LKR (Rs.)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="INR">INR (₹)</option>
                 </select>
               </div>
 
@@ -1383,7 +1419,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. CNC Heavy Centers, Precision Welding"
+                  placeholder="e.g. Precision Engineering"
                   value={formData.category || ''}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none"
@@ -1396,7 +1432,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. 5-Axis Simultaneous, ASME Weld"
+                  placeholder="e.g. 5-Axis Milling"
                   value={formData.subCategory || ''}
                   onChange={(e) => setFormData({ ...formData, subCategory: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none"
@@ -1405,14 +1441,14 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Base Rate ($) *
+                  Base Rate ({formData.currency || activeProj?.currency || 'LKR'}) *
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   value={formData.baseRate || 0}
                   onChange={(e) => setFormData({ ...formData, baseRate: Number(e.target.value) })}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none font-mono"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none font-mono font-bold"
                 />
               </div>
 
@@ -1431,12 +1467,12 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Operational Charge ($)
+                  Operational Charge ({formData.currency || activeProj?.currency || 'LKR'})
                 </label>
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="e.g. fuel, coolant"
+                  placeholder="0"
                   value={formData.operationalCharge || 0}
                   onChange={(e) => setFormData({ ...formData, operationalCharge: Number(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none font-mono"
@@ -1449,7 +1485,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Valley CNC Tech"
+                  placeholder="e.g. Valley Tech"
                   value={formData.supplierName || ''}
                   onChange={(e) => setFormData({ ...formData, supplierName: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none"
@@ -1471,7 +1507,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Competitor Rate ($)
+                  Competitor Rate ({formData.currency || activeProj?.currency || 'LKR'})
                 </label>
                 <input
                   type="number"
@@ -1589,7 +1625,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="Rate ($)"
+                      placeholder={`Rate (${comparisonResource?.currency || 'LKR'})`}
                       value={newAlternative.rate || 0}
                       onChange={(e) => setNewAlternative({ ...newAlternative, rate: Number(e.target.value) })}
                       className="bg-white dark:bg-[#0f172a] border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono"
@@ -1706,10 +1742,10 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Allocate to Project: {allocatingResource.name}
+                  Allocate: {allocatingResource.name}
                 </h3>
-                <span className="text-[11px] text-slate-500">
-                  Add hours or units to project cost breakdown.
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {allocatingResource.code} • {allocatingResource.category}
                 </span>
               </div>
               <button
@@ -1724,7 +1760,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Target Project *
+                  Project *
                 </label>
                 <select
                   value={allocTargetProject}
@@ -1745,7 +1781,25 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Project Phase *
+                  Project Plan
+                </label>
+                <select
+                  value={allocTargetPlan}
+                  onChange={(e) => setAllocTargetPlan(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none cursor-pointer"
+                >
+                  <option value="">Default Project Plan</option>
+                  {targetProjectPlans.map((pl: any) => (
+                    <option key={pl.id} value={pl.id}>
+                      {pl.name || pl.plan_name || 'Plan'} {pl.is_active || pl.isActive ? '(Active)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Phase *
                 </label>
                 <select
                   value={allocTargetPhase}
@@ -1777,7 +1831,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Rate ($ / {allocatingResource.unit})
+                    Rate ({allocatingResource.currency || 'LKR'} / {allocatingResource.unit})
                   </label>
                   <input
                     type="number"
@@ -1790,9 +1844,9 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
               </div>
 
               <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-slate-500">Calculated Cost:</span>
+                <span className="text-slate-500 font-semibold">Total Cost</span>
                 <span className="font-mono font-bold text-sm text-[#0078d4] dark:text-sky-400">
-                  {formatCurrency(allocQty * allocRate, allocatingResource.currency)}
+                  {formatCurrency(allocQty * allocRate, allocatingResource.currency || 'LKR')}
                 </span>
               </div>
             </div>
@@ -1849,7 +1903,24 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Rate ($ / {editingResource.unit})
+                  Currency
+                </label>
+                <select
+                  value={editingResource.currency || 'LKR'}
+                  onChange={(e) => setEditingResource({ ...editingResource, currency: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none font-bold text-[#0078d4]"
+                >
+                  <option value="LKR">LKR (Rs.)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="AED">AED (AED)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Rate ({editingResource.currency || 'LKR'} / {editingResource.unit})
                 </label>
                 <input
                   type="number"
@@ -1910,7 +1981,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Competitor Rate ($)
+                  Competitor Rate ({editingResource.currency || 'LKR'})
                 </label>
                 <input
                   type="number"

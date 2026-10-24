@@ -221,12 +221,13 @@ export const api = {
     phaseId: string,
     quantity: number,
     unit?: string,
-    unitCost?: number
+    unitCost?: number,
+    planId?: string
   ): Promise<any> {
     const res = await fetch(`/api/resources/${resourceId}/allocate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, phaseId, quantity, unit, unitCost })
+      body: JSON.stringify({ projectId, phaseId, quantity, unit, unitCost, planId })
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to allocate resource to project');
     return await res.json();

@@ -1086,7 +1086,7 @@ export class PostgresService {
         base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
         operational_charge NUMERIC(18, 4) DEFAULT 0,
         charge_type TEXT DEFAULT 'hourly',
-        currency TEXT NOT NULL DEFAULT 'USD',
+        currency TEXT NOT NULL DEFAULT 'LKR',
         supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL,
         supplier_name TEXT,
         competitor_company TEXT,
@@ -1255,7 +1255,7 @@ export class PostgresService {
           base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
           operational_charge NUMERIC(18, 4) DEFAULT 0,
           charge_type TEXT DEFAULT 'hourly',
-          currency TEXT NOT NULL DEFAULT 'USD',
+          currency TEXT NOT NULL DEFAULT 'LKR',
           supplier_id TEXT,
           supplier_name TEXT,
           competitor_company TEXT,
@@ -1272,6 +1272,12 @@ export class PostgresService {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        DO $$
+        BEGIN
+          ALTER TABLE enterprise_resources ALTER COLUMN currency SET DEFAULT 'LKR';
+          UPDATE enterprise_resources SET currency = 'LKR' WHERE currency IS NULL OR currency = '' OR currency = 'USD';
+        END $$;
       `);
 
       await this.seedEnterpriseResourcesIfEmpty();
@@ -4594,7 +4600,7 @@ export class PostgresService {
     if (!projectId) {
       throw Object.assign(new Error('projectId is required to create a project plan'), { status: 400 });
     }
-    const planName = String(data?.name || '').trim();
+    const planName = String(data?.name || data?.planName || data?.plan_name || '').trim();
     if (!planName) {
       throw Object.assign(new Error('Plan name is required'), { status: 400 });
     }
@@ -14605,6 +14611,11 @@ export class PostgresService {
     return parseFilterPagination(records, opts, ['name', 'code', 'category', 'subCategory', 'type', 'supplierName', 'competitorCompany']);
   }
 
+  public async getResources(opts?: ListQueryOptions): Promise<any[]> {
+    const res = await this.getResourcesPaginated(opts);
+    return res.data;
+  }
+
   public async getResourceById(id: string): Promise<any | null> {
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
@@ -14659,7 +14670,7 @@ export class PostgresService {
         id, code, data.name || 'Untitled Resource', data.type || 'labour',
         data.category || 'General', data.subCategory || null, data.moreSubCategory || null,
         data.unit || 'hr', baseRate, operationalCharge, data.chargeType || 'hourly',
-        data.currency || 'USD', data.supplierId || null, data.supplierName || null,
+        data.currency || 'LKR', data.supplierId || null, data.supplierName || null,
         data.competitorCompany || null, competitorRate, benchmarkRate,
         data.leadTimeDays || 1, data.status || 'Available', data.skillOrSla || null,
         altsJson, specsJson, allocsJson, data.notes || '', data.effectiveDate || new Date().toISOString().slice(0, 10)
@@ -14789,7 +14800,8 @@ export class PostgresService {
     phaseId: string,
     quantity: number,
     unit?: string,
-    unitCost?: number
+    unitCost?: number,
+    planId?: string
   ): Promise<any> {
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
@@ -14847,7 +14859,7 @@ export class PostgresService {
         quantity: Number(quantity),
         unit: unit || resource.unit,
         totalCost,
-        currency: project.currency || 'USD'
+        currency: project.currency || 'LKR'
       });
     }
 
@@ -14855,6 +14867,39 @@ export class PostgresService {
       'UPDATE enterprise_resources SET connected_allocations = $1, updated_at = NOW() WHERE id = $2',
       [JSON.stringify(existingAllocations), resourceId]
     );
+
+    // Connect to target project plan if provided or active plan in project_plans
+    let targetPlanId = planId;
+    if (!targetPlanId) {
+      const planRes = await db.query(
+        'SELECT id FROM project_plans WHERE project_id = $1 AND (is_active = TRUE OR is_active IS NULL) ORDER BY created_at DESC LIMIT 1',
+        [projectId]
+      );
+      if (planRes.rows && planRes.rows.length > 0) {
+        targetPlanId = planRes.rows[0].id;
+      }
+    }
+
+    if (targetPlanId) {
+      const planResId = `ppr-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      await db.query(
+        `INSERT INTO project_plan_resources (
+          id, plan_id, project_id, resource_id, resource_type,
+          name, role_or_trade, allocated_hours, hourly_rate, total_cost, notes, unit, currency
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          planResId, targetPlanId, projectId, resource.id, resource.type,
+          resource.name, resource.subCategory || resource.category || '',
+          Number(quantity), effectiveCost, totalCost,
+          `Allocated from Resource Portal: ${resource.code}`,
+          unit || resource.unit || 'hr',
+          project.currency || 'LKR'
+        ]
+      ).catch((err: any) => console.warn('Could not insert project_plan_resources:', err));
+
+      // Recalculate plan financials
+      await this.recalculatePlanFinancials(targetPlanId).catch((err: any) => console.warn('Recalculate plan error:', err));
+    }
 
     return {
       resource: await this.getResourceById(resourceId),

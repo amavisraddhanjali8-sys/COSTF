@@ -111,6 +111,7 @@ interface TopNavbarProps {
   onExtendSession?: () => void;
   onOpenMarginsLanding?: () => void;
   onOpenTimelinesLanding?: () => void;
+  onOpenResourcesLanding?: () => void;
 }
 
 export const TopNavbar: React.FC<TopNavbarProps> = ({
@@ -134,7 +135,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   sessionRemainingSeconds,
   onExtendSession,
   onOpenMarginsLanding,
-  onOpenTimelinesLanding
+  onOpenTimelinesLanding,
+  onOpenResourcesLanding
 }) => {
   // Theme state
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getStoredThemeMode());
@@ -1083,9 +1085,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               type="button"
               id="nav-tab-resource-allocation"
               onClick={() => {
-                onSelectTab('resource-allocation');
-                if (!selectedProject && onOpenProjectPicker) {
-                  onOpenProjectPicker('resources');
+                if (onOpenResourcesLanding) {
+                  onOpenResourcesLanding();
+                } else {
+                  onSelectTab('resource-allocation');
                 }
               }}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
