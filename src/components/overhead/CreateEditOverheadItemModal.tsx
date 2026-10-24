@@ -16,6 +16,7 @@ import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesA
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { api } from '../../services/api';
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo, getStoredCurrency } from '../../utils/currency';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 
 interface CreateEditOverheadItemModalProps {
   isOpen: boolean;
@@ -73,7 +74,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
       setEffectiveDate(itemToEdit.effectiveDate || new Date().toISOString().slice(0, 10));
     } else {
       setName('');
-      setCode(`OVH-${Math.floor(Math.random() * 9000 + 1000)}`);
+      setCode(peekNextNumber('overheads'));
       setBarcode('');
       setCategory('Indirect Materials & Factory Consumables');
       setSubCategory('Cutting Fluids & Chemical Agents');
@@ -137,6 +138,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
         result = await api.updateOverheadItem(itemToEdit.id, payload);
       } else {
         result = await api.createOverheadItem(payload);
+        generateNextNumber('overheads', true);
       }
 
       if (onSave) onSave(result);

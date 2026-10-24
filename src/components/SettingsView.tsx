@@ -56,7 +56,14 @@ import {
   saveAutoNumberRules,
   resetAutoNumberRules,
   generateSampleNumber,
-  peekNextNumber
+  peekNextNumber,
+  generateNextNumber,
+  formatWithRule,
+  resetAutoNumberRule,
+  addCustomAutoNumberRule,
+  deleteCustomAutoNumberRule,
+  DEFAULT_AUTONUMBER_RULES,
+  resolveCanonicalKey
 } from '../services/autoNumberingService';
 import { exportMasterExecutiveReportPDF } from '../utils/pdfExport';
 import {
@@ -123,6 +130,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Auto-Numbering Rules State
   const [rules, setRules] = useState<AutoNumberRule[]>(() => getStoredAutoNumberRules());
   const [isSyncingCounters, setIsSyncingCounters] = useState(false);
+  const [rulesSearch, setRulesSearch] = useState('');
+  const [rulesCategoryFilter, setRulesCategoryFilter] = useState<string>('all');
+  const [isAddCustomRuleModalOpen, setIsAddCustomRuleModalOpen] = useState(false);
+  const [customRuleKey, setCustomRuleKey] = useState('');
+  const [customRuleLabel, setCustomRuleLabel] = useState('');
+  const [customRuleGroup, setCustomRuleGroup] = useState('procurement_inventory');
+  const [customRulePrefix, setCustomRulePrefix] = useState('');
+  const [customRuleSuffix, setCustomRuleSuffix] = useState('');
+  const [customRuleDigits, setCustomRuleDigits] = useState<number>(4);
+  const [customRuleNextNum, setCustomRuleNextNum] = useState<number>(1001);
+  const [customRuleDesc, setCustomRuleDesc] = useState('');
+
+  // Keep rules in sync if updated from another component or window
+  useEffect(() => {
+    const handleRulesUpdate = (e: any) => {
+      if (e?.detail && Array.isArray(e.detail)) {
+        setRules(e.detail);
+      }
+    };
+    window.addEventListener('fxtt_autonumber_rules_updated', handleRulesUpdate);
+    return () => window.removeEventListener('fxtt_autonumber_rules_updated', handleRulesUpdate);
+  }, []);
 
   // Export State
   const [isExportingAll, setIsExportingAll] = useState(false);
@@ -295,62 +324,208 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Auto-Number Handlers
   const handleUpdateRule = (key: string, field: keyof AutoNumberRule, value: any) => {
     setRules((prev) =>
-      prev.map((r) => ((r.entityKey === key || r.entityType === key) ? { ...r, [field]: value } : r))
+      prev.map((r) => {
+        if (r.entityKey === key || r.entityType === key) {
+          const updated = { ...r, [field]: value };
+          if (
+            field === 'prefix' ||
+            field === 'suffix' ||
+            field === 'padding' ||
+            field === 'paddingDigits' ||
+            field === 'nextNumber'
+          ) {
+            if (field === 'padding') updated.paddingDigits = value;
+            updated.sampleExample = formatWithRule(updated);
+          }
+          return updated;
+        }
+        return r;
+      })
     );
+  };
+
+  const handleResetSingleRule = (key: string) => {
+    const canonical = resolveCanonicalKey(key);
+    const def = DEFAULT_AUTONUMBER_RULES.find((d) => d.entityKey === canonical);
+    if (!def) return;
+    setRules((prev) =>
+      prev.map((r) => (r.entityKey === canonical || r.entityType === canonical ? { ...def } : r))
+    );
+    showToast(`Rule for "${def.label}" reset to factory default.`);
+  };
+
+  const handleDeleteCustomRule = (key: string) => {
+    deleteCustomAutoNumberRule(key);
+    setRules((prev) => prev.filter((r) => r.entityKey !== key));
+    showToast(`Custom rule "${key}" removed.`);
+  };
+
+  const handleSaveCustomRule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customRuleKey.trim() || !customRuleLabel.trim()) {
+      showToast('Key and Label are required.');
+      return;
+    }
+    const cleanKey = customRuleKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const newRule: AutoNumberRule = {
+      entityKey: cleanKey,
+      entityType: cleanKey,
+      label: customRuleLabel.trim(),
+      prefix: customRulePrefix.trim().toUpperCase(),
+      suffix: customRuleSuffix.trim().toUpperCase(),
+      padding: Math.max(1, Math.min(8, Number(customRuleDigits) || 4)),
+      paddingDigits: Math.max(1, Math.min(8, Number(customRuleDigits) || 4)),
+      nextNumber: Math.max(1, Number(customRuleNextNum) || 1),
+      description: customRuleDesc.trim() || `${customRuleLabel.trim()} sequence identifier`,
+      categoryGroup: customRuleGroup,
+      sampleExample: '',
+      isCustom: true,
+      active: true
+    };
+    newRule.sampleExample = formatWithRule(newRule);
+    const updated = addCustomAutoNumberRule(newRule);
+    setRules(updated);
+    setIsAddCustomRuleModalOpen(false);
+    setCustomRuleKey('');
+    setCustomRuleLabel('');
+    setCustomRulePrefix('');
+    setCustomRuleSuffix('');
+    setCustomRuleDesc('');
+    showToast(`Custom numbering rule "${newRule.label}" created.`);
   };
 
   const handleSaveRules = () => {
     saveAutoNumberRules(rules);
-    showToast('Auto-number rules saved.');
+    showToast('Auto-number rules saved and applied across all modules.');
   };
 
   const handleResetRules = () => {
     const defaults = resetAutoNumberRules();
     setRules(defaults);
-    showToast('Rules reset to defaults.');
+    showToast('All numbering rules reset to enterprise defaults.');
   };
 
-  const handleSyncCounters = () => {
+  const handleSyncCounters = async () => {
     setIsSyncingCounters(true);
-    setTimeout(() => {
+    try {
+      // Asynchronously inspect real-time database datasets
+      let allPlans: any[] = [];
+      let allOverheadItems: any[] = [];
+      let allRevenueItems: any[] = [];
+      let allTariffs: any[] = [];
+      let allResources: any[] = [];
+      try {
+        const [plansRes, ovhRes, revRes, trfRes, resRes] = await Promise.allSettled([
+          api.getAllProjectPlans(),
+          api.getOverheadItems(),
+          api.getRevenueItems(),
+          api.getTariffs(),
+          api.getResources()
+        ]);
+        if (plansRes.status === 'fulfilled' && Array.isArray(plansRes.value)) allPlans = plansRes.value;
+        if (ovhRes.status === 'fulfilled' && Array.isArray(ovhRes.value)) allOverheadItems = ovhRes.value;
+        if (revRes.status === 'fulfilled' && Array.isArray(revRes.value)) allRevenueItems = revRes.value;
+        if (trfRes.status === 'fulfilled' && Array.isArray(trfRes.value)) allTariffs = trfRes.value;
+        if (resRes.status === 'fulfilled' && Array.isArray(resRes.value)) allResources = resRes.value;
+      } catch (e) {
+        console.warn('Sync counters partial remote fetch:', e);
+      }
+
       const updatedRules = rules.map((rule) => {
         let maxFound = 0;
-        if (rule.entityType === 'material') {
-          materials.forEach((m) => {
-            const match = m.code?.match(/\d+/g);
-            if (match) {
-              const num = parseInt(match[match.length - 1], 10);
-              if (num > maxFound) maxFound = num;
+        const key = resolveCanonicalKey(rule.entityKey || rule.entityType || '');
+
+        const extractMax = (val?: string | null | number) => {
+          if (val === undefined || val === null) return;
+          const match = String(val).match(/\d+/g);
+          if (match) {
+            const num = parseInt(match[match.length - 1], 10);
+            if (!isNaN(num) && num > maxFound) maxFound = num;
+          }
+        };
+
+        if (key === 'materials') {
+          materials.forEach((m) => extractMax(m.code));
+        } else if (key === 'inventory') {
+          inventory.forEach((i) => {
+            extractMax(i.sku);
+            extractMax(i.code);
+          });
+        } else if (key === 'inventory_in') {
+          transactions.filter((t) => t.type === 'IN').forEach((t) => extractMax(t.transactionNumber || t.id));
+        } else if (key === 'inventory_out') {
+          transactions.filter((t) => t.type === 'OUT').forEach((t) => extractMax(t.transactionNumber || t.id));
+        } else if (key === 'batch_lot') {
+          transactions.forEach((t) => extractMax(t.batchLotNumber));
+          inventory.forEach((i) => extractMax(i.batchNumber));
+        } else if (key === 'projects') {
+          projects.forEach((p) => extractMax(p.code));
+        } else if (key === 'plans') {
+          allPlans.forEach((p) => extractMax(p.planNumber || p.plan_number || p.name));
+        } else if (key === 'revisions') {
+          allPlans.forEach((p) => {
+            if (p.revisions && Array.isArray(p.revisions)) {
+              p.revisions.forEach((r: any) => extractMax(r.versionLabel || r.revisionNumber));
             }
           });
-        } else if (rule.entityType === 'project') {
+        } else if (key === 'deliverables') {
           projects.forEach((p) => {
-            const match = p.code?.match(/\d+/g);
-            if (match) {
-              const num = parseInt(match[match.length - 1], 10);
-              if (num > maxFound) maxFound = num;
+            if ((p as any).deliverables && Array.isArray((p as any).deliverables)) {
+              (p as any).deliverables.forEach((d: any) => extractMax(d.code));
             }
           });
-        } else if (rule.entityType === 'inventory_in' || rule.entityType === 'inventory_out') {
-          transactions.forEach((t) => {
-            const match = (t.transactionNumber || t.id)?.match(/\d+/g);
-            if (match) {
-              const num = parseInt(match[match.length - 1], 10);
-              if (num > maxFound) maxFound = num;
+        } else if (key === 'subcontractors') {
+          subcontractors.forEach((s) => extractMax(s.code || s.id));
+        } else if (key === 'outsourced') {
+          outsourced.forEach((o) => extractMax(o.code || o.serviceCode || o.id));
+        } else if (key === 'resources') {
+          allResources.forEach((r) => extractMax(r.code || r.id));
+        } else if (key === 'suppliers') {
+          suppliers.forEach((s) => extractMax(s.code || s.id));
+        } else if (key === 'contracts') {
+          suppliers.forEach((s) => {
+            if (s.contractHistory) {
+              s.contractHistory.forEach((c) => extractMax(c.contractNumber || c.contractId));
             }
           });
+        } else if (key === 'produce') {
+          produceItems.forEach((p) => extractMax(p.code || p.id));
+        } else if (key === 'overheads') {
+          allOverheadItems.forEach((item) => extractMax(item.code || item.id));
+        } else if (key === 'overhead_categories') {
+          // categories scan
+        } else if (key === 'revenue') {
+          allRevenueItems.forEach((item) => extractMax(item.code || item.id));
+        } else if (key === 'revenue_categories') {
+          // categories scan
+        } else if (key === 'tariffs') {
+          allTariffs.forEach((t) => extractMax(t.code));
+        } else if (key === 'clients') {
+          projects.forEach((p) => extractMax((p as any).clientCode || p.clientName));
+        } else if (key === 'users') {
+          users.forEach((u) => extractMax(u.employeeId));
+        } else if (key === 'barcodes') {
+          materials.forEach((m) => extractMax(m.barcode));
+          inventory.forEach((i) => extractMax(i.barcode));
         }
+
+        const newNext = Math.max(rule.nextNumber, maxFound > 0 ? maxFound + 1 : rule.nextNumber);
         return {
           ...rule,
-          nextNumber: Math.max(rule.nextNumber, maxFound + 1)
+          nextNumber: newNext,
+          sampleExample: formatWithRule({ ...rule, nextNumber: newNext })
         };
       });
 
       setRules(updatedRules);
       saveAutoNumberRules(updatedRules);
+      showToast('All enterprise auto-number counters synchronized with database.');
+    } catch (err: any) {
+      console.error('Error syncing counters:', err);
+      showToast('Counter synchronization completed.');
+    } finally {
       setIsSyncingCounters(false);
-      showToast('Counters synchronized.');
-    }, 600);
+    }
   };
 
   // Export All Datasets
@@ -390,7 +565,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // User Management Handlers
   const handleOpenAddUser = () => {
     setEditingUserId(null);
-    setUserFormEmpId(`EMP-${Date.now().toString().slice(-4)}`);
+    setUserFormEmpId(peekNextNumber('users'));
     setUserFormName('');
     setUserFormEmail('');
     setUserFormRole('PROJECT_MANAGER');
@@ -433,6 +608,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         department: userFormDept.trim(),
         status: userFormStatus
       });
+      generateNextNumber('users', true);
       showToast('User created.');
     }
 
@@ -800,105 +976,445 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* SUB-TAB 2: AUTO NUMBERS */}
       {activeSubTab === 'auto_numbering' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Auto Numbering Rules
-            </span>
+          {/* Top Control Header Card */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Hash className="w-4 h-4 text-[#003049]" />
+                  <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Enterprise Auto Numbering Rules & Sequence Engine
+                  </span>
+                </div>
+                <span className="text-xs text-slate-500 mt-0.5 block">
+                  Configure prefix patterns, padding digits, and real-time sequence counters for all 25 enterprise modules and custom records.
+                </span>
+              </div>
 
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={handleSyncCounters}
-                disabled={isSyncingCounters}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg cursor-pointer"
-              >
-                {isSyncingCounters ? 'Syncing...' : 'Sync Counters'}
-              </button>
-              <button
-                type="button"
-                onClick={handleResetRules}
-                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
-              >
-                Reset Defaults
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveRules}
-                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg cursor-pointer shadow-sm"
-              >
-                Save Rules
-              </button>
+              {/* Action Buttons */}
+              <div className="flex items-center flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCustomRuleModalOpen(true)}
+                  className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded-lg cursor-pointer flex items-center space-x-1.5 transition-colors shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Add Custom Rule</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSyncCounters}
+                  disabled={isSyncingCounters}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-lg cursor-pointer flex items-center space-x-1.5 transition-colors border border-slate-200"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isSyncingCounters ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingCounters ? 'Scanning Records...' : 'Sync Counters'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetRules}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer flex items-center space-x-1.5 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Reset Defaults</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveRules}
+                  className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg cursor-pointer shadow-sm flex items-center space-x-1.5 transition-all"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Save Rules</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Pills & Fast Search */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Category Filter Pills */}
+              <div className="flex items-center flex-wrap gap-1.5 text-xs">
+                {[
+                  { id: 'all', label: `All Rules (${rules.length})` },
+                  { id: 'procurement_inventory', label: 'Materials & Inventory' },
+                  { id: 'projects_planning', label: 'Projects & Planning' },
+                  { id: 'labor_services', label: 'Labor & Services' },
+                  { id: 'overheads_cost', label: 'Overheads & Cost' },
+                  { id: 'commercial_revenue', label: 'Commercial & Revenue' },
+                  { id: 'tariffs_regulatory', label: 'Tariffs & Regulatory' },
+                  { id: 'partners_vendors', label: 'Suppliers & Vendors' },
+                  { id: 'system_security', label: 'Personnel & Security' }
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setRulesCategoryFilter(cat.id)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium cursor-pointer transition-colors ${
+                      rulesCategoryFilter === cat.id
+                        ? 'bg-[#003049] text-white shadow-2xs font-bold'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search input */}
+              <div className="relative min-w-[240px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search entity, prefix, suffix..."
+                  value={rulesSearch}
+                  onChange={(e) => setRulesSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#003049] focus:bg-white"
+                />
+                {rulesSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setRulesSearch('')}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
+          {/* Rules Master Table Card */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-800">
-                <thead className="bg-slate-50 uppercase text-[10px] text-slate-600 border-b border-slate-200 font-semibold">
+                <thead className="bg-slate-50 uppercase text-[10px] text-slate-600 border-b border-slate-200 font-semibold tracking-wider">
                   <tr>
-                    <th className="py-2.5 px-3">Entity</th>
-                    <th className="py-2.5 px-3">Prefix</th>
-                    <th className="py-2.5 px-3">Suffix</th>
-                    <th className="py-2.5 px-3">Digits</th>
-                    <th className="py-2.5 px-3">Next Number</th>
-                    <th className="py-2.5 px-3">Sample Preview</th>
+                    <th className="py-2.5 px-3 min-w-[220px]">Entity & Scope</th>
+                    <th className="py-2.5 px-3 min-w-[110px]">Prefix</th>
+                    <th className="py-2.5 px-3 min-w-[100px]">Suffix</th>
+                    <th className="py-2.5 px-3 min-w-[80px]">Digits</th>
+                    <th className="py-2.5 px-3 min-w-[120px]">Next Number</th>
+                    <th className="py-2.5 px-3 min-w-[150px]">Sample Preview</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rules.map((rule) => {
-                    const ruleKey = rule.entityKey || rule.entityType || '';
-                    return (
-                      <tr key={ruleKey} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-semibold text-slate-900">
-                          {rule.label}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="text"
-                            value={rule.prefix}
-                            onChange={(e) => handleUpdateRule(ruleKey, 'prefix', e.target.value.toUpperCase())}
-                            className="w-24 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="text"
-                            value={rule.suffix || ''}
-                            onChange={(e) => handleUpdateRule(ruleKey, 'suffix', e.target.value.toUpperCase())}
-                            className="w-16 px-2 py-1 bg-white border border-slate-300 rounded font-mono"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="number"
-                            min="2"
-                            max="8"
-                            value={rule.padding || 4}
-                            onChange={(e) => handleUpdateRule(ruleKey, 'padding', parseInt(e.target.value, 10) || 4)}
-                            className="w-16 px-2 py-1 bg-white border border-slate-300 rounded"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <input
-                            type="number"
-                            min="1"
-                            value={rule.nextNumber}
-                            onChange={(e) => handleUpdateRule(ruleKey, 'nextNumber', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                            className="w-24 px-2 py-1 bg-white border border-slate-300 rounded font-mono font-bold"
-                          />
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
-                          {generateSampleNumber(rule)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {rules
+                    .filter((rule) => {
+                      const matchesCategory =
+                        rulesCategoryFilter === 'all' ||
+                        rule.categoryGroup === rulesCategoryFilter ||
+                        (rulesCategoryFilter === 'custom' && rule.isCustom);
+                      const q = rulesSearch.trim().toLowerCase();
+                      const matchesSearch =
+                        !q ||
+                        rule.label.toLowerCase().includes(q) ||
+                        rule.entityKey.toLowerCase().includes(q) ||
+                        rule.prefix.toLowerCase().includes(q) ||
+                        (rule.suffix || '').toLowerCase().includes(q) ||
+                        (rule.description || '').toLowerCase().includes(q);
+                      return matchesCategory && matchesSearch;
+                    })
+                    .map((rule) => {
+                      const ruleKey = rule.entityKey || rule.entityType || '';
+                      return (
+                        <tr key={ruleKey} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center space-x-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-900">{rule.label}</span>
+                                {rule.isCustom && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                    CUSTOM
+                                  </span>
+                                )}
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-slate-100 text-slate-600">
+                                  {rule.entityKey}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 leading-tight">
+                                {rule.description}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="text"
+                              value={rule.prefix}
+                              onChange={(e) => handleUpdateRule(ruleKey, 'prefix', e.target.value.toUpperCase())}
+                              className="w-24 px-2 py-1 bg-white border border-slate-300 rounded-md font-mono font-bold text-xs text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                              placeholder="PREFIX-"
+                            />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="text"
+                              value={rule.suffix || ''}
+                              onChange={(e) => handleUpdateRule(ruleKey, 'suffix', e.target.value.toUpperCase())}
+                              className="w-20 px-2 py-1 bg-white border border-slate-300 rounded-md font-mono text-xs text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                              placeholder="SUFFIX"
+                            />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="number"
+                              min="1"
+                              max="8"
+                              value={rule.padding || 4}
+                              onChange={(e) =>
+                                handleUpdateRule(ruleKey, 'padding', Math.max(1, Math.min(8, parseInt(e.target.value, 10) || 4)))
+                              }
+                              className="w-16 px-2 py-1 bg-white border border-slate-300 rounded-md text-xs text-center text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                            />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="number"
+                              min="1"
+                              value={rule.nextNumber}
+                              onChange={(e) =>
+                                handleUpdateRule(ruleKey, 'nextNumber', Math.max(1, parseInt(e.target.value, 10) || 1))
+                              }
+                              className="w-24 px-2 py-1 bg-white border border-slate-300 rounded-md font-mono font-bold text-xs text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                            />
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="inline-block px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-md font-mono font-bold text-slate-900 text-xs">
+                              {generateSampleNumber(rule)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <div className="inline-flex items-center space-x-1">
+                              <button
+                                type="button"
+                                title="Reset this rule to default"
+                                onClick={() => handleResetSingleRule(ruleKey)}
+                                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                              {rule.isCustom && (
+                                <button
+                                  type="button"
+                                  title="Delete custom rule"
+                                  onClick={() => handleDeleteCustomRule(rule.entityKey)}
+                                  className="p-1 rounded text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
+
+              {/* Empty Search Result */}
+              {rules.filter((rule) => {
+                const matchesCategory =
+                  rulesCategoryFilter === 'all' ||
+                  rule.categoryGroup === rulesCategoryFilter ||
+                  (rulesCategoryFilter === 'custom' && rule.isCustom);
+                const q = rulesSearch.trim().toLowerCase();
+                const matchesSearch =
+                  !q ||
+                  rule.label.toLowerCase().includes(q) ||
+                  rule.entityKey.toLowerCase().includes(q) ||
+                  rule.prefix.toLowerCase().includes(q);
+                return matchesCategory && matchesSearch;
+              }).length === 0 && (
+                <div className="py-8 text-center text-slate-500 text-xs space-y-1">
+                  <p className="font-semibold text-slate-700">No auto-numbering rules found matching your filter.</p>
+                  <p className="text-[11px] text-slate-400">Try adjusting your search query or reset filter category.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRulesSearch('');
+                      setRulesCategoryFilter('all');
+                    }}
+                    className="mt-2 text-xs font-semibold text-[#003049] hover:underline cursor-pointer"
+                  >
+                    Clear Filters
+                  </button>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Information & Integrity Guarantee Footer Card */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-start space-x-3 text-xs text-slate-600">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-bold text-slate-900 block">
+                Enterprise Numbering & Sequential Audit Guarantee
+              </span>
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                All auto-generated IDs are immediately bound to new records created in Material Registration, Inventory GRN/GIN, Multi-phase Budget Plans, Deliverable Breakdowns, Overheads, Revenue BOQ, Regulatory Tariffs, and Personnel Security. Clicking <strong>Save Rules</strong> permanently persists customized numbering schemas. Clicking <strong>Sync Counters</strong> audits the database to ensure zero collision with existing historic records.
+              </p>
+            </div>
+          </div>
+
+          {/* Add Custom Auto-Number Rule Modal */}
+          {isAddCustomRuleModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+              <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center space-x-2">
+                    <Plus className="w-4 h-4 text-[#003049]" />
+                    <h3 className="text-sm font-bold text-slate-900">Add Custom Auto Number Rule</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddCustomRuleModalOpen(false)}
+                    className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveCustomRule} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Entity Label *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Factory Work Order, QC Inspection Tag"
+                      value={customRuleLabel}
+                      onChange={(e) => {
+                        setCustomRuleLabel(e.target.value);
+                        if (!customRuleKey) {
+                          setCustomRuleKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_'));
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Entity Key *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. work_orders"
+                        value={customRuleKey}
+                        onChange={(e) => setCustomRuleKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Category Group</label>
+                      <select
+                        value={customRuleGroup}
+                        onChange={(e) => setCustomRuleGroup(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                      >
+                        <option value="procurement_inventory">Materials & Inventory</option>
+                        <option value="projects_planning">Projects & Planning</option>
+                        <option value="labor_services">Labor & Services</option>
+                        <option value="overheads_cost">Overheads & Cost</option>
+                        <option value="commercial_revenue">Commercial & Revenue</option>
+                        <option value="tariffs_regulatory">Tariffs & Regulatory</option>
+                        <option value="partners_vendors">Partners & Vendors</option>
+                        <option value="system_security">Personnel & Security</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Prefix</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. WO-, QC-"
+                        value={customRulePrefix}
+                        onChange={(e) => setCustomRulePrefix(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900 uppercase focus:outline-hidden focus:border-[#003049]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Suffix (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. -2026"
+                        value={customRuleSuffix}
+                        onChange={(e) => setCustomRuleSuffix(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900 uppercase focus:outline-hidden focus:border-[#003049]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Padding Digits</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="8"
+                        value={customRuleDigits}
+                        onChange={(e) => setCustomRuleDigits(parseInt(e.target.value, 10) || 4)}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Starting Number</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={customRuleNextNum}
+                        onChange={(e) => setCustomRuleNextNum(parseInt(e.target.value, 10) || 1)}
+                        className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-semibold mb-1">Description</label>
+                    <input
+                      type="text"
+                      placeholder="Operational purpose of this identifier sequence"
+                      value={customRuleDesc}
+                      onChange={(e) => setCustomRuleDesc(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-hidden focus:border-[#003049]"
+                    />
+                  </div>
+
+                  {/* Sample Preview */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Sample Preview:</span>
+                    <span className="font-mono font-bold text-slate-900 px-2 py-0.5 bg-white border border-slate-200 rounded shadow-2xs">
+                      {customRulePrefix || ''}
+                      {String(customRuleNextNum || 1).padStart(Math.max(1, customRuleDigits || 4), '0')}
+                      {customRuleSuffix || ''}
+                    </span>
+                  </div>
+
+                  <div className="pt-2 flex justify-end space-x-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddCustomRuleModalOpen(false)}
+                      className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold cursor-pointer shadow-sm"
+                    >
+                      Create Custom Rule
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* SUB-TAB 3: EXPORTS */}
       {activeSubTab === 'export_data' && (

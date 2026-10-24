@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Tag, DollarSign, Calendar, Layers, Shield, AlertCircle, Trash2 } from 'lucide-react';
 import { Tariff, TariffCalculationMethod, TariffApplicableBase, TariffStatus, TariffScopeType } from '../../types';
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo } from '../../utils/currency';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 
 interface CreateEditTariffModalProps {
   isOpen: boolean;
@@ -64,8 +65,7 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
       setDescription(tariff.description || '');
       setNotes(tariff.notes || '');
     } else {
-      const rnd = Math.floor(100 + Math.random() * 900);
-      setCode(`TRF-${rnd}`);
+      setCode(peekNextNumber('tariffs'));
       setName('');
       setCategory('General Enterprise');
       setScopeType('general');
@@ -127,6 +127,9 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
         notes: notes.trim(),
         changeReason: isEditing ? 'Updated tariff parameters' : 'Created tariff schedule'
       });
+      if (!isEditing) {
+        generateNextNumber('tariffs', true);
+      }
       showToast(isEditing ? `Tariff ${code} updated.` : `Tariff ${code} saved.`);
       onClose();
     } catch (err: any) {

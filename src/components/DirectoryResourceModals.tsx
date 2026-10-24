@@ -26,6 +26,7 @@ import { EnterpriseResource, Supplier } from '../types';
 import { api } from '../services/api';
 import { formatCurrency } from '../utils/currency';
 import { calcPctChange, round2, round4 } from '../utils/decimalMath';
+import { peekNextNumber, generateNextNumber } from '../services/autoNumberingService';
 
 // ============================================================================
 // 1. CREATE / EDIT RESOURCE MODAL
@@ -92,8 +93,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
       setSkillOrSla(editingResource.skillOrSla || '');
       setNotes(editingResource.notes || '');
     } else {
-      const typeCodePrefix = (type || defaultType).slice(0, 3).toUpperCase();
-      setCode(`RES-${typeCodePrefix}-${Math.floor(100 + Math.random() * 900)}`);
+      setCode(peekNextNumber('resources'));
       setName('');
       setType(defaultType);
       setCategory(defaultType === 'machinery' ? 'Heavy Centers' : defaultType === 'labour' ? 'Operations' : 'General');
@@ -150,6 +150,7 @@ export const CreateEditResourceModal: React.FC<CreateEditResourceModalProps> = (
         showToast(`Resource "${result.name}" updated successfully`);
       } else {
         result = await api.createResource(payload);
+        generateNextNumber('resources', true);
         showToast(`Resource "${result.name}" created in PostgreSQL database`);
       }
 

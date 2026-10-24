@@ -126,7 +126,7 @@ export const api = {
       this.getOutsourcedServices().catch(() => []),
       this.getSubcontractors().catch(() => []),
       this.getInventory().catch(() => []),
-      this.getInventoryTransactions().catch(() => []),
+      this.getTransactions().catch(() => []),
       this.getCategories().catch(() => []),
       this.getOverheadItems().catch(() => []),
       this.getRevenueItemsList().catch(() => []),
@@ -138,9 +138,11 @@ export const api = {
       produce,
       suppliers,
       outsourced,
+      outsourcedServices: outsourced,
       subcontractors,
       inventory,
       transactions,
+      inventoryTransactions: transactions,
       categories,
       overheads,
       revenueItems,
@@ -997,6 +999,26 @@ export const api = {
       method: 'DELETE'
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete inventory transaction');
+  },
+
+  async getInventoryTransactions(params?: ListQueryParams): Promise<any[]> {
+    return this.getTransactions(params);
+  },
+
+  async getInventoryTransactionsPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<any>> {
+    return this.getTransactionsPaginated(params);
+  },
+
+  async createInventoryTransaction(data: any): Promise<any> {
+    return this.createTransaction(data);
+  },
+
+  async updateInventoryTransaction(id: string, data: any): Promise<any> {
+    return this.updateTransaction(id, data);
+  },
+
+  async deleteInventoryTransaction(id: string): Promise<void> {
+    return this.deleteTransaction(id);
   },
 
   // --- Audit Logs (PostgreSQL inno_cost) ---

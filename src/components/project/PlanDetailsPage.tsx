@@ -130,6 +130,11 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   // Procurement Price History & Quotation selection (TASK 5)
   const [isProcurementQuotesModalOpen, setIsProcurementQuotesModalOpen] = useState(false);
 
+  // Enterprise Resources state for Plan Resource assignment
+  const [enterpriseResources, setEnterpriseResources] = useState<EnterpriseResource[]>([]);
+  const [isAddResourceModalOpen, setIsAddResourceModalOpen] = useState(false);
+  const [editingPlanResource, setEditingPlanResource] = useState<any | null>(null);
+
   // Barcode Scanning and Selection Modal (TASK 7)
   const [isBarcodeScannerModalOpen, setIsBarcodeScannerModalOpen] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -194,13 +199,15 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const [data, tariffsData] = await Promise.all([
+      const [data, tariffsData, resourcesData] = await Promise.all([
         api.getProjectPlanById(planId),
-        api.getPlanTariffs(planId).catch(() => [])
+        api.getPlanTariffs(planId).catch(() => []),
+        api.getResources().catch(() => [])
       ]);
       if (!data) throw new Error('Plan not found in PostgreSQL database.');
       setPlan(data);
       setPlanTariffs(tariffsData || []);
+      setEnterpriseResources(resourcesData || []);
       setEditName(data.name || '');
       setEditDescription(data.description || '');
       setEditPlanType(data.planType || 'Baseline');
@@ -214,6 +221,37 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       setError(err?.message || 'Failed to load plan details from PostgreSQL');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSavePlanResource = async (resourceData: any) => {
+    if (!plan) return;
+    try {
+      if (editingPlanResource?.id) {
+        await api.updatePlanResource(plan.id, editingPlanResource.id, resourceData);
+        showToast?.({ message: 'Resource updated', type: 'success' });
+      } else {
+        await api.addResourceToPlan(plan.id, resourceData);
+        showToast?.({ message: 'Resource assigned', type: 'success' });
+      }
+      setIsAddResourceModalOpen(false);
+      setEditingPlanResource(null);
+      await loadPlan();
+      onPlanUpdated?.();
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to save resource', type: 'error' });
+    }
+  };
+
+  const handleDeletePlanResource = async (resourceId: string) => {
+    if (!plan) return;
+    try {
+      await api.deletePlanResource(plan.id, resourceId);
+      showToast?.({ message: 'Resource removed', type: 'info' });
+      await loadPlan();
+      onPlanUpdated?.();
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to remove resource', type: 'error' });
     }
   };
 
@@ -248,11 +286,13 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       void loadPlan();
     }
     api.getInitialData().then((data) => {
-      if (data.suppliers) setSuppliers(data.suppliers);
-      if (data.materials) setMaterials(data.materials);
-      if (data.outsourcedServices) setOutsourcedServices(data.outsourcedServices);
-      if (data.subcontractors) setSubcontractors(data.subcontractors);
-    }).catch(console.error);
+      if (data?.suppliers) setSuppliers(data.suppliers);
+      if (data?.materials) setMaterials(data.materials);
+      if (data?.outsourcedServices || data?.outsourced) setOutsourcedServices(data.outsourcedServices || data.outsourced);
+      if (data?.subcontractors) setSubcontractors(data.subcontractors);
+    }).catch((err) => {
+      console.warn('Initial data load warning:', err);
+    });
   }, [planId]);
 
   const handleActivate = async () => {
@@ -539,37 +579,37 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           </div>
 
           {/* Action Button Cluster */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setIsEditingModalOpen(true)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
+              className="flex items-center space-x-1 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
             >
               <Edit className="w-3.5 h-3.5 text-slate-600" />
-              <span>Edit Details</span>
+              <span>Edit</span>
             </button>
 
             {!plan.isActive && plan.status !== 'Archived' && (
               <button
                 onClick={handleActivate}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
               >
                 <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                <span>Activate Plan</span>
+                <span>Activate</span>
               </button>
             )}
 
             <button
               onClick={handleDuplicate}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
+              className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 transition-colors shadow-2xs cursor-pointer"
             >
               <Copy className="w-3.5 h-3.5 text-[#0078d4]" />
-              <span>Duplicate</span>
+              <span>Copy</span>
             </button>
 
             {plan.status !== 'Archived' && (
               <button
                 onClick={handleArchive}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
               >
                 <Archive className="w-3.5 h-3.5 text-rose-600" />
                 <span>Archive</span>
@@ -579,61 +619,52 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         </div>
       </div>
 
-      {/* 2. FINANCIAL SUMMARY RIBBON - Central Truth from PostgreSQL project_plan_cost_summaries */}
+      {/* 2. FINANCIAL SUMMARY RIBBON - Clean & Simple */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="p-3 bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Planned Revenue</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Revenue</span>
           <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
             {formatCurrency(cost.plannedRevenue, activeCurrency)}
           </span>
-          <span className="text-[10px] text-slate-500">Quoted target</span>
         </div>
 
         <div className="p-3 bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Direct Cost</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Direct</span>
           <span className="font-mono text-base font-bold text-[#0078d4] dark:text-sky-400 mt-0.5 block">
             {formatCurrency(cost.directCost, activeCurrency)}
           </span>
-          <span className="text-[10px] text-slate-500">Materials, trades, outsourcing</span>
         </div>
 
         <div className="p-3 bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Allocated Overhead</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Overhead</span>
           <span className="font-mono text-base font-bold text-slate-700 dark:text-slate-300 mt-0.5 block">
             {formatCurrency(cost.allocatedOverhead, activeCurrency)}
           </span>
-          <span className="text-[10px] text-slate-500">{plan.overheadPct}% ovh + {plan.contingencyPct}% ctg</span>
         </div>
 
         <div className="p-3 bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Planned Cost</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Cost</span>
           <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
             {formatCurrency(cost.totalPlannedCost, activeCurrency)}
           </span>
-          <span className="text-[10px] text-slate-500">Direct + Burden + Overhead</span>
         </div>
 
         <div className="p-3 bg-white dark:bg-[#0b101b] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Planned Profit</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Profit</span>
           <span className={`font-mono text-base font-bold mt-0.5 block ${cost.plannedProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
             {formatCurrency(cost.plannedProfit, activeCurrency)}
           </span>
-          <span className="text-[10px] text-slate-500">Revenue minus total cost</span>
         </div>
 
         <div className={`p-3 bg-white dark:bg-[#0b101b] border rounded-xl shadow-2xs ${marginHealthy ? 'border-emerald-300 dark:border-emerald-800' : 'border-amber-300 dark:border-amber-800'}`}>
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Profit Margin</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Margin</span>
             <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${marginHealthy ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
               Target {plan.targetMarginPct}%
             </span>
           </div>
           <span className={`font-mono text-base font-bold mt-0.5 block ${marginHealthy ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
             {Number(cost.profitMarginPct || 0).toFixed(1)}%
-          </span>
-          <span className="text-[10px] text-slate-500 flex items-center space-x-1">
-            {marginHealthy ? <CheckCircle2 className="w-3 h-3 text-emerald-600 inline mr-1" /> : <AlertTriangle className="w-3 h-3 text-amber-600 inline mr-1" />}
-            <span>{marginHealthy ? 'Target achieved' : 'Below target'}</span>
           </span>
         </div>
       </div>
@@ -647,7 +678,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <Package className="w-3.5 h-3.5" />
-          <span>BOQ Items ({(plan.boqItems || []).length})</span>
+          <span>BOQ ({(plan.boqItems || []).length})</span>
         </button>
 
         <button
@@ -657,7 +688,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>Sections & Phases ({(plan.sections || []).length})</span>
+          <span>Phases ({(plan.sections || []).length})</span>
         </button>
 
         <button
@@ -677,7 +708,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5" />
-          <span>Overhead Allocations ({(plan.overheadAllocations || []).length})</span>
+          <span>Overheads ({(plan.overheadAllocations || []).length})</span>
         </button>
 
         <button
@@ -688,7 +719,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <Calculator className="w-3.5 h-3.5" />
-          <span>Applied Tariffs ({planTariffs.length})</span>
+          <span>Tariffs ({planTariffs.length})</span>
         </button>
 
         <button
@@ -699,7 +730,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>Cost Controls & Caps</span>
+          <span>Controls</span>
         </button>
 
         <button
@@ -709,7 +740,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           }`}
         >
           <History className="w-3.5 h-3.5" />
-          <span>Revision History ({(plan.revisions || []).length})</span>
+          <span>History ({(plan.revisions || []).length})</span>
         </button>
       </div>
 
@@ -1013,21 +1044,36 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       {/* 4C. RESOURCES */}
       {activeTab === 'resources' && (
         <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-            <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100">Assigned Resources (project_plan_resources)</h2>
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <HardHat className="w-4 h-4 text-[#0078d4]" />
+              <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100">Resources</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingPlanResource(null);
+                setIsAddResourceModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Resource</span>
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
               <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
                 <tr>
                   <th className="py-2.5 px-3 font-semibold">Type</th>
-                  <th className="py-2.5 px-3 font-semibold">Resource Name</th>
-                  <th className="py-2.5 px-3 font-semibold">Role / Trade</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Allocated Hours</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Hourly Rate</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Total Cost</th>
+                  <th className="py-2.5 px-3 font-semibold">Name</th>
+                  <th className="py-2.5 px-3 font-semibold">Role</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Hours</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Rate</th>
+                  <th className="py-2.5 px-3 font-semibold text-right">Cost</th>
                   <th className="py-2.5 px-3 font-semibold">Dates</th>
                   <th className="py-2.5 px-3 font-semibold">Notes</th>
+                  <th className="py-2.5 px-3 font-semibold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
@@ -1040,8 +1086,8 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                     </td>
                     <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-slate-100">{res.name}</td>
                     <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">{res.roleOrTrade || '-'}</td>
-                    <td className="py-2.5 px-3 text-right">{Number(res.allocatedHours || 0).toLocaleString()} hrs</td>
-                    <td className="py-2.5 px-3 text-right">{formatCurrency(res.hourlyRate, activeCurrency)}/hr</td>
+                    <td className="py-2.5 px-3 text-right">{Number(res.allocatedHours || 0).toLocaleString()} {res.unit || 'hrs'}</td>
+                    <td className="py-2.5 px-3 text-right">{formatCurrency(res.hourlyRate, activeCurrency)}</td>
                     <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-slate-100">
                       {formatCurrency(res.totalCost, activeCurrency)}
                     </td>
@@ -1049,12 +1095,48 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                       {res.startDate || '-'} → {res.endDate || '-'}
                     </td>
                     <td className="py-2.5 px-3 font-sans text-[10px] text-slate-500">{res.notes || '-'}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <div className="flex items-center justify-center space-x-1 font-sans">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPlanResource(res);
+                            setIsAddResourceModalOpen(true);
+                          }}
+                          className="p-1 rounded text-slate-500 hover:text-[#0078d4] hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePlanResource(res.id)}
+                          className="p-1 rounded text-slate-500 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {(plan.resources || []).length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
-                      No dedicated resource schedule records linked to this plan.
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-sans">
+                      <div className="max-w-xs mx-auto space-y-2">
+                        <p className="text-xs">No resources assigned.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPlanResource(null);
+                            setIsAddResourceModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 bg-[#0078d4] text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1 shadow-xs cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Resource</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -1872,6 +1954,19 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
           showToast={(msg) => showToast?.(msg)}
         />
       )}
+
+      {/* Add / Edit Plan Resource Modal */}
+      <AddPlanResourceModal
+        isOpen={isAddResourceModalOpen}
+        onClose={() => {
+          setIsAddResourceModalOpen(false);
+          setEditingPlanResource(null);
+        }}
+        onSave={handleSavePlanResource}
+        initialData={editingPlanResource}
+        enterpriseResources={enterpriseResources}
+        currency={activeCurrency}
+      />
     </div>
   );
 };

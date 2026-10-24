@@ -28,6 +28,7 @@ import {
 import { OverheadItem, OverheadCategory, OverheadAuditLog, Project, CategoryNode } from '../../types';
 import { api } from '../../services/api';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 import { CreateEditOverheadItemModal } from './CreateEditOverheadItemModal';
 import { ModernTileCard } from '../ModernTileCard';
 import { bizStore } from '../../services/bizStore';
@@ -247,9 +248,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
     if (!newCatName.trim()) return;
 
     try {
+      const catCode = newCatCode.trim() || generateNextNumber('overhead_categories', true);
       const payload = {
         name: newCatName.trim(),
-        code: newCatCode.trim() || `OVH-${Date.now().toString().slice(-4)}`,
+        code: catCode,
         brief: newCatBrief.trim() || 'Overhead operations cost center',
         group: 'overhead',
         type: 'category',

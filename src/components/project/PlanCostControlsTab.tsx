@@ -5,27 +5,25 @@ import {
   Unlock,
   ShieldCheck,
   TrendingDown,
-  TrendingUp,
-  Percent,
-  DollarSign,
-  AlertTriangle,
-  CheckCircle2,
   RefreshCw,
   Edit,
   Save,
   X,
   Search,
-  Filter,
-  Layers,
   History,
   Tag,
-  Clock,
-  Sparkles,
-  AlertCircle
+  Plus,
+  Trash2,
+  Edit2,
+  Check,
+  CheckCircle2,
+  ChevronDown
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
 import { round2 } from '../../utils/decimalMath';
+import { EnterpriseResource } from '../../types';
+import { AddPlanResourceModal } from './AddPlanResourceModal';
 
 interface PlanCostControlsTabProps {
   planId: string;
@@ -47,12 +45,21 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
   showToast
 }) => {
   const [controls, setControls] = useState<any | null>(null);
+  const [enterpriseResources, setEnterpriseResources] = useState<EnterpriseResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditingCaps, setIsEditingCaps] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [lineFilter, setLineFilter] = useState<'all' | 'material' | 'labour' | 'equipment' | 'subcontractor' | 'overhead'>('all');
   const [showAuditTrail, setShowAuditTrail] = useState(false);
+
+  // Resource modal state
+  const [isAddResourceModalOpen, setIsAddResourceModalOpen] = useState(false);
+  const [selectedResourceToEdit, setSelectedResourceToEdit] = useState<any | null>(null);
+
+  // Inline editing state for cost lines
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [inlineForm, setInlineForm] = useState<{ quantity: number; unitCost: number }>({ quantity: 1, unitCost: 0 });
 
   // Form state for editing ceilings and caps
   const [form, setForm] = useState({
@@ -77,8 +84,12 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
     if (!planId) return;
     setLoading(true);
     try {
-      const data = await api.getPlanCostControls(planId);
+      const [data, resources] = await Promise.all([
+        api.getPlanCostControls(planId),
+        api.getResources().catch(() => [])
+      ]);
       setControls(data);
+      setEnterpriseResources(resources || []);
       setForm({
         budgetCeiling: Number(data.budgetCeiling || 0),
         targetCost: Number(data.targetCost || 0),
@@ -123,14 +134,14 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
         contingencyPct: Number(form.contingencyPct),
         costStage: form.costStage,
         costNotes: form.costNotes,
-        reason: 'Updated budget ceilings and category cost limits in PostgreSQL'
+        reason: 'Updated budget ceilings and category cost limits'
       });
       setControls(updated);
       setIsEditingCaps(false);
       onCostControlsUpdated?.();
-      showToast?.({ message: 'Cost controls saved in PostgreSQL', type: 'success' });
+      showToast?.({ message: 'Saved', type: 'success' });
     } catch (e: any) {
-      showToast?.({ message: e?.message || 'Failed to save cost controls', type: 'error' });
+      showToast?.({ message: e?.message || 'Failed to save', type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -142,9 +153,72 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
       const updated = await api.applyPlanCostControlAction(planId, action, payload);
       setControls(updated);
       onCostControlsUpdated?.();
-      showToast?.({ message: 'Cost control action applied and logged', type: 'success' });
+      showToast?.({ message: 'Applied', type: 'success' });
     } catch (e: any) {
       showToast?.({ message: e?.message || 'Action failed', type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Start inline editing a line
+  const handleStartInlineEdit = (line: any) => {
+    setEditingLineId(line.id);
+    setInlineForm({
+      quantity: Number(line.quantity || 1),
+      unitCost: Number(line.unitCost || 0)
+    });
+  };
+
+  // Save inline edit
+  const handleSaveInlineEdit = async (line: any) => {
+    setSaving(true);
+    try {
+      const qty = Math.max(0, Number(inlineForm.quantity || 0));
+      const rate = Math.max(0, Number(inlineForm.unitCost || 0));
+      const total = round2(qty * rate);
+
+      if (line.lineType === 'resource') {
+        await api.updatePlanResource(planId, line.id, {
+          allocatedHours: qty,
+          hourlyRate: rate,
+          totalCost: total
+        });
+      } else if (line.lineType === 'boq') {
+        await api.updatePlanBoqItem(planId, line.id, {
+          quantity: qty,
+          unitCost: rate,
+          totalCost: total
+        });
+      }
+
+      setEditingLineId(null);
+      await loadCostControls();
+      onCostControlsUpdated?.();
+      showToast?.({ message: 'Rate updated', type: 'success' });
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to update rate', type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete line
+  const handleDeleteLine = async (line: any) => {
+    setSaving(true);
+    try {
+      if (line.lineType === 'resource') {
+        await api.deletePlanResource(planId, line.id);
+      } else if (line.lineType === 'boq') {
+        await api.deletePlanBoqItem(planId, line.id);
+      } else if (line.lineType === 'overhead') {
+        await api.deletePlanOverheadAllocation(planId, line.id);
+      }
+      showToast?.({ message: 'Removed', type: 'info' });
+      await loadCostControls();
+      onCostControlsUpdated?.();
+    } catch (err: any) {
+      showToast?.({ message: err?.message || 'Failed to remove line', type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -185,7 +259,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
     return (
       <div className="bg-white dark:bg-[#0b101b] p-8 rounded-xl border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
         <RefreshCw className="w-5 h-5 animate-spin mx-auto text-[#0078d4] mb-2" />
-        <span>Loading Cost Controls from PostgreSQL...</span>
+        <span>Loading...</span>
       </div>
     );
   }
@@ -206,7 +280,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Cost Controls</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Controls</h3>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-[#0078d4] dark:text-sky-400 font-bold border border-blue-200 dark:border-blue-800">
                   {controls?.planNumber || planNumber || 'PLN-01'}
                 </span>
@@ -220,24 +294,35 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                   {isFrozen ? 'Frozen' : 'Active'}
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
-                  Stage: {controls?.costStage || 'Budget'}
+                  {controls?.costStage || 'Budget'}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                PostgreSQL Plan Cost Ceilings, Variance Control & Category Limits
-              </p>
             </div>
           </div>
 
-          {/* One-Word Quick Action Buttons */}
+          {/* Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* Add Resource Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedResourceToEdit(null);
+                setIsAddResourceModalOpen(true);
+              }}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold cursor-pointer shadow-2xs transition-colors"
+              title="Add or assign a resource"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Resource</span>
+            </button>
+
             {isFrozen ? (
               <button
                 type="button"
                 onClick={() => handleAction('unfreeze_all')}
                 disabled={saving}
                 className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
-                title="Unlock cost lines for editing"
+                title="Unlock"
               >
                 <Unlock className="w-3.5 h-3.5" />
                 <span>Unlock</span>
@@ -248,7 +333,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                 onClick={() => handleAction('freeze_all')}
                 disabled={saving}
                 className="flex items-center space-x-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
-                title="Freeze all cost lines against modifications"
+                title="Freeze"
               >
                 <Lock className="w-3.5 h-3.5" />
                 <span>Freeze</span>
@@ -264,10 +349,10 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                   ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300'
               }`}
-              title="Toggle rate escalation lock against price creep"
+              title="Escalation Lock"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{isEscalationLocked ? 'Escalation Locked' : 'Lock Escalation'}</span>
+              <span>{isEscalationLocked ? 'Locked' : 'Escalation'}</span>
             </button>
 
             <button
@@ -275,7 +360,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
               onClick={() => handleAction('apply_savings_target', { discountPct: 5 })}
               disabled={saving}
               className="flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-2xs"
-              title="Apply 5% value engineering target savings"
+              title="Apply -5% Savings Target"
             >
               <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
               <span>-5% Savings</span>
@@ -284,17 +369,17 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
             <button
               type="button"
               onClick={() => setIsEditingCaps(!isEditingCaps)}
-              className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
+              className="flex items-center space-x-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
             >
               <Edit className="w-3.5 h-3.5" />
-              <span>{isEditingCaps ? 'Close Caps' : 'Edit Caps'}</span>
+              <span>{isEditingCaps ? 'Close' : 'Caps'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowAuditTrail(!showAuditTrail)}
               className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer border border-slate-200 transition-colors"
-              title="View cost control audit logs"
+              title="Audit"
             >
               <History className="w-3.5 h-3.5" />
               <span>Audit</span>
@@ -303,27 +388,25 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
         </div>
       </div>
 
-      {/* 2. COST TELEMETRY STRIP (5 Metrics) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {/* Metric 1: Planned Direct Cost */}
+      {/* 2. SIMPLE COST METRICS (5 Minimal Cards) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* Direct */}
         <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Planned Direct Cost</span>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Direct</span>
           <div className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
             {formatCurrency(controls?.directCostPlanned || 0, activeCurrency)}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">Materials + Labour + Equipment</span>
         </div>
 
-        {/* Metric 2: Total Planned Cost */}
+        {/* Cost */}
         <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Planned Cost</span>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Cost</span>
           <div className="text-base font-bold text-slate-900 dark:text-slate-100 font-mono mt-0.5">
             {formatCurrency(controls?.totalPlannedCost || 0, activeCurrency)}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">Includes Overheads & Tariffs</span>
         </div>
 
-        {/* Metric 3: Budget Ceiling & Variance */}
+        {/* Ceiling */}
         <div
           className={`p-3 rounded-xl border shadow-2xs ${
             isOverBudget
@@ -332,56 +415,53 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500 uppercase font-semibold">Budget Ceiling</span>
-            {isOverBudget ? (
-              <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.2 rounded">Over</span>
-            ) : (
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">Safe</span>
-            )}
+            <span className="text-[10px] text-slate-500 uppercase font-bold">Ceiling</span>
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                isOverBudget ? 'text-rose-700 bg-rose-100' : 'text-emerald-700 bg-emerald-100'
+              }`}
+            >
+              {isOverBudget ? 'Over' : 'Safe'}
+            </span>
           </div>
           <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">
             {formatCurrency(controls?.budgetCeiling || 0, activeCurrency)}
           </div>
-          <div className="text-[11px] font-mono mt-1 font-semibold flex items-center space-x-1">
+          <div className="text-[10px] font-mono mt-0.5 font-bold flex items-center space-x-1">
             <span className={isOverBudget ? 'text-rose-600' : 'text-emerald-600'}>
-              {ceilingVariance >= 0 ? '+' : ''}{formatCurrency(ceilingVariance, activeCurrency)}
+              {ceilingVariance >= 0 ? '+' : ''}
+              {formatCurrency(ceilingVariance, activeCurrency)}
             </span>
-            <span className="text-slate-400 text-[10px]">({controls?.ceilingVariancePct || 0}%)</span>
           </div>
         </div>
 
-        {/* Metric 4: Target Cost */}
+        {/* Target */}
         <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Target Cost</span>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Target</span>
           <div className="text-base font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
             {formatCurrency(controls?.targetCost || 0, activeCurrency)}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">
-            Target Margin: <strong>{controls?.targetMarginPct || 25}%</strong>
-          </span>
         </div>
 
-        {/* Metric 5: Committed Savings */}
+        {/* Savings */}
         <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] text-slate-400 uppercase font-semibold block">Committed Savings</span>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Savings</span>
           <div className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
             {formatCurrency(controls?.committedSavings || 0, activeCurrency)}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">Value Engineering Reductions</span>
         </div>
       </div>
 
-      {/* 3. CATEGORY COST CAPS & LIMITS MATRIX (5 Pillars) */}
+      {/* 3. CATEGORY CAPS (5 Pillars) */}
       <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center space-x-2">
             <Tag className="w-3.5 h-3.5 text-[#0078d4]" />
-            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Category Budget Caps</h4>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Category Caps</h4>
           </div>
-          <span className="text-[11px] text-slate-400 font-mono">PostgreSQL Enforced Ceilings</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
           {[
             {
               label: 'Materials',
@@ -418,26 +498,28 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
             const isOver = cat.variance < 0;
 
             return (
-              <div key={cat.label} className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+              <div
+                key={cat.label}
+                className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40"
+              >
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-slate-800 dark:text-slate-200">{cat.label}</span>
-                  <span className={`font-mono text-[10px] font-bold ${isOver ? 'text-rose-600' : 'text-emerald-600'}`}>
-                    {isOver ? 'Over Cap' : 'Under Cap'}
+                  <span className={`font-mono text-[9px] font-bold ${isOver ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    {isOver ? 'Over' : 'Under'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-1 text-[11px] font-mono">
-                  <span className="text-slate-600 dark:text-slate-400">Planned: {formatCurrency(cat.planned, activeCurrency)}</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-slate-500">Cap: {formatCurrency(cat.cap, activeCurrency)}</span>
-                  <span className={isOver ? 'text-rose-600 font-semibold' : 'text-emerald-600 font-semibold'}>
-                    {cat.variance >= 0 ? '+' : ''}{formatCurrency(cat.variance, activeCurrency)}
+                  <span className="text-slate-600 dark:text-slate-400">
+                    {formatCurrency(cat.planned, activeCurrency)}
                   </span>
+                  <span className="text-slate-400">/ {formatCurrency(cat.cap, activeCurrency)}</span>
                 </div>
-                {/* Progress track */}
+                {/* Progress bar */}
                 <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${isOver ? 'bg-rose-500' : pct > 85 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    className={`h-full rounded-full transition-all ${
+                      isOver ? 'bg-rose-500' : pct > 85 ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}
                     style={{ width: `${Math.min(100, pct)}%` }}
                   />
                 </div>
@@ -449,12 +531,9 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
 
       {/* 4. EDIT CEILINGS & CAPS PANEL */}
       {isEditingCaps && (
-        <div className="bg-white dark:bg-[#0b101b] p-4 rounded-xl border border-[#0078d4] shadow-md space-y-3">
+        <div className="bg-white dark:bg-[#0b101b] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-            <div className="flex items-center space-x-2">
-              <Edit className="w-4 h-4 text-[#0078d4]" />
-              <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Edit Budget Ceilings & Control Limits</h4>
-            </div>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Edit Caps</h4>
             <button
               type="button"
               onClick={() => setIsEditingCaps(false)}
@@ -464,91 +543,113 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Overall Budget Ceiling ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Budget Ceiling</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.budgetCeiling}
-                onChange={(e) => setForm({ ...form, budgetCeiling: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, budgetCeiling: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Target Cost Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Target Cost</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.targetCost}
-                onChange={(e) => setForm({ ...form, targetCost: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, targetCost: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Materials Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Materials Cap</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.materialCostCap}
-                onChange={(e) => setForm({ ...form, materialCostCap: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, materialCostCap: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Labour Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Labour Cap</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.laborCostCap}
-                onChange={(e) => setForm({ ...form, laborCostCap: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, laborCostCap: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Equipment Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Equipment Cap</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.equipmentCostCap}
-                onChange={(e) => setForm({ ...form, equipmentCostCap: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, equipmentCostCap: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Subcontractors Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Subcontractors Cap</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.subcontractorCostCap}
-                onChange={(e) => setForm({ ...form, subcontractorCostCap: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, subcontractorCostCap: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Overhead Cap ({activeCurrency})</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Overhead Cap</label>
               <input
                 type="number"
+                min="0"
+                step="any"
                 value={form.overheadCostCap}
-                onChange={(e) => setForm({ ...form, overheadCostCap: Number(e.target.value) })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono"
+                onChange={(e) => setForm({ ...form, overheadCostCap: parseFloat(e.target.value) || 0 })}
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono"
               />
             </div>
+
             <div>
-              <label className="text-[11px] text-slate-500 block mb-1">Cost Stage</label>
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Stage</label>
               <select
                 value={form.costStage}
                 onChange={(e) => setForm({ ...form, costStage: e.target.value })}
-                className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-semibold"
+                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
               >
-                <option value="Preliminary">Preliminary</option>
-                <option value="Target">Target</option>
+                <option value="Conceptual">Conceptual</option>
                 <option value="Budget">Budget</option>
-                <option value="Committed">Committed</option>
-                <option value="Actual">Actual</option>
+                <option value="Tender">Tender</option>
+                <option value="Awarded">Awarded</option>
+                <option value="Execution">Execution</option>
+                <option value="Final">Final</option>
               </select>
             </div>
           </div>
 
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-end space-x-2 pt-2">
             <button
               type="button"
               onClick={() => setIsEditingCaps(false)}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded font-semibold cursor-pointer"
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg font-semibold cursor-pointer"
             >
               Cancel
             </button>
@@ -556,7 +657,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
               type="button"
               onClick={handleSaveCaps}
               disabled={saving}
-              className="px-4 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded cursor-pointer transition-colors shadow-2xs"
+              className="px-4 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg cursor-pointer transition-colors shadow-2xs"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
@@ -564,13 +665,13 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
         </div>
       )}
 
-      {/* 5. AUDIT TRAIL COLLAPSIBLE DRAWER */}
+      {/* 5. AUDIT DRAWER */}
       {showAuditTrail && (
         <div className="bg-white dark:bg-[#0b101b] p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-2">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
             <div className="flex items-center space-x-2">
               <History className="w-4 h-4 text-[#0078d4]" />
-              <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Cost Control Audit Logs</h4>
+              <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Audit Logs</h4>
             </div>
             <button
               type="button"
@@ -594,15 +695,15 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                 </div>
               ))
             ) : (
-              <div className="py-3 text-center text-slate-400">No audit events recorded yet.</div>
+              <div className="py-3 text-center text-slate-400">No logs.</div>
             )}
           </div>
         </div>
       )}
 
-      {/* 6. ALL COST LINES CONTROL TABLE */}
+      {/* 6. COST LINES TABLE */}
       <div className="bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-        {/* Table Filters & Search */}
+        {/* Filters & Search */}
         <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-900/30">
           <div className="flex flex-wrap items-center gap-1">
             {[
@@ -617,7 +718,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setLineFilter(t.id as any)}
-                className={`px-2.5 py-1 text-xs rounded font-semibold cursor-pointer transition-colors ${
+                className={`px-2.5 py-1 text-xs rounded-lg font-semibold cursor-pointer transition-colors ${
                   lineFilter === t.id
                     ? 'bg-[#0078d4] text-white shadow-2xs'
                     : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
@@ -633,10 +734,10 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search plan lines..."
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0078d4]"
+                className="pl-8 pr-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0078d4]"
               />
             </div>
             <span className="text-[11px] font-mono text-slate-400">
@@ -645,25 +746,31 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
           </div>
         </div>
 
-        {/* FXTT Cost Lines Grid */}
+        {/* Lines Grid */}
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left text-slate-700 dark:text-slate-300">
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 font-semibold text-[11px]">
               <tr>
                 <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Code</th>
-                <th className="py-2.5 px-3">Item / Description</th>
-                <th className="py-2.5 px-3">Provider / Trade</th>
+                <th className="py-2.5 px-3">Item</th>
+                <th className="py-2.5 px-3">Provider</th>
                 <th className="py-2.5 px-3 text-right">Quantity</th>
                 <th className="py-2.5 px-3">Unit</th>
-                <th className="py-2.5 px-3 text-right">Unit Rate</th>
-                <th className="py-2.5 px-3 text-right">Total Cost</th>
+                <th className="py-2.5 px-3 text-right">Rate</th>
+                <th className="py-2.5 px-3 text-right">Cost</th>
                 <th className="py-2.5 px-3 text-center">Stage</th>
                 <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
               {filteredLines.map((line: any, idx: number) => {
+                const isEditingThisLine = editingLineId === line.id;
+                // Find corresponding enterprise resource if this line is linked
+                const matchedResource = enterpriseResources.find(
+                  (r) => r.id === line.resourceId || r.code === line.code || r.name === line.name
+                );
+
                 return (
                   <tr
                     key={line.id || idx}
@@ -672,32 +779,112 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                     <td className="py-2 px-3 font-semibold text-slate-500 uppercase text-[10px]">
                       {line.itemType || line.category}
                     </td>
-                    <td className="py-2 px-3 font-mono font-bold text-[#0078d4]">
-                      {line.code || `LINE-${idx + 1}`}
-                    </td>
                     <td className="py-2 px-3 font-medium text-slate-900 dark:text-slate-100 max-w-xs truncate">
-                      {line.name}
+                      <div>{line.name}</div>
+                      {line.code && (
+                        <span className="font-mono text-[9px] text-slate-400">{line.code}</span>
+                      )}
                     </td>
                     <td className="py-2 px-3 text-slate-500 max-w-[150px] truncate">
-                      {line.supplierOrProvider || line.roleOrTrade || 'Internal'}
+                      {line.supplierOrProvider || line.roleOrTrade || '-'}
                     </td>
+
+                    {/* Quantity - Inline editable */}
                     <td className="py-2 px-3 text-right font-mono font-medium">
-                      {line.quantity}
+                      {isEditingThisLine ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={inlineForm.quantity}
+                          onChange={(e) =>
+                            setInlineForm({ ...inlineForm, quantity: parseFloat(e.target.value) || 0 })
+                          }
+                          className="w-16 px-1 py-0.5 text-xs text-right bg-white dark:bg-slate-900 border border-[#0078d4] rounded"
+                        />
+                      ) : (
+                        Number(line.quantity || 0).toLocaleString()
+                      )}
                     </td>
+
                     <td className="py-2 px-3 text-slate-500 text-[10px]">
-                      {line.unit}
+                      {line.unit || '-'}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                      {formatCurrency(line.unitCost, activeCurrency)}
+
+                    {/* Rate - Inline editable with range selector */}
+                    <td className="py-2 px-3 text-right font-mono">
+                      {isEditingThisLine ? (
+                        <div className="space-y-1">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={inlineForm.unitCost}
+                            onChange={(e) =>
+                              setInlineForm({ ...inlineForm, unitCost: parseFloat(e.target.value) || 0 })
+                            }
+                            className="w-20 px-1 py-0.5 text-xs text-right bg-white dark:bg-slate-900 border border-[#0078d4] rounded font-bold"
+                          />
+                          {/* Quick Rate Ranges if matched resource has them */}
+                          {matchedResource && (
+                            <div className="flex items-center justify-end gap-1">
+                              {matchedResource.baseRate > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInlineForm({ ...inlineForm, unitCost: matchedResource.baseRate })}
+                                  className="px-1 py-0.2 rounded text-[9px] bg-slate-100 hover:bg-slate-200 text-slate-700"
+                                  title={`Base: ${matchedResource.baseRate}`}
+                                >
+                                  Base
+                                </button>
+                              )}
+                              {matchedResource.industryBenchmarkRate ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInlineForm({ ...inlineForm, unitCost: matchedResource.industryBenchmarkRate! })
+                                  }
+                                  className="px-1 py-0.2 rounded text-[9px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700"
+                                  title={`Benchmark: ${matchedResource.industryBenchmarkRate}`}
+                                >
+                                  Bench
+                                </button>
+                              ) : null}
+                              {Array.isArray(matchedResource.priceRanges) &&
+                                matchedResource.priceRanges.map((tier, tidx) => (
+                                  <button
+                                    key={tidx}
+                                    type="button"
+                                    onClick={() => setInlineForm({ ...inlineForm, unitCost: tier.unitRate })}
+                                    className="px-1 py-0.2 rounded text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                                    title={`${tier.label}: ${tier.unitRate}`}
+                                  >
+                                    Tier
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-600 dark:text-slate-400">
+                          {formatCurrency(line.unitCost, activeCurrency)}
+                        </span>
+                      )}
                     </td>
+
+                    {/* Total Cost */}
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                      {formatCurrency(line.totalCost, activeCurrency)}
+                      {isEditingThisLine
+                        ? formatCurrency(round2(inlineForm.quantity * inlineForm.unitCost), activeCurrency)
+                        : formatCurrency(line.totalCost, activeCurrency)}
                     </td>
+
                     <td className="py-2 px-3 text-center">
                       <span className="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                         {line.costStage || 'Budget'}
                       </span>
                     </td>
+
                     <td className="py-2 px-3 text-center">
                       {isFrozen ? (
                         <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] bg-amber-50 text-amber-800 font-semibold">
@@ -711,13 +898,98 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                         </span>
                       )}
                     </td>
+
+                    {/* Actions Column */}
+                    <td className="py-2 px-3 text-center">
+                      <div className="flex items-center justify-center space-x-1 font-sans">
+                        {isEditingThisLine ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveInlineEdit(line)}
+                              disabled={saving}
+                              className="p-1 rounded text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                              title="Save"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingLineId(null)}
+                              className="p-1 rounded text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {line.lineType === 'resource' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedResourceToEdit({
+                                    id: line.id,
+                                    resourceId: line.code || line.resourceId,
+                                    name: line.name,
+                                    resourceType: line.itemType || 'labour',
+                                    roleOrTrade: line.roleOrTrade || line.supplierOrProvider || '',
+                                    allocatedHours: line.quantity,
+                                    hourlyRate: line.unitCost,
+                                    unit: line.unit,
+                                    notes: line.notes || ''
+                                  });
+                                  setIsAddResourceModalOpen(true);
+                                }}
+                                className="p-1 rounded text-slate-500 hover:text-[#0078d4] hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Edit Resource"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleStartInlineEdit(line)}
+                                className="p-1 rounded text-slate-500 hover:text-[#0078d4] hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Edit Rate & Quantity"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLine(line)}
+                              disabled={saving}
+                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              title="Remove"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
               {filteredLines.length === 0 && (
                 <tr>
                   <td colSpan={10} className="py-8 text-center text-slate-400 font-sans">
-                    No cost items found for the selected category.
+                    <div className="max-w-xs mx-auto space-y-2">
+                      <p className="text-xs">No cost items found.</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedResourceToEdit(null);
+                          setIsAddResourceModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 bg-[#0078d4] text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1 shadow-xs cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Resource</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -725,6 +997,31 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Add / Edit Resource Modal */}
+      <AddPlanResourceModal
+        isOpen={isAddResourceModalOpen}
+        onClose={() => {
+          setIsAddResourceModalOpen(false);
+          setSelectedResourceToEdit(null);
+        }}
+        onSave={async (resourceData) => {
+          if (selectedResourceToEdit?.id) {
+            await api.updatePlanResource(planId, selectedResourceToEdit.id, resourceData);
+            showToast?.({ message: 'Resource updated', type: 'success' });
+          } else {
+            await api.addResourceToPlan(planId, resourceData);
+            showToast?.({ message: 'Resource added', type: 'success' });
+          }
+          setIsAddResourceModalOpen(false);
+          setSelectedResourceToEdit(null);
+          await loadCostControls();
+          onCostControlsUpdated?.();
+        }}
+        initialData={selectedResourceToEdit}
+        enterpriseResources={enterpriseResources}
+        currency={activeCurrency}
+      />
     </div>
   );
 };

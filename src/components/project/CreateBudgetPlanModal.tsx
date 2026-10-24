@@ -38,6 +38,7 @@ import {
   downloadSampleTemplate
 } from '../../utils/excelImport';
 import { formatCurrency, getStoredCurrency } from '../../utils/currency';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 
 interface CreateBudgetPlanModalProps {
   isOpen: boolean;
@@ -376,11 +377,12 @@ export const CreateBudgetPlanModal: React.FC<CreateBudgetPlanModalProps> = ({
   const handleSavePlan = () => {
     if (!name.trim()) return;
 
+    const autoPlanNumber = generateNextNumber('plans', true);
     const planId = `plan-${Date.now()}`;
     const newPlan: BudgetaryPlan = {
       id: planId,
       name: name.trim(),
-      description: description.trim() || 'Custom budgetary scenario with verified database records.',
+      description: description.trim() || `Custom budgetary scenario ${autoPlanNumber} with verified database records.`,
       isBaseline: false,
       targetMarginPct,
       overheadPct,
@@ -393,6 +395,7 @@ export const CreateBudgetPlanModal: React.FC<CreateBudgetPlanModalProps> = ({
       grossMarginPct: liveFinancials.projectedGrossMarginPct,
       createdAt: new Date().toISOString().split('T')[0]
     };
+    (newPlan as any).planNumber = autoPlanNumber;
 
     onCreatePlan(newPlan);
     onClose();

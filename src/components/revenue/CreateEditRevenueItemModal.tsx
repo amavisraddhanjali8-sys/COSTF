@@ -15,6 +15,7 @@ import { RevenueItem, RevenueCategory } from '../../types';
 import { api } from '../../services/api';
 import { SearchableCategoryPicker } from '../common/SearchableCategoryPicker';
 import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 
 interface CreateEditRevenueItemModalProps {
   isOpen: boolean;
@@ -70,7 +71,7 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
       setStatus(itemToEdit.status || 'Active');
     } else {
       setName('');
-      setCode('');
+      setCode(peekNextNumber('revenue'));
       setBarcode('');
       setType('product');
       setCategory(categories[0]?.name || 'Architectural & Structural Aluminium');
@@ -138,6 +139,7 @@ export const CreateEditRevenueItemModal: React.FC<CreateEditRevenueItemModalProp
         result = await api.updateRevenueItem(itemToEdit.id, payload);
       } else {
         result = await api.createRevenueItem(payload);
+        generateNextNumber('revenue', true);
         // Synchronize with Produce table so revenue and produce portals both have the product
         if (payload.type === 'product') {
           api.createProduce({

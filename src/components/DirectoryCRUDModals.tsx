@@ -809,7 +809,10 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       });
       generateNextNumber('revenue', true);
     } else if (selectedType === 'client') {
+      const clientCode = code.trim() || generateNextNumber('clients', true);
       onSave('client', {
+        id: clientCode,
+        code: clientCode,
         name: name.trim(),
         tagline: `${industry} Enterprise Partner`,
         industry: industry || 'Technology & Manufacturing',
@@ -821,6 +824,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         themeId,
         customGradient
       });
+      generateNextNumber('clients', true);
     }
 
     onClose();

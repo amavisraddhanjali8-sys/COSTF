@@ -38,6 +38,7 @@ import {
   formatCurrency,
   convertCurrency
 } from '../../utils/currency';
+import { peekNextNumber, generateNextNumber } from '../../services/autoNumberingService';
 
 interface QuickInsertDeliverableModalProps {
   isOpen: boolean;
@@ -359,12 +360,7 @@ export const QuickInsertDeliverableModal: React.FC<QuickInsertDeliverableModalPr
     if (!scratchName) return;
 
     const code =
-      scratchCode ||
-      (scratchType === 'product'
-        ? `PRD-${Date.now().toString().slice(-4)}`
-        : scratchType === 'service'
-        ? `SRV-${Date.now().toString().slice(-4)}`
-        : `MAT-${Date.now().toString().slice(-4)}`);
+      scratchCode.trim() || generateNextNumber('deliverables', true);
 
     const totRev = scratchQuotedPrice * quantity;
     const totCost = scratchCostPrice * quantity;
