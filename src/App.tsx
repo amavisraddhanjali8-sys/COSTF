@@ -46,8 +46,10 @@ import {
   CompanyDetails,
   AuditLogRecord,
   OverheadItem,
-  RevenueItem
+  RevenueItem,
+  ProjectItem
 } from './types';
+import { permissionService } from './services/permissionService';
 import {
   INITIAL_PROJECTS,
   INITIAL_MATERIALS,
@@ -1103,6 +1105,80 @@ export default function App() {
     showToast('Project removed from portfolio.');
   };
 
+  // Link Catalog / Tariff / Service Item to Project & Plan in PostgreSQL
+  const handleAddItemToProject = async (projectId: string, itemData: any) => {
+    const targetProject = projects.find(p => p.id === projectId) || projects[0];
+    if (!targetProject) {
+      showToast('No active project found to link item to.');
+      return;
+    }
+    const targetProjId = targetProject.id;
+    const newItemId = `itm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const unitPrice = Number(itemData.unitPrice) || Number(itemData.rate) || 0;
+    const unitCost = Number(itemData.unitCost) || (unitPrice > 0 ? unitPrice * 0.85 : 0);
+    const quantity = Number(itemData.quantity) || 1;
+    const totalCost = Number(quantity * unitCost);
+
+    const newProjectItem: ProjectItem = {
+      id: newItemId,
+      name: itemData.name || 'Catalog Item',
+      category: itemData.category || 'Materials',
+      subCategory: itemData.subCategory || '',
+      type: (itemData.classification === 'product' ? 'produce' : itemData.classification === 'service' ? 'outsourced' : itemData.classification === 'labour' ? 'subcontractor' : itemData.classification === 'overhead' ? 'overhead' : 'material') as any,
+      supplierOrProvider: itemData.supplierName || itemData.providerName || 'Primary Supplier',
+      unit: itemData.unit || 'pcs',
+      unitCost,
+      unitPrice,
+      quantity,
+      totalCost,
+      phaseId: itemData.phaseId || targetProject.phases?.[0]?.id || 'ph-1',
+      notes: itemData.notes || `Linked directly from catalog (${itemData.code || ''})`
+    };
+
+    const updatedSelectedItems = [...(targetProject.selectedItems || []), newProjectItem];
+    const updatedProject: Project = {
+      ...targetProject,
+      selectedItems: updatedSelectedItems
+    };
+
+    try {
+      const saved = await api.updateProject(targetProjId, updatedProject);
+      setProjects(prev => prev.map(p => p.id === targetProjId ? (saved || updatedProject) : p));
+
+      // Attempt to link to active plan BOQ items if an active plan exists
+      try {
+        const plans = await api.getProjectPlans(targetProjId);
+        const activePlan = plans.find((pl: any) => pl.isActive || pl.is_active) || plans[0];
+        if (activePlan) {
+          await api.createPlanBoqItem(activePlan.id, {
+            item_type: newProjectItem.type,
+            material_id: itemData.id,
+            description: newProjectItem.name,
+            quantity: newProjectItem.quantity,
+            unit: newProjectItem.unit,
+            cost_rate: newProjectItem.unitCost,
+            rate: newProjectItem.unitPrice,
+            total_cost: newProjectItem.totalCost
+          });
+        }
+      } catch (planBoqErr) {
+        console.warn('Could not sync to plan boq:', planBoqErr);
+      }
+
+      logAuditEvent(
+        'PROJECT_ITEM_LINKED',
+        'Projects',
+        targetProjId,
+        targetProject.name,
+        `Linked catalog item "${newProjectItem.name}" (${newProjectItem.quantity} ${newProjectItem.unit}) to Project ${targetProject.code} in PostgreSQL.`
+      );
+      showToast(`Linked ${newProjectItem.quantity}x "${newProjectItem.name}" to Project ${targetProject.code}!`);
+    } catch (err: any) {
+      console.error('Error linking item to project:', err);
+      showToast(`Failed to link item: ${err?.message || 'Database error'}`);
+    }
+  };
+
   // Global Search Navigation and Auditing
   const handleGlobalSearchNavigate = (targetTab: ActiveTab, searchResult: GlobalSearchResult) => {
     setActiveTab(targetTab);
@@ -1192,8 +1268,27 @@ export default function App() {
 
       {/* Main Content Viewport - Full Width without unnecessary blank side margins */}
       <main className="flex-1 w-full px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3">
-
-        {activeTab === 'home' && (
+        {!permissionService.hasTabAccess(currentUser.role, activeTab) ? (
+          <div className="max-w-xl mx-auto my-12 bg-white rounded-xl border border-amber-200 shadow-sm p-8 text-center">
+            <div className="w-14 h-14 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-100">
+              <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m7-7a5 5 0 11-10 0 5 5 0 0110 0z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-bold text-slate-800 mb-1">Access Restricted</h2>
+            <p className="text-slate-600 text-xs sm:text-sm mb-5 leading-relaxed">
+              Your assigned role (<strong className="text-slate-900">{currentUser.role}</strong>) does not have authorization to access the <span className="font-semibold text-amber-800 uppercase tracking-wider">{activeTab}</span> portal. An Administrator can grant permissions in Settings &gt; Role Access &amp; Permissions.
+            </p>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="px-4 py-2 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+            >
+              Return to Home Command Center
+            </button>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'home' && (
           <HomeCommandView
             projects={projects}
             selectedProject={selectedProject}
@@ -1351,9 +1446,7 @@ export default function App() {
               }
               logAuditEvent('CATALOG_DELETE', 'Catalog', id, rawType, `Deleted ${rawType} record ${id} from master data grid`);
             }}
-            onAddItemToProject={(projectId, item) => {
-              showToast(`Assigned ${item.name} to project`);
-            }}
+            onAddItemToProject={handleAddItemToProject}
           />
         )}
 
@@ -1516,7 +1609,7 @@ export default function App() {
               setActiveTab('cost-analysis');
             }}
             onAddToProject={(item, projectId) => {
-              showToast(`Assigned ${item.code} (${item.name}) to Project ${projectId}`);
+              handleAddItemToProject(projectId, item);
             }}
             isModal={false}
           />
@@ -1578,7 +1671,7 @@ export default function App() {
               setActiveTab('cost-analysis');
             }}
             onAddToProject={(item, projectId) => {
-              showToast(`Assigned ${item.code} (${item.name}) to Project ${projectId}`);
+              handleAddItemToProject(projectId, item);
             }}
             isModal={false}
           />
@@ -1640,7 +1733,7 @@ export default function App() {
               setActiveTab('cost-analysis');
             }}
             onAddToProject={(item, projectId) => {
-              showToast(`Assigned ${item.code} (${item.name}) to Project ${projectId}`);
+              handleAddItemToProject(projectId, item);
             }}
             isModal={false}
           />
@@ -1702,7 +1795,7 @@ export default function App() {
               setActiveTab('cost-analysis');
             }}
             onAddToProject={(item, projectId) => {
-              showToast(`Assigned ${item.code} (${item.name}) to Project ${projectId}`);
+              handleAddItemToProject(projectId, item);
             }}
             isModal={false}
           />
@@ -1764,7 +1857,7 @@ export default function App() {
               setActiveTab('cost-analysis');
             }}
             onAddToProject={(item, projectId) => {
-              showToast(`Assigned ${item.code} (${item.name}) to Project ${projectId}`);
+              handleAddItemToProject(projectId, item);
             }}
             isModal={false}
           />
@@ -1923,7 +2016,9 @@ export default function App() {
             showToast={showToast}
           />
         )}
-      </main>
+      </>
+    )}
+  </main>
 
       {/* Omnipresent Simple Project Selection Box Modal */}
       <SelectProjectModal
@@ -1945,7 +2040,7 @@ export default function App() {
         <div className="flex items-center space-x-2">
           <span className="flex items-center space-x-1.5 text-slate-700">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span>Active Session: <strong className="text-slate-900">{currentUser.name}</strong> ({currentUser.role === 'ADMIN' ? 'Administrator' : 'Project Manager'})</span>
+            <span>Active Session: <strong className="text-slate-900">{currentUser.name}</strong> ({permissionService.getAllRoles().find(r => r.role === currentUser.role)?.label || currentUser.role})</span>
           </span>
           <span>•</span>
           <span>Company: <span className="text-[#003049] font-medium">{companyDetails.name}</span></span>

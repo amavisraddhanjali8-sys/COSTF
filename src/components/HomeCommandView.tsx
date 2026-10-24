@@ -56,6 +56,8 @@ import {
 } from '../types';
 import { ActiveTab } from './TopNavbar';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
+import { HomeTelemetryCards, FXTTOpenPayload } from './HomeTelemetryCards';
+import { FXTTCardItemsListView } from './FXTTCardItemsListView';
 import { api } from '../services/api';
 import {
   exportAllPriceHistoriesToCSV,
@@ -161,6 +163,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isReportsModalOpen, setIsReportsModalOpen] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<NewsAndAlertItem | null>(null);
+  const [activeFxttPayload, setActiveFxttPayload] = useState<FXTTOpenPayload | null>(null);
 
   // Direct Creation Portal / Modal State for "New" action buttons
   const [creationPortalType, setCreationPortalType] = useState<
@@ -798,7 +801,67 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       </div>
 
       {/* =========================================================================
-          2. NEW & ALERTS (ACTION PORTALS) + SYSTEM METRICS
+          2. ENTERPRISE TELEMETRY SPARKLINE CARDS (METRICS, SHORTCUTS & LIVE COUNTERS)
+         ========================================================================= */}
+      <HomeTelemetryCards
+        materials={materials}
+        suppliers={suppliers}
+        subcontractors={subcontractors}
+        outsourcedServices={outsourcedServices}
+        produceItems={produceItems}
+        projects={projects}
+        onOpenFXTT={(payload) => setActiveFxttPayload(payload)}
+        onOpenAddModal={(portalType) => {
+          if (portalType === 'project') {
+            setNewProjName('');
+            setNewProjCode(`PRJ-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
+            setNewProjClient('Apex Corporation');
+            setNewProjPrice(350000);
+            setNewProjMargin(35);
+            setCreationPortalType('project');
+          } else if (portalType === 'material') {
+            setNewMatName('');
+            setNewMatCode(`MAT-${Math.floor(1000 + Math.random() * 9000)}`);
+            setNewMatCategory('Metals & Alloys');
+            setNewMatUnit('kg');
+            setNewMatCost(1500);
+            setNewMatSupplierId(suppliers[0]?.id || '');
+            setCreationPortalType('material');
+          } else if (portalType === 'supplier') {
+            setNewSupName('');
+            setNewSupCategory('Raw Materials & Alloys');
+            setNewSupContact('Procurement Manager');
+            setNewSupEmail('sales@vendor.com');
+            setNewSupPhone('+94 11 234 5678');
+            setNewSupCity('Colombo');
+            setCreationPortalType('supplier');
+          } else if (portalType === 'subcontractor') {
+            setNewSubName('');
+            setNewSubCategory('CNC Precision Machining');
+            setNewSubRate(3800);
+            setNewSubUnit('hr');
+            setNewSubSkill('Master Journeyman Specialist');
+            setCreationPortalType('subcontractor');
+          } else if (portalType === 'outsourced') {
+            setNewTariffName('');
+            setNewTariffCategory('Anodizing & Electro-Plating');
+            setNewTariffRate(1250);
+            setNewTariffUnit('sq_meter');
+            setNewTariffProvider(suppliers[0]?.name || 'ElectroCoat Pro');
+            setCreationPortalType('tariff');
+          } else if (portalType === 'produce') {
+            setNewProdName('');
+            setNewProdCode(`PROD-${Math.floor(100 + Math.random() * 900)}`);
+            setNewProdPrice(45000);
+            setCreationPortalType('produce');
+          }
+        }}
+        onNavigateTab={onNavigateTab}
+        showToast={showToast}
+      />
+
+      {/* =========================================================================
+          3. NEW & ALERTS (ACTION PORTALS) + SYSTEM METRICS
          ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
         {/* NEW & ALERTS ACTION HUB */}
@@ -3062,6 +3125,54 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* =========================================================================
+          FXTT TABLE FLYOUT MODAL (LAUNCHED DIRECTLY FROM TELEMETRY CARDS)
+         ========================================================================= */}
+      {activeFxttPayload && (
+        <FXTTCardItemsListView
+          isModal={true}
+          cardType={activeFxttPayload.cardType as any}
+          cardId={activeFxttPayload.cardId}
+          cardTitle={activeFxttPayload.cardTitle}
+          cardSubtitle={activeFxttPayload.cardSubtitle}
+          cardTag={activeFxttPayload.cardTag}
+          materials={materials}
+          suppliers={suppliers}
+          outsourcedServices={outsourcedServices}
+          subcontractors={subcontractors}
+          produceItems={produceItems}
+          projects={projects}
+          overheads={overheads}
+          revenueItems={revenueItems}
+          onClose={() => setActiveFxttPayload(null)}
+          onAddMaterial={onAddMaterial}
+          onAddSupplier={onAddSupplier}
+          onAddSubcontractor={onAddSubcontractor}
+          onAddOutsourcedService={onAddOutsourcedService}
+          onAddProduceItem={onAddProduceItem}
+          onAddProject={onAddProject}
+          onUpdateProject={onUpdateProject}
+          onAddOverheadItem={onAddOverheadItem}
+          onAddRevenueItem={onAddRevenueItem}
+          onNavigateToCostAnalysis={(proj) => {
+            onSelectProject(proj);
+            setActiveFxttPayload(null);
+            onNavigateTab('cost-analysis');
+          }}
+          onNavigateToProjectHome={(proj) => {
+            onSelectProject(proj);
+            setActiveFxttPayload(null);
+            onNavigateTab('project-home');
+          }}
+          onSelectProject={(proj) => {
+            onSelectProject(proj);
+            setActiveFxttPayload(null);
+            onNavigateTab('projects');
+          }}
+          currentUser={currentUser}
+        />
       )}
     </div>
   );

@@ -353,7 +353,7 @@ async function startServer() {
 
   app.use('/api', async (req: any, res, next) => {
     const url = '/api' + req.path;
-    if (req.method === 'GET' && url === '/api/health') return next();
+    if ((req.method === 'GET' || req.method === 'HEAD') && url === '/api/health') return next();
     try {
       await dbReadyPromise;
     } catch (e: any) {

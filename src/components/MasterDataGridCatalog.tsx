@@ -176,7 +176,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         subCategory: item.subCategory,
         unit: item.unit,
         retailPrice: item.rate,
-        currency: 'USD',
+        currency: item.currency || DEFAULT_CURRENCY_CODE,
         supplierId: item.rawItem?.supplierId || '',
         supplierName: item.supplierName || 'Primary Supplier',
         leadTimeDays: item.rawItem?.leadTimeDays || 7,
@@ -1118,6 +1118,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         retailPrice: editRate,
         baseRate: editRate,
         rate: editRate,
+        currency: editCurrency,
         costPrice: editItem.rawItem?.costPrice ?? editRate * 0.7,
         inStock: editStock,
         status: editStatus,
@@ -1132,7 +1133,22 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       }
     }
 
-    showToast(`Saved updates for ${editItem.code}: ${editName || editItem.name}`);
+    // Direct PostgreSQL central database persistence
+    if (editItem.rawType === 'material') {
+      api.updateMaterial(editItem.id, { retailPrice: editRate, currency: editCurrency, unit: editUnit, name: editName, category: editCategory, inStock: editStock }).catch(console.error);
+    } else if (editItem.rawType === 'service') {
+      api.updateOutsourcedService(editItem.id, { rate: editRate, currency: editCurrency, name: editName }).catch(console.error);
+    } else if (editItem.rawType === 'subcontractor') {
+      api.updateSubcontractor(editItem.id, { rate: editRate, baseRate: editRate, currency: editCurrency }).catch(console.error);
+    } else if (editItem.rawType === 'product') {
+      api.updateProduceItem(editItem.id, { retailPrice: editRate, currency: editCurrency, name: editName }).catch(console.error);
+    } else if (editItem.rawType === 'overhead') {
+      api.updateOverheadItem(editItem.id, { defaultRate: editRate, currency: editCurrency, name: editName }).catch(console.error);
+    } else if (editItem.rawType === 'revenue') {
+      api.updateRevenueItem(editItem.id, { defaultRate: editRate, currency: editCurrency, name: editName }).catch(console.error);
+    }
+
+    showToast(`Saved updates for ${editItem.code}: ${editName || editItem.name} (${editCurrency})`);
     setEditItem(null);
   };
 
@@ -1265,6 +1281,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         costPrice: costNum,
         retailPrice: priceNum,
         leadTimeDays: 7,
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         status: 'Active',
         lastUpdated: new Date().toISOString().slice(0, 10),
         priceHistory: []
@@ -1286,7 +1303,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         unit: newItemUnit.trim() || 'pcs',
         defaultRate: priceNum,
         costPrice: costNum,
-        currency: 'USD',
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         taxTreatment: 'Standard (0%)',
         status: 'Active' as const
       };
@@ -1313,6 +1330,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         costType: newItemOverheadCostType || 'facility',
         defaultCalculationMethod: newItemOverheadMethod || 'percentage_of_direct',
         defaultRate: priceNum,
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         defaultCostBase: newItemOverheadBase || 'total_direct_cost',
         unitType: newItemOverheadMethod === 'percentage_of_direct' ? 'pct' : (newItemUnit.trim() || 'unit'),
         effectiveDate: new Date().toISOString().slice(0, 10),
@@ -1338,7 +1356,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         unit: newItemUnit.trim() || 'unit',
         defaultRate: priceNum,
         costPrice: costNum,
-        currency: 'USD',
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         taxTreatment: 'Standard (0%)',
         status: 'Active' as const
       };
@@ -1360,6 +1378,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
           costPrice: costNum,
           retailPrice: priceNum,
           leadTimeDays: 7,
+          currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
           status: 'Active'
         };
         if (onAddProduceItem) onAddProduceItem(prodPayload);
@@ -1379,10 +1398,10 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         baseRate: Math.round(priceNum * 0.8 * 100) / 100,
         retailRate: priceNum,
         unit: newItemUnit.trim() || 'hr',
-        currency: 'USD',
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         skillLevel: newItemSkillLevel || 'Certified Specialist',
         location: 'Operations Facility',
-        rateRange: `$${Math.round(priceNum * 0.8)} – $${Math.round(priceNum)} / ${newItemUnit.trim() || 'hr'}`
+        rateRange: `${getCurrencyInfo(newItemCurrency).symbol}${Math.round(priceNum * 0.8)} – ${getCurrencyInfo(newItemCurrency).symbol}${Math.round(priceNum)} / ${newItemUnit.trim() || 'hr'}`
       };
 
       if (onAddSubcontractor) {
@@ -1401,6 +1420,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         baseUnitType: newItemUnit.trim() || 'per_hour',
         rate: Math.round(priceNum * 0.8 * 100) / 100,
         retailPrice: priceNum,
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         slaLevel: newItemSlaLevel || 'Standard Guaranteed 99.9%'
       };
 
@@ -1427,6 +1447,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
         currentPrice: priceNum,
         unitCost: costNum,
         defaultDiscountPct: 5,
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
         inStock: newItemInStock || 100,
         reorderPoint: 20,
         leadTimeDays: 7,
@@ -2487,15 +2508,18 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                       }}
                       onEdit={() => {
                         setEditItem(item);
+                        setEditName(item.name);
+                        setEditCategory(item.category);
+                        setEditSubCategory(item.subCategory);
+                        setEditUnit(item.unit);
                         setEditRate(item.rate);
+                        setEditCurrency(item.currency || DEFAULT_CURRENCY_CODE);
                         setEditStatus(item.status);
                         setEditStock(item.inStockNumber || 0);
                         setEditReason('');
                       }}
                       onDelete={() => {
-                        if (confirm(`Remove item ${item.code} - ${item.name}?`)) {
-                          showToast(`Item ${item.code} marked for archival`);
-                        }
+                        setDeleteConfirmItem(item);
                       }}
                       onShowNotification={(msg) => showToast(msg)}
                     />
@@ -2984,7 +3008,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                       {visibleColumns.rate !== false && (
                         <td className={`px-2.5 ${rowPyClass} border-r border-slate-100 whitespace-nowrap`}>
                           <span className="font-normal text-slate-900">
-                            ${item.rate.toFixed(2)}
+                            {formatCurrency(item.rate, item.currency || DEFAULT_CURRENCY_CODE)}
                           </span>
                           <span className="text-[10px] text-slate-500 ml-1">/{item.unit}</span>
                         </td>
@@ -3038,6 +3062,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                                 setEditSubCategory(item.subCategory);
                                 setEditUnit(item.unit);
                                 setEditRate(item.rate);
+                                setEditCurrency(item.currency || DEFAULT_CURRENCY_CODE);
                                 setEditStatus(item.status);
                                 setEditStock(item.inStockNumber || 0);
                                 setEditReason('');
@@ -3292,9 +3317,11 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                 subCategoryLabel="Sub-Category (Connected to Database)"
               />
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Rate / Price ($)</label>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Rate ({getCurrencyInfo(editCurrency).symbol})
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -3304,6 +3331,21 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                     className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#003049]"
                     required
                   />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">Currency</label>
+                  <select
+                    value={editCurrency}
+                    onChange={(e) => setEditCurrency(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-bold text-xs"
+                  >
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} ({c.symbol})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -3684,14 +3726,14 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                                 <span className="text-slate-800 dark:text-slate-200">{item.name}</span>
                               </td>
                               <td className="py-1 px-2 text-right text-slate-500 font-mono">
-                                ${item.rate.toFixed(2)}
+                                {formatCurrency(item.rate, item.currency || DEFAULT_CURRENCY_CODE)}
                               </td>
                               <td className="py-1 px-2 text-right font-bold text-[#003049] dark:text-sky-400 font-mono">
-                                ${adjusted.toFixed(2)}
+                                {formatCurrency(adjusted, item.currency || DEFAULT_CURRENCY_CODE)}
                               </td>
                               <td className="py-1 px-2 text-right font-semibold font-mono">
                                 <span className={diff >= 0 ? 'text-amber-600' : 'text-emerald-600'}>
-                                  {diff >= 0 ? `+$${diff.toFixed(2)}` : `-$${Math.abs(diff).toFixed(2)}`}
+                                  {diff >= 0 ? `+${formatCurrency(diff, item.currency || DEFAULT_CURRENCY_CODE)}` : `-${formatCurrency(Math.abs(diff), item.currency || DEFAULT_CURRENCY_CODE)}`}
                                 </span>
                               </td>
                             </tr>
@@ -4267,17 +4309,17 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                 </div>
               )}
 
-              {/* Rate & Unit of Measure */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Rate, Currency & Unit of Measure */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">
                     {newItemType === 'overhead' 
-                      ? 'Rate / Cost Base ($ or %)' 
+                      ? `Rate (${getCurrencyInfo(newItemCurrency).symbol} or %)` 
                       : newItemType === 'subcontractor' 
-                      ? 'Subcontractor Rate ($)' 
+                      ? `Rate (${getCurrencyInfo(newItemCurrency).symbol})` 
                       : newItemType === 'revenue' 
-                      ? 'Deliverable Selling Rate ($)' 
-                      : 'Retail Rate ($)'} <span className="text-rose-500">*</span>
+                      ? `Selling Rate (${getCurrencyInfo(newItemCurrency).symbol})` 
+                      : `Rate (${getCurrencyInfo(newItemCurrency).symbol})`} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
@@ -4288,6 +4330,23 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                     className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-[#003049]"
                     required
                   />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1 font-semibold">
+                    Currency <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={newItemCurrency}
+                    onChange={(e) => setNewItemCurrency(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-bold text-xs"
+                  >
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} ({c.symbol}) - {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

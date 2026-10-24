@@ -702,6 +702,13 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
           setEditingTariff(null);
         }}
         onSave={handleSaveTariff}
+        onDelete={async (id) => {
+          await api.deleteTariff(id);
+          setTariffs((prev) => prev.filter((t) => t.id !== id));
+          showToast('Tariff deleted.');
+          setEditingTariff(null);
+          setIsCreateModalOpen(false);
+        }}
         showToast={showToast}
       />
 

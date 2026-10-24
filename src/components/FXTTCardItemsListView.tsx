@@ -68,6 +68,7 @@ import { exportAllPriceHistoriesToCSV } from '../utils/csvExport';
 import { DataImportExportModal } from './DataImportExportModal';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from './GoogleSearchPreviewModal';
 import { api } from '../services/api';
+import { formatCurrency, getStoredCurrency, DEFAULT_CURRENCY_CODE } from '../utils/currency';
 
 export interface FXTTGridRow {
   id: string;
@@ -3421,14 +3422,14 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                 <div className="flex items-center justify-between space-x-1">
                   <span>
                     {cardType === 'client'
-                      ? 'Contract Budget ($)'
+                      ? 'Contract Budget'
                       : cardType === 'supplier'
-                      ? 'Unit Price / Rate ($)'
+                      ? 'Unit Price / Rate'
                       : cardType === 'service_provider'
-                      ? 'Contract Tariff ($)'
+                      ? 'Contract Tariff'
                       : cardType === 'subcontractor'
-                      ? 'Hourly Labour Charge ($/hr)'
-                      : 'Phone / Rate ($)'}
+                      ? 'Hourly Labour Charge (/hr)'
+                      : 'Phone / Rate'}
                   </span>
                   <ArrowUpDown className="w-3 h-3 text-slate-400" />
                 </div>
@@ -3903,10 +3904,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
                       {row.email}
                     </td>
 
-                    {/* Rate ($) / Phone */}
+                    {/* Rate / Phone */}
                     <td className="py-2 px-3 border-r border-slate-100 whitespace-nowrap">
                       <div className="font-normal text-[#003049] text-xs">
-                        ${row.rate < 1 ? row.rate.toFixed(3) : row.rate.toLocaleString()}{' '}
+                        {formatCurrency(row.rate, row.rawItem?.currency || getStoredCurrency() || DEFAULT_CURRENCY_CODE)}{' '}
                         <span className="text-[10px] text-slate-500 font-normal">/ {row.unit}</span>
                       </div>
                       <div className="text-[10px] text-slate-400">{row.phone}</div>

@@ -254,6 +254,7 @@ export interface OutsourcedService {
     reason: string;
     updatedBy: string;
   }>;
+  currency?: string;
   lastUpdated: string;
 }
 
@@ -1096,7 +1097,14 @@ export interface Project {
   createdDate: string;
 }
 
-export type UserRole = 'ADMIN' | 'PROJECT_MANAGER';
+export type UserRole =
+  | 'ADMIN'
+  | 'PROJECT_MANAGER'
+  | 'QUANTITY_SURVEYOR'
+  | 'PROCUREMENT_OFFICER'
+  | 'ESTIMATOR'
+  | 'FINANCE_AUDITOR'
+  | 'VIEWER';
 
 export interface AppUser {
   id: string;

@@ -64,6 +64,7 @@ import {
   setStoredCurrency,
   getCurrencyInfo
 } from '../utils/currency';
+import { permissionService } from '../services/permissionService';
 
 export type ActiveTab =
   | 'home'
@@ -151,6 +152,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [, setPermissionsVersion] = useState(0);
 
   useEffect(() => {
     const handleThemeChange = () => {
@@ -160,11 +162,16 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
     const handleCurrencyChange = () => {
       setActiveCurrency(getStoredCurrency());
     };
+    const handlePermissionsChange = () => {
+      setPermissionsVersion((v) => v + 1);
+    };
     window.addEventListener('fxtt-theme-changed', handleThemeChange);
     window.addEventListener('fxtt-currency-changed', handleCurrencyChange);
+    window.addEventListener('fxtt-permissions-updated', handlePermissionsChange);
     return () => {
       window.removeEventListener('fxtt-theme-changed', handleThemeChange);
       window.removeEventListener('fxtt-currency-changed', handleCurrencyChange);
+      window.removeEventListener('fxtt-permissions-updated', handlePermissionsChange);
     };
   }, []);
 
@@ -954,23 +961,16 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                   <span>{currentUser.employeeId}</span>
                   <span className="text-slate-300 dark:text-slate-600">•</span>
                   <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    {currentUser.role === 'ADMIN' ? 'Admin' : 'Project Mgr'}
+                    {permissionService.getRoleConfig(currentUser.role).label}
                   </span>
                 </div>
               </div>
 
               <div className="ml-1">
-                {currentUser.role === 'ADMIN' ? (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                    <Shield className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                    <span className="hidden md:inline">Admin</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                    <Briefcase className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                    <span className="hidden md:inline">PM</span>
-                  </span>
-                )}
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${permissionService.getRoleConfig(currentUser.role).badgeBg}`}>
+                  <Shield className="w-3 h-3" />
+                  <span className="hidden md:inline">{permissionService.getRoleConfig(currentUser.role).badgeText}</span>
+                </span>
               </div>
             </div>
 
@@ -1008,178 +1008,200 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </button>
 
           {/* Directory */}
-          <button
-            type="button"
-            id="nav-tab-directory-hub"
-            onClick={() => onSelectTab('directory-hub')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'directory-hub'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Directory</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'directory-hub') && (
+            <button
+              type="button"
+              id="nav-tab-directory-hub"
+              onClick={() => onSelectTab('directory-hub')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'directory-hub'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Directory</span>
+            </button>
+          )}
 
           {/* Master Grid */}
-          <button
-            type="button"
-            id="nav-tab-item-grid"
-            onClick={() => onSelectTab('item-grid')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'item-grid'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Grid</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'item-grid') && (
+            <button
+              type="button"
+              id="nav-tab-item-grid"
+              onClick={() => onSelectTab('item-grid')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'item-grid'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Grid</span>
+            </button>
+          )}
 
           {/* Projects Portfolio */}
-          <button
-            type="button"
-            id="nav-tab-projects"
-            onClick={() => onSelectTab('projects')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'projects' || activeTab === 'project-home'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Projects</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'projects') && (
+            <button
+              type="button"
+              id="nav-tab-projects"
+              onClick={() => onSelectTab('projects')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'projects' || activeTab === 'project-home'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Projects</span>
+            </button>
+          )}
 
           {/* Margins */}
-          <button
-            type="button"
-            id="nav-tab-cost-analysis"
-            onClick={() => {
-              if (onOpenMarginsLanding) {
-                onOpenMarginsLanding();
-              } else {
-                onSelectTab('cost-analysis');
-              }
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'cost-analysis'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Margins</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'cost-analysis') && (
+            <button
+              type="button"
+              id="nav-tab-cost-analysis"
+              onClick={() => {
+                if (onOpenMarginsLanding) {
+                  onOpenMarginsLanding();
+                } else {
+                  onSelectTab('cost-analysis');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'cost-analysis'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Margins</span>
+            </button>
+          )}
 
           {/* Timelines */}
-          <button
-            type="button"
-            id="nav-tab-project-timelines"
-            onClick={() => {
-              if (onOpenTimelinesLanding) {
-                onOpenTimelinesLanding();
-              } else {
-                onSelectTab('project-timelines');
-              }
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'project-timelines'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Timelines</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'project-timelines') && (
+            <button
+              type="button"
+              id="nav-tab-project-timelines"
+              onClick={() => {
+                if (onOpenTimelinesLanding) {
+                  onOpenTimelinesLanding();
+                } else {
+                  onSelectTab('project-timelines');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'project-timelines'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Timelines</span>
+            </button>
+          )}
 
           {/* Resources */}
-          <button
-            type="button"
-            id="nav-tab-resource-allocation"
-            onClick={() => {
-              onSelectTab('resource-allocation');
-              if (!selectedProject && onOpenProjectPicker) {
-                onOpenProjectPicker('resources');
-              }
-            }}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'resource-allocation'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Resources</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'resource-allocation') && (
+            <button
+              type="button"
+              id="nav-tab-resource-allocation"
+              onClick={() => {
+                onSelectTab('resource-allocation');
+                if (!selectedProject && onOpenProjectPicker) {
+                  onOpenProjectPicker('resources');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'resource-allocation'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Resources</span>
+            </button>
+          )}
 
           {/* Inventory */}
-          <button
-            type="button"
-            id="nav-tab-inventory"
-            onClick={() => onSelectTab('inventory')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'inventory'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Inventory</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'inventory') && (
+            <button
+              type="button"
+              id="nav-tab-inventory"
+              onClick={() => onSelectTab('inventory')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Inventory</span>
+            </button>
+          )}
 
           {/* Overhead Cost Management Portal */}
-          <button
-            type="button"
-            id="nav-tab-overhead-portal"
-            onClick={() => onSelectTab('overhead-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'overhead-portal'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Overheads</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'overhead-portal') && (
+            <button
+              type="button"
+              id="nav-tab-overhead-portal"
+              onClick={() => onSelectTab('overhead-portal')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'overhead-portal'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Overheads</span>
+            </button>
+          )}
 
           {/* Revenue Catalogue & Commercial Portal */}
-          <button
-            type="button"
-            id="nav-tab-revenue-portal"
-            onClick={() => onSelectTab('revenue-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'revenue-portal'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Revenue</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'revenue-portal') && (
+            <button
+              type="button"
+              id="nav-tab-revenue-portal"
+              onClick={() => onSelectTab('revenue-portal')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'revenue-portal'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Revenue</span>
+            </button>
+          )}
 
           {/* Price History Portal */}
-          <button
-            type="button"
-            id="nav-tab-price-history"
-            onClick={() => onSelectTab('price-history-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'price-history-portal'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Pricing</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'price-history-portal') && (
+            <button
+              type="button"
+              id="nav-tab-price-history"
+              onClick={() => onSelectTab('price-history-portal')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'price-history-portal'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Pricing</span>
+            </button>
+          )}
 
           {/* Enterprise Tariff Management Portal */}
-          <button
-            type="button"
-            id="nav-tab-tariffs"
-            onClick={() => onSelectTab('tariffs-portal')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'tariffs-portal'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Tariffs</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'tariffs-portal') && (
+            <button
+              type="button"
+              id="nav-tab-tariffs"
+              onClick={() => onSelectTab('tariffs-portal')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'tariffs-portal'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Tariffs</span>
+            </button>
+          )}
 
-          {/* Audit Log (Admin Only) */}
-          {currentUser.role === 'ADMIN' && (
+          {/* Audit Log */}
+          {permissionService.hasTabAccess(currentUser.role, 'audit-log') && (
             <button
               type="button"
               id="nav-tab-audit-log"
@@ -1195,18 +1217,20 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           )}
 
           {/* Settings */}
-          <button
-            type="button"
-            id="nav-tab-settings"
-            onClick={() => onSelectTab('settings')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
-              activeTab === 'settings'
-                ? 'bg-[#003049] text-white shadow-2xs'
-                : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Settings</span>
-          </button>
+          {permissionService.hasTabAccess(currentUser.role, 'settings') && (
+            <button
+              type="button"
+              id="nav-tab-settings"
+              onClick={() => onSelectTab('settings')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-all duration-150 cursor-pointer ${
+                activeTab === 'settings'
+                  ? 'bg-[#003049] text-white shadow-2xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:text-[#003049] dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Settings</span>
+            </button>
+          )}
         </nav>
 
         {/* Current Active Project pill on project-centric views (hidden on Home tab) */}

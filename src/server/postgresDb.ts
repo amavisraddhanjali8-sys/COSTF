@@ -878,7 +878,6 @@ export class PostgresService {
       ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_type TEXT DEFAULT 'general';
       ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_target_id TEXT DEFAULT '';
       ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS scope_target_name TEXT DEFAULT '';
-      ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'LKR';
 
       CREATE TABLE IF NOT EXISTS media_assets (
         id TEXT PRIMARY KEY,
@@ -1264,6 +1263,7 @@ export class PostgresService {
           default_calculation_method TEXT NOT NULL DEFAULT 'fixed_amount',
           default_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
           default_cost_base TEXT NOT NULL DEFAULT 'total_direct_cost',
+          currency TEXT DEFAULT 'LKR',
           unit_type TEXT DEFAULT 'month',
           effective_date DATE DEFAULT CURRENT_DATE,
           status TEXT NOT NULL DEFAULT 'Active',
@@ -1278,6 +1278,7 @@ export class PostgresService {
         ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS sub_category_id TEXT;
         ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS theme_id TEXT;
         ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS custom_gradient TEXT;
+        ALTER TABLE overhead_items ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'LKR';
 
         CREATE TABLE IF NOT EXISTS plan_overhead_allocations (
           id TEXT PRIMARY KEY,

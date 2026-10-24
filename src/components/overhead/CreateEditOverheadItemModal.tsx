@@ -8,7 +8,8 @@ import {
   Percent,
   CheckCircle2,
   Calendar,
-  FileText
+  FileText,
+  Trash2
 } from 'lucide-react';
 import { OverheadItem, OverheadCostType, OverheadCalculationMethod, OverheadCostBase } from '../../types';
 import { CategoryNode, INITIAL_CATEGORY_HIERARCHY } from '../../data/categoriesAndProfiles';
@@ -20,6 +21,7 @@ interface CreateEditOverheadItemModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: (item: OverheadItem) => void;
+  onDelete?: (id: string) => Promise<void> | void;
   itemToEdit?: OverheadItem | null;
   categories?: CategoryNode[];
 }
@@ -28,6 +30,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
   isOpen,
   onClose,
   onSave,
+  onDelete,
   itemToEdit,
   categories = []
 }) => {
@@ -267,7 +270,7 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
                 className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#003049]"
               >
                 <option value="percentage_of_direct">Percentage of Cost Base (%)</option>
-                <option value="fixed_amount">Fixed Amount ({activeCurrency})</option>
+                <option value="fixed_amount">Fixed Amount ({currency})</option>
                 <option value="rate_per_unit">Rate Per Unit Produced</option>
                 <option value="volume_tiered">Volume Tiered Bracket</option>
               </select>
@@ -387,23 +390,50 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-1.5 rounded-lg bg-[#003049] hover:bg-[#002235] text-white font-medium shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{saving ? 'Saving...' : isEditing ? 'Update Record' : 'Create Overhead Item'}</span>
-            </button>
+          <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
+            <div>
+              {isEditing && itemToEdit?.id && onDelete && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm(`Are you sure you want to permanently delete overhead "${itemToEdit.name}"?`)) {
+                      setSaving(true);
+                      try {
+                        await onDelete(itemToEdit.id);
+                        onClose();
+                      } catch (err: any) {
+                        setError(err?.message || 'Failed to delete overhead');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-1.5 rounded-lg bg-[#003049] hover:bg-[#002235] text-white font-medium shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5 text-xs"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{saving ? 'Saving...' : isEditing ? 'Update Record' : 'Create Overhead Item'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Tag, DollarSign, Calendar, Layers, Shield, AlertCircle } from 'lucide-react';
+import { X, Tag, DollarSign, Calendar, Layers, Shield, AlertCircle, Trash2 } from 'lucide-react';
 import { Tariff, TariffCalculationMethod, TariffApplicableBase, TariffStatus, TariffScopeType } from '../../types';
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY_CODE, getCurrencyInfo } from '../../utils/currency';
 
@@ -8,6 +8,7 @@ interface CreateEditTariffModalProps {
   tariff?: Tariff | null;
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
   showToast: (msg: string) => void;
 }
 
@@ -16,6 +17,7 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
   tariff,
   onClose,
   onSave,
+  onDelete,
   showToast
 }) => {
   const isEditing = Boolean(tariff);
@@ -189,7 +191,7 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Scope Rule <span className="text-rose-500">*</span>
+                Scope <span className="text-rose-500">*</span>
               </label>
               <select
                 value={scopeType}
@@ -203,13 +205,13 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                 }}
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-semibold"
               >
-                <option value="general">General (All Scopes)</option>
-                <option value="project">Project-wise</option>
-                <option value="product">Product-wise</option>
-                <option value="material">Material-wise</option>
-                <option value="subcontractor">Subcontractor-wise</option>
-                <option value="supplier">Supplier-wise</option>
-                <option value="overhead">Overhead-wise</option>
+                <option value="general">General</option>
+                <option value="project">Project</option>
+                <option value="product">Product</option>
+                <option value="material">Material</option>
+                <option value="subcontractor">Subcontractor</option>
+                <option value="supplier">Supplier</option>
+                <option value="overhead">Overhead</option>
               </select>
             </div>
           </div>
@@ -252,7 +254,7 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Specific Scope Filter (Optional)
+                Target
               </label>
               <input
                 type="text"
@@ -260,12 +262,12 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
                 onChange={(e) => setScopeTargetName(e.target.value)}
                 placeholder={
                   scopeType === 'project'
-                    ? 'e.g. Project Code or Name'
+                    ? 'Project name/code'
                     : scopeType === 'material'
-                    ? 'e.g. Steel, Aluminium profiles'
+                    ? 'Material name/grade'
                     : scopeType === 'supplier'
-                    ? 'e.g. Acme Metals, Global Fasteners'
-                    : 'Leave blank for all matching items'
+                    ? 'Supplier name'
+                    : 'Target name (optional)'
                 }
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
               />
@@ -327,11 +329,11 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
             </div>
           </div>
 
-          {/* Row 5: Fixed Charge, Applicable Base, Unit */}
+          {/* Row 5: Charge, Base, Unit */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Fixed Charge ({activeCurrencyInfo.symbol})
+                Charge ({activeCurrencyInfo.symbol})
               </label>
               <input
                 type="number"
@@ -376,11 +378,11 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
             </div>
           </div>
 
-          {/* Row 6: Effective Range & Status */}
+          {/* Row 6: From, To & Status */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Effective From <span className="text-rose-500">*</span>
+                From <span className="text-rose-500">*</span>
               </label>
               <input
                 type="date"
@@ -393,7 +395,7 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Effective To
+                To
               </label>
               <input
                 type="date"
@@ -436,22 +438,49 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
           </div>
 
           {/* Footer Buttons */}
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end space-x-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-5 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs cursor-pointer transition-all flex items-center space-x-1.5 disabled:opacity-50"
-            >
-              <span>{loading ? 'Saving...' : isEditing ? 'Update' : 'Save'}</span>
-            </button>
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div>
+              {isEditing && tariff?.id && onDelete && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm(`Delete tariff "${tariff.code}"? This will permanently remove it from the database.`)) {
+                      setLoading(true);
+                      try {
+                        await onDelete(tariff.id);
+                        onClose();
+                      } catch (err: any) {
+                        setError(err?.message || 'Failed to delete tariff');
+                      } finally {
+                        setLoading(false);
+                      }
+                    }
+                  }}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg cursor-pointer transition-colors flex items-center space-x-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-5 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs cursor-pointer transition-all flex items-center space-x-1.5 disabled:opacity-50"
+              >
+                <span>{loading ? 'Saving...' : isEditing ? 'Update' : 'Save'}</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

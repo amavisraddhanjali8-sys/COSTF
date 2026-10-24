@@ -11,7 +11,9 @@ import {
   InventoryItem,
   Project,
   PriceHistoryRecord,
-  InventoryTransaction
+  InventoryTransaction,
+  OverheadItem,
+  RevenueItem
 } from '../types';
 
 /**
@@ -440,8 +442,8 @@ export function exportItemPriceHistoryToCSV(item: { code?: string; name?: string
     'Revision Date',
     'Item Code',
     'Item Name',
-    'Previous Rate ($)',
-    'New Approved Rate ($)',
+    'Previous Rate',
+    'New Approved Rate',
     'Variation (%)',
     'Change Reason / Business Justification',
     'Authorized Auditor / Approved By',
@@ -489,8 +491,8 @@ export function exportAllPriceHistoriesToCSV(
     'Category',
     'Item Code',
     'Item Name',
-    'Previous Rate ($)',
-    'New Approved Rate ($)',
+    'Previous Rate',
+    'New Approved Rate',
     'Variance %',
     'Revision Reason / Justification',
     'Authorized Auditor'
@@ -526,3 +528,101 @@ export function exportAllPriceHistoriesToCSV(
   const safeName = portalOrCategoryName.replace(/[^a-zA-Z0-9_-]/g, '_');
   downloadCSV(`All_Price_Histories_${safeName}_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
 }
+
+// ----------------------------------------------------
+// 10. OVERHEAD ITEMS EXPORT
+// ----------------------------------------------------
+export function exportOverheadsToCSV(items: OverheadItem[]): void {
+  const headers = [
+    'Code',
+    'Name',
+    'Category',
+    'Allocation Type',
+    'Standard Rate',
+    'Unit',
+    'Currency',
+    'Scope / Level',
+    'Status',
+    'Notes'
+  ];
+
+  const rows = items.map(item => [
+    item.code || '',
+    item.name || '',
+    item.category || '',
+    item.allocationType || '',
+    item.standardRate ?? item.rate ?? 0,
+    item.unit || '',
+    item.currency || 'LKR',
+    item.scopeLevel || '',
+    item.status || 'ACTIVE',
+    item.notes || ''
+  ]);
+
+  downloadCSV(`Overhead_Costing_Catalogue_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+}
+
+// ----------------------------------------------------
+// 11. REVENUE ITEMS EXPORT
+// ----------------------------------------------------
+export function exportRevenueItemsToCSV(items: RevenueItem[]): void {
+  const headers = [
+    'Code',
+    'Name',
+    'Category',
+    'Revenue Type',
+    'Base Price',
+    'Unit',
+    'Currency',
+    'Tax Rate (%)',
+    'Status',
+    'Description'
+  ];
+
+  const rows = items.map(item => [
+    item.code || '',
+    item.name || '',
+    item.category || '',
+    item.revenueType || '',
+    item.basePrice ?? 0,
+    item.unit || '',
+    item.currency || 'LKR',
+    item.taxRate ?? 0,
+    item.status || 'ACTIVE',
+    item.description || ''
+  ]);
+
+  downloadCSV(`Commercial_Revenue_Catalogue_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+}
+
+// ----------------------------------------------------
+// 12. TARIFF MANAGEMENT EXPORT
+// ----------------------------------------------------
+export function exportTariffsToCSV(tariffs: OutsourcedService[]): void {
+  const headers = [
+    'Service Code',
+    'Process / Tariff Name',
+    'Provider / Contractor',
+    'Rate',
+    'Unit',
+    'Currency',
+    'Turnaround (Days)',
+    'Quality Standard',
+    'Status'
+  ];
+
+  const rows = tariffs.map(t => [
+    t.serviceCode || '',
+    t.processName || '',
+    t.providerName || '',
+    t.rate ?? 0,
+    t.unit || '',
+    t.currency || 'LKR',
+    t.turnaroundDays ?? '',
+    t.qualityStandard || '',
+    t.status || 'Active'
+  ]);
+
+  downloadCSV(`Industrial_Tariff_Schedule_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+}
+

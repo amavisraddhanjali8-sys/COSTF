@@ -59,7 +59,9 @@ import { TILE_GRADIENT_PRESETS, getThemeById, getRandomThemeIndex } from '../dat
 import {
   INITIAL_CLIENT_PROFILES,
   INITIAL_CATEGORY_HIERARCHY,
-import { CategoryNode, ClientProfile } from '../data/categoriesAndProfiles';
+  CategoryNode,
+  ClientProfile
+} from '../data/categoriesAndProfiles';
 import { api } from '../services/api';
 import { formatCurrency } from '../utils/currency';
 import {
@@ -231,8 +233,6 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [selectedOverheadSubCatId, setSelectedOverheadSubCatId] = useState<string | null>(null);
   const [overheadViewMode, setOverheadViewMode] = useState<'hierarchy' | 'items_table'>('hierarchy');
   const [overheadItems, setOverheadItems] = useState<any[]>(overheadsProp || []);
-  const [editingOverheadItem, setEditingOverheadItem] = useState<any | null>(null);
-  const [isEditOverheadModalOpen, setIsEditOverheadModalOpen] = useState(false);
   const [revenueItems, setRevenueItems] = useState<any[]>(revenueItemsProp || []);
 
   // Synchronize when props update
@@ -560,7 +560,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
   // Overhead Edit, Delete & FXTT Price Audit Log State
   const [editingOverheadItem, setEditingOverheadItem] = useState<any | null>(null);
-  const [isOverheadEditModalOpen, setIsOverheadEditModalOpen] = useState(false);
+  const [isEditOverheadModalOpen, setIsEditOverheadModalOpen] = useState(false);
   const [fxttOverheadModalOpen, setFxttOverheadModalOpen] = useState(false);
   const [fxttOverheadItem, setFxttOverheadItem] = useState<any | null>(null);
   const [fxttOverheadHistory, setFxttOverheadHistory] = useState<FXTTPriceAuditEntry[]>([]);
@@ -7192,6 +7192,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         itemToEdit={editingOverheadItem}
         categories={categories}
         onClose={() => {
+          setIsEditOverheadModalOpen(false);
+          setEditingOverheadItem(null);
+        }}
+        onDelete={async (id) => {
+          await handleDeleteOverheadItemDirect(editingOverheadItem || { id, name: 'Item', code: '' });
           setIsEditOverheadModalOpen(false);
           setEditingOverheadItem(null);
         }}

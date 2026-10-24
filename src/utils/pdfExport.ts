@@ -159,14 +159,21 @@ export function exportProjectQuotePDF(project: Project) {
     doc.rect(14, y, pageWidth - 28, 6.5, 'F');
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.2);
-    doc.text(item.name.substring(0, 38), 16, y + 4.5);
-    doc.text(item.type.toUpperCase(), 80, y + 4.5);
-    doc.text(item.supplierOrProvider.substring(0, 22), 105, y + 4.5);
-    doc.text(`${item.quantity} ${item.unit}`, 145, y + 4.5);
-    doc.text(`${cur} ${(Number(item.unitCost) || 0).toLocaleString()}`, 165, y + 4.5);
+    const itemName = String(item.name || 'Unnamed Item').substring(0, 38);
+    const itemType = String(item.type || (item as any).category || 'MATERIAL').toUpperCase();
+    const supplier = String(item.supplierOrProvider || (item as any).supplierName || 'Primary').substring(0, 22);
+    const qty = Number(item.quantity) || 1;
+    const unit = item.unit || 'units';
+    const unitCost = Number(item.unitCost) || 0;
+    const totalCost = Number(item.totalCost) || (qty * unitCost);
+
+    doc.text(itemName, 16, y + 4.5);
+    doc.text(itemType, 80, y + 4.5);
+    doc.text(supplier, 105, y + 4.5);
+    doc.text(`${qty} ${unit}`, 145, y + 4.5);
+    doc.text(`${cur} ${unitCost.toLocaleString()}`, 165, y + 4.5);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${cur} ${(Number(item.totalCost) || 0).toLocaleString()}`, 183, y + 4.5);
+    doc.text(`${cur} ${totalCost.toLocaleString()}`, 183, y + 4.5);
     y += 6.5;
   }
 
@@ -193,7 +200,7 @@ export function exportProjectQuotePDF(project: Project) {
   // Footer on current page
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
-  doc.text('Generated via Cost and Planning Database System | Antigravity AI Engine', 14, pageHeight - 7);
+  doc.text('Generated via Cost and Planning Database System | Enterprise Cost Governance', 14, pageHeight - 7);
   doc.text(`Page ${doc.getNumberOfPages()}`, pageWidth - 25, pageHeight - 7);
 
   // Save the PDF

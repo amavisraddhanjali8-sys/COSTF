@@ -806,21 +806,37 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
           {/* Market Summary Badges */}
           <div className="hidden lg:flex items-center space-x-2 text-[11px] pl-2 border-l border-slate-200">
             <span className="text-slate-600">
-              Active: <strong className="text-slate-900 font-medium">${ourPrice.toFixed(2)}</strong>
+              Active: <strong className="text-slate-900 font-medium">{getCurrencySymbol(activeCurrency)}{ourPrice.toFixed(2)}</strong>
             </span>
             <span className="text-slate-300">•</span>
             <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-medium">
-              Lowest: ${metrics.lowestPrice.toFixed(2)} ({metrics.lowestName.split(' ')[0]})
+              Lowest: {getCurrencySymbol(activeCurrency)}{metrics.lowestPrice.toFixed(2)} ({metrics.lowestName.split(' ')[0]})
             </span>
             <span className="text-slate-300">•</span>
             <span className="text-slate-500">
-              Spread: {metrics.spread >= 0 ? `+$${metrics.spread.toFixed(2)}` : `-$${Math.abs(metrics.spread).toFixed(2)}`} ({metrics.spreadPct.toFixed(1)}%)
+              Spread: {metrics.spread >= 0 ? `+${getCurrencySymbol(activeCurrency)}${metrics.spread.toFixed(2)}` : `-${getCurrencySymbol(activeCurrency)}${Math.abs(metrics.spread).toFixed(2)}`} ({metrics.spreadPct.toFixed(1)}%)
             </span>
           </div>
         </div>
 
         {/* Right Actions */}
         <div className="flex items-center space-x-2 shrink-0">
+          {/* Matrix Currency Selector */}
+          <div className="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded px-1.5 py-1">
+            <span className="text-[10px] text-slate-500 font-bold uppercase">Currency:</span>
+            <select
+              value={activeCurrency}
+              onChange={(e) => setActiveCurrency(e.target.value)}
+              className="text-xs font-bold text-[#003049] bg-transparent border-0 focus:ring-0 cursor-pointer p-0 pr-1"
+            >
+              {CURRENCY_OPTIONS.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} ({c.symbol})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Revision dates search input */}
           <div className="relative">
             <Search className="w-3 h-3 text-slate-400 absolute left-2 top-2" />
@@ -918,7 +934,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                         Our Quoted Selling Rate
                       </span>
                       <span className="text-[10px] text-slate-500 block truncate">
-                        Internal Cost: ${ourCost.toFixed(2)} • Margin: {grossMarginPct}%
+                        Internal Cost: {getCurrencySymbol(activeCurrency)}{ourCost.toFixed(2)} • Margin: {grossMarginPct}%
                       </span>
                     </div>
 
@@ -935,7 +951,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                   {/* Active Rate & Action Buttons */}
                   <div className="flex items-center justify-between gap-1 relative">
                     <div className="text-xs font-bold font-mono text-[#003049] whitespace-nowrap">
-                      ${ourPrice.toFixed(2)}{' '}
+                      {getCurrencySymbol(activeCurrency)}{ourPrice.toFixed(2)}{' '}
                       <span className="text-[10px] font-normal text-slate-400">/ {item.unit || 'unit'}</span>
                     </div>
 
@@ -1076,7 +1092,7 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                       <div className="flex items-center justify-between gap-1 relative">
                         <div>
                           <div className="text-xs font-bold font-mono text-[#003049] whitespace-nowrap">
-                            ${compPrice.toFixed(2)}{' '}
+                            {getCurrencySymbol(activeCurrency)}{compPrice.toFixed(2)}{' '}
                             <span className="text-[10px] font-normal text-slate-400">/ {item.unit || 'unit'}</span>
                           </div>
                           {/* Comparison delta pill */}
