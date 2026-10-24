@@ -497,7 +497,7 @@ export interface ResourceScheduleConflict {
 export interface ProjectCostItem {
   id: string;
   phaseId: string;
-  type: 'material' | 'subcontractor' | 'outsourced' | 'overhead' | 'produce' | 'other';
+  type: 'labour' | 'machinery' | 'equipment' | 'tool' | 'material' | 'subcontractor' | 'outsourced' | 'overhead' | 'produce' | 'other';
   itemId?: string;
   name: string;
   category?: string;
@@ -789,7 +789,7 @@ export interface ProjectPlanBoqItem {
   projectId?: string;
   sectionId?: string;
   phaseId?: string;
-  type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'overhead' | 'other';
+  type: 'product' | 'service' | 'material' | 'subcontractor' | 'outsourced' | 'produce' | 'equipment' | 'overhead' | 'labour' | 'machinery' | 'tool' | 'other';
   itemId?: string;
   itemCode?: string;
   barcode?: string;
@@ -1516,3 +1516,74 @@ export interface PlanTariff {
   createdAt: string;
   updatedAt: string;
 }
+
+// ============================================================================
+// ENTERPRISE RESOURCES PORTAL (LABOURS, MACHINERIES, EQUIPMENTS, TOOLS)
+// ============================================================================
+
+export type EnterpriseResourceType =
+  | 'labour'
+  | 'machinery'
+  | 'equipment'
+  | 'tool'
+  | 'material'
+  | 'subcontractor'
+  | 'outsourced';
+
+export interface ResourceAlternative {
+  id: string;
+  name: string;
+  providerOrCompetitor: string;
+  type: 'supplier_alternative' | 'competitor_benchmark' | 'machinery_option' | 'labour_option';
+  rate: number;
+  unit: string;
+  operationalCharge?: number;
+  savingsDiff?: number; // positive = cost savings compared to current
+  savingsPct?: number;
+  leadTimeDays?: number;
+  reliabilityRating?: number; // 1 to 5
+  isRecommended?: boolean;
+  notes?: string;
+}
+
+export interface ResourceAllocation {
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  phaseId?: string;
+  phaseName?: string;
+  quantity: number;
+  unit: string;
+  totalCost: number;
+  currency?: string;
+}
+
+export interface EnterpriseResource {
+  id: string;
+  code: string;
+  name: string;
+  type: EnterpriseResourceType;
+  category: string;
+  subCategory?: string;
+  moreSubCategory?: string;
+  unit: string;
+  baseRate: number;
+  operationalCharge?: number;
+  chargeType?: 'hourly' | 'daily' | 'shift' | 'unit' | 'lump_sum' | string;
+  currency?: string;
+  supplierId?: string;
+  supplierName?: string;
+  competitorCompany?: string;
+  competitorRate?: number;
+  industryBenchmarkRate?: number;
+  leadTimeDays?: number;
+  status: 'Available' | 'Allocated' | 'Under Maintenance' | 'In Use' | 'Reserved';
+  skillOrSla?: string;
+  alternatives?: ResourceAlternative[];
+  connectedAllocations?: ResourceAllocation[];
+  notes?: string;
+  effectiveDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

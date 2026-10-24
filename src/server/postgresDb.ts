@@ -1073,9 +1073,39 @@ export class PostgresService {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS enterprise_resources (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        category TEXT NOT NULL,
+        sub_category TEXT,
+        more_sub_category TEXT,
+        unit TEXT NOT NULL DEFAULT 'hr',
+        base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+        operational_charge NUMERIC(18, 4) DEFAULT 0,
+        charge_type TEXT DEFAULT 'hourly',
+        currency TEXT NOT NULL DEFAULT 'USD',
+        supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL,
+        supplier_name TEXT,
+        competitor_company TEXT,
+        competitor_rate NUMERIC(18, 4) DEFAULT 0,
+        industry_benchmark_rate NUMERIC(18, 4) DEFAULT 0,
+        lead_time_days INT DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'Available',
+        skill_or_sla TEXT,
+        alternatives JSONB DEFAULT '[]',
+        specifications JSONB DEFAULT '{}',
+        connected_allocations JSONB DEFAULT '[]',
+        notes TEXT DEFAULT '',
+        effective_date DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
 
-    await this.seedIfEmpty();
+    await this.seedEnterpriseResourcesIfEmpty();
   }
 
   private async seedIfEmpty() {
@@ -13935,6 +13965,822 @@ export class PostgresService {
     return { success: true };
   }
 
+  // =========================================================================
+  // ENTERPRISE RESOURCES PORTAL (LABOURS, MACHINERIES, EQUIPMENTS, TOOLS)
+  // =========================================================================
+
+  public async seedEnterpriseResourcesIfEmpty(): Promise<void> {
+    const db = this.db!;
+    try {
+      const chk = await db.query('SELECT COUNT(*) as cnt FROM enterprise_resources');
+      if (Number(chk.rows[0]?.cnt || 0) > 0) return;
+
+      const initialResources = [
+        {
+          id: 'res-lab-01',
+          code: 'RES-LAB-01',
+          name: 'Senior Avionics Systems Engineer',
+          type: 'labour',
+          category: 'Aerospace & Avionics',
+          sub_category: 'Navigation & Telemetry',
+          more_sub_category: 'ASME Certified',
+          unit: 'hr',
+          base_rate: 95.00,
+          operational_charge: 0,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'Continental Metals Direct',
+          competitor_company: 'AeroTech Global',
+          competitor_rate: 110.00,
+          industry_benchmark_rate: 102.00,
+          status: 'Available',
+          skill_or_sla: 'Certified Avionics Specialist Level 4',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-lab-01',
+              name: 'Boeing Subcontract Specialist',
+              providerOrCompetitor: 'Boeing Contractor Alliance',
+              type: 'labour_option',
+              rate: 92.00,
+              unit: 'hr',
+              savingsDiff: 3.00,
+              savingsPct: 3.2,
+              leadTimeDays: 2,
+              reliabilityRating: 4.9,
+              isRecommended: true,
+              notes: 'ITAR compliant, available for immediate project phase dispatch.'
+            },
+            {
+              id: 'alt-lab-02',
+              name: 'Raytheon Defense Partner',
+              providerOrCompetitor: 'Raytheon Technical Services',
+              type: 'competitor_benchmark',
+              rate: 99.00,
+              unit: 'hr',
+              savingsDiff: -4.00,
+              savingsPct: -4.2,
+              leadTimeDays: 5,
+              reliabilityRating: 4.8,
+              isRecommended: false,
+              notes: 'Defense contractor standard benchmark.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Engineering & CAD',
+              quantity: 60,
+              unit: 'hr',
+              totalCost: 5700.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'Primary avionics engineer for flight control computing and telemetry.'
+        },
+        {
+          id: 'res-lab-02',
+          code: 'RES-LAB-02',
+          name: 'Certified ASME Precision Welder',
+          type: 'labour',
+          category: 'Fabrication & Welding',
+          sub_category: 'TIG & Exotic Alloys',
+          more_sub_category: 'Vacuum Chamber Spec',
+          unit: 'hr',
+          base_rate: 78.00,
+          operational_charge: 0,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'Valley CNC Tech',
+          competitor_company: 'Precision Weld Corp',
+          competitor_rate: 88.00,
+          industry_benchmark_rate: 82.00,
+          status: 'Available',
+          skill_or_sla: 'ASME Section IX & ISO 9606 Certified',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-lab-03',
+              name: 'Titanium Arc Specialist',
+              providerOrCompetitor: 'AeroWelding Solutions',
+              type: 'labour_option',
+              rate: 74.00,
+              unit: 'hr',
+              savingsDiff: 4.00,
+              savingsPct: 5.1,
+              leadTimeDays: 3,
+              reliabilityRating: 4.7,
+              isRecommended: true,
+              notes: 'Qualified on Titanium Grade 5 and Inconel 718.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 2',
+              quantity: 45,
+              unit: 'hr',
+              totalCost: 3510.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'Exotic metal chamber welding with argon shielding.'
+        },
+        {
+          id: 'res-mac-01',
+          code: 'RES-MAC-01',
+          name: 'DMG Mori 5-Axis CNC Milling Center',
+          type: 'machinery',
+          category: 'CNC Heavy Centers',
+          sub_category: 'Simultaneous 5-Axis',
+          more_sub_category: '20,000 RPM Spindle',
+          unit: 'hr',
+          base_rate: 145.00,
+          operational_charge: 25.00,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'Valley CNC Tech',
+          competitor_company: 'Precision CNC Machining',
+          competitor_rate: 165.00,
+          industry_benchmark_rate: 152.00,
+          status: 'In Use',
+          skill_or_sla: 'High Precision +/- 2 Micron Tolerance',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-mac-01',
+              name: 'Haas UMC-750 5-Axis',
+              providerOrCompetitor: 'Apex Machinery Rentals',
+              type: 'machinery_option',
+              rate: 120.00,
+              unit: 'hr',
+              operationalCharge: 20.00,
+              savingsDiff: 25.00,
+              savingsPct: 17.2,
+              leadTimeDays: 1,
+              reliabilityRating: 4.6,
+              isRecommended: true,
+              notes: 'Lower hourly rate, suitable for non-critical roughing & secondary profiling.'
+            },
+            {
+              id: 'alt-mac-02',
+              name: 'Mazak Variaxis i-700',
+              providerOrCompetitor: 'Mazak Partner Hub',
+              type: 'supplier_alternative',
+              rate: 155.00,
+              unit: 'hr',
+              operationalCharge: 30.00,
+              savingsDiff: -10.00,
+              savingsPct: -6.9,
+              leadTimeDays: 2,
+              reliabilityRating: 4.9,
+              isRecommended: false,
+              notes: 'Heavy duty titanium hogging with extreme torque.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 2',
+              quantity: 80,
+              unit: 'hr',
+              totalCost: 11600.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'High-spec CNC center dedicated to propulsion turbine casing.'
+        },
+        {
+          id: 'res-mac-02',
+          code: 'RES-MAC-02',
+          name: 'CAT 320 Hydraulic Excavator',
+          type: 'machinery',
+          category: 'Earthmoving & Construction',
+          sub_category: 'Tracked Hydraulic Excavation',
+          more_sub_category: '20-Ton Class',
+          unit: 'hr',
+          base_rate: 120.00,
+          operational_charge: 35.00,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'HeavyEquip Rentals',
+          competitor_company: 'TerraWorks Plant Hire',
+          competitor_rate: 135.00,
+          industry_benchmark_rate: 128.00,
+          status: 'Available',
+          skill_or_sla: 'Grade Control & Telematics Included',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-mac-03',
+              name: 'Komatsu PC200-11',
+              providerOrCompetitor: 'Komatsu Direct Rental',
+              type: 'machinery_option',
+              rate: 112.00,
+              unit: 'hr',
+              operationalCharge: 32.00,
+              savingsDiff: 8.00,
+              savingsPct: 6.7,
+              leadTimeDays: 1,
+              reliabilityRating: 4.8,
+              isRecommended: true,
+              notes: 'Tier 4 final eco-engine with high fuel economy.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([]),
+          notes: 'Heavy foundation trenching and earthworks machine.'
+        },
+        {
+          id: 'res-eqp-01',
+          code: 'RES-EQP-01',
+          name: 'Zeiss Optical CMM 3D Metrology Rig',
+          type: 'equipment',
+          category: 'Precision Metrology',
+          sub_category: 'Coordinate Measuring Machines',
+          more_sub_category: 'Sub-Micron Laser Probe',
+          unit: 'hr',
+          base_rate: 110.00,
+          operational_charge: 10.00,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'MetroCal Tech',
+          competitor_company: 'Hexagon Metrology Labs',
+          competitor_rate: 125.00,
+          industry_benchmark_rate: 118.00,
+          status: 'Available',
+          skill_or_sla: 'ISO 17025 Calibrated & Audited',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-eqp-01',
+              name: 'Mitutoyo Crysta-Apex V',
+              providerOrCompetitor: 'Mitutoyo Partner Lab',
+              type: 'supplier_alternative',
+              rate: 98.00,
+              unit: 'hr',
+              savingsDiff: 12.00,
+              savingsPct: 10.9,
+              leadTimeDays: 2,
+              reliabilityRating: 4.8,
+              isRecommended: true,
+              notes: 'Temperature compensated scanning probe.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 3',
+              quantity: 25,
+              unit: 'hr',
+              totalCost: 2750.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'Precision inspection of aerospace dimensional compliance.'
+        },
+        {
+          id: 'res-eqp-02',
+          code: 'RES-EQP-02',
+          name: 'Lincoln Electric Robotic MIG/TIG Welder',
+          type: 'equipment',
+          category: 'Welding Systems',
+          sub_category: 'Automated 6-Axis Cell',
+          more_sub_category: 'Pulsed Arc Tech',
+          unit: 'hr',
+          base_rate: 55.00,
+          operational_charge: 8.00,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'WeldTech Solutions',
+          competitor_company: 'Miller Automated Cells',
+          competitor_rate: 62.00,
+          industry_benchmark_rate: 58.00,
+          status: 'Available',
+          skill_or_sla: 'Automated Continuous Seam 99.8% Yield',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-eqp-02',
+              name: 'Miller Auto-Axcess 450',
+              providerOrCompetitor: 'RoboWeld Hire',
+              type: 'machinery_option',
+              rate: 50.00,
+              unit: 'hr',
+              savingsDiff: 5.00,
+              savingsPct: 9.1,
+              leadTimeDays: 3,
+              reliabilityRating: 4.7,
+              isRecommended: true,
+              notes: 'Lower hourly equipment lease cost.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([]),
+          notes: 'Automated longitudinal pipe and structural frame welding.'
+        },
+        {
+          id: 'res-tol-01',
+          code: 'RES-TOL-01',
+          name: 'Sandvik Coromant Solid Carbide Endmill Set',
+          type: 'tool',
+          category: 'Cutting Tools',
+          sub_category: 'High-Feed Endmills',
+          more_sub_category: 'TiAlN Coated',
+          unit: 'unit',
+          base_rate: 35.00,
+          operational_charge: 0,
+          charge_type: 'unit',
+          currency: 'USD',
+          supplier_name: 'Continental Tooling',
+          competitor_company: 'Kennametal Direct',
+          competitor_rate: 42.00,
+          industry_benchmark_rate: 39.00,
+          status: 'Available',
+          skill_or_sla: 'Titanium & Heat-Resistant Superalloy Milling',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-tol-01',
+              name: 'Kennametal Harvi I TE',
+              providerOrCompetitor: 'Kennametal Direct',
+              type: 'supplier_alternative',
+              rate: 31.00,
+              unit: 'unit',
+              savingsDiff: 4.00,
+              savingsPct: 11.4,
+              leadTimeDays: 1,
+              reliabilityRating: 4.9,
+              isRecommended: true,
+              notes: 'Asymmetrical flutes dampen vibration at high depth of cut.'
+            },
+            {
+              id: 'alt-tol-02',
+              name: 'Iscar HeliQuad Inserts',
+              providerOrCompetitor: 'Iscar Tooling Hub',
+              type: 'competitor_benchmark',
+              rate: 37.00,
+              unit: 'unit',
+              savingsDiff: -2.00,
+              savingsPct: -5.7,
+              leadTimeDays: 2,
+              reliabilityRating: 4.8,
+              isRecommended: false,
+              notes: 'Indexable 4-edge carbide inserts.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 2',
+              quantity: 20,
+              unit: 'unit',
+              totalCost: 700.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'High-performance endmill tooling for aerospace alloys.'
+        },
+        {
+          id: 'res-tol-02',
+          code: 'RES-TOL-02',
+          name: 'Hilti TE-70 Heavy Rotary Hammer Drill',
+          type: 'tool',
+          category: 'Power Tools',
+          sub_category: 'Demolition & Anchoring',
+          more_sub_category: 'SDS Max Chuck',
+          unit: 'hr',
+          base_rate: 18.00,
+          operational_charge: 2.00,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'ToolHire Pro',
+          competitor_company: 'DeWalt Industrial Tool Rental',
+          competitor_rate: 22.00,
+          industry_benchmark_rate: 20.00,
+          status: 'Available',
+          skill_or_sla: 'Heavy Duty Structural Concrete Drilling',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-tol-03',
+              name: 'Bosch Professional GBH 8-45',
+              providerOrCompetitor: 'Bosch Pro Tool Rental',
+              type: 'supplier_alternative',
+              rate: 15.00,
+              unit: 'hr',
+              savingsDiff: 3.00,
+              savingsPct: 16.7,
+              leadTimeDays: 1,
+              reliabilityRating: 4.7,
+              isRecommended: true,
+              notes: '1500W motor with vibration control.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([]),
+          notes: 'Industrial rotary hammer for heavy anchor bolting.'
+        },
+        {
+          id: 'res-mat-01',
+          code: 'RES-MAT-01',
+          name: 'Titanium Ti-6Al-4V Certified Bar Stock',
+          type: 'material',
+          category: 'Metals & Structural Alloys',
+          sub_category: 'Aerospace Grade Titanium',
+          more_sub_category: 'AMS 4928 Spec',
+          unit: 'kg',
+          base_rate: 105.00,
+          operational_charge: 0,
+          charge_type: 'unit',
+          currency: 'USD',
+          supplier_name: 'Continental Metals Direct',
+          competitor_company: 'ThyssenKrupp Aerospace',
+          competitor_rate: 118.00,
+          industry_benchmark_rate: 112.00,
+          status: 'Available',
+          skill_or_sla: 'Raw Material Supplier Stock',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-mat-01',
+              name: 'Precision Titanium Billets',
+              providerOrCompetitor: 'Allegheny Technologies (ATI)',
+              type: 'supplier_alternative',
+              rate: 98.00,
+              unit: 'kg',
+              savingsDiff: 7.00,
+              savingsPct: 6.7,
+              leadTimeDays: 4,
+              reliabilityRating: 4.9,
+              isRecommended: true,
+              notes: 'Direct mill stock with full trace certification.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 1',
+              quantity: 50,
+              unit: 'kg',
+              totalCost: 4830.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'Flight-certified titanium bar stock for turbine shafts.'
+        },
+        {
+          id: 'res-sub-01',
+          code: 'RES-SUB-01',
+          name: 'Standard CNC Milling Service',
+          type: 'subcontractor',
+          category: 'Precision Machining Services',
+          sub_category: 'Production Milling',
+          more_sub_category: 'Turnkey Contract',
+          unit: 'hr',
+          base_rate: 85.00,
+          operational_charge: 0,
+          charge_type: 'hourly',
+          currency: 'USD',
+          supplier_name: 'Valley CNC Tech',
+          competitor_company: 'Apex Precision Engineering',
+          competitor_rate: 95.00,
+          industry_benchmark_rate: 90.00,
+          status: 'Available',
+          skill_or_sla: 'Certified Specialist Labor',
+          alternatives: JSON.stringify([
+            {
+              id: 'alt-sub-01',
+              name: 'Rapid CNC Batch Machining',
+              providerOrCompetitor: 'Prototurn Engineering',
+              type: 'supplier_alternative',
+              rate: 80.00,
+              unit: 'hr',
+              savingsDiff: 5.00,
+              savingsPct: 5.9,
+              leadTimeDays: 2,
+              reliabilityRating: 4.8,
+              isRecommended: true,
+              notes: 'High throughput batch runs with quick changeover.'
+            }
+          ]),
+          connected_allocations: JSON.stringify([
+            {
+              projectId: 'proj-01',
+              projectCode: 'PRJ-ACPT-907446',
+              projectName: 'Aerospace Propulsion Sub-Assembly',
+              phaseName: 'Phase 2',
+              quantity: 80,
+              unit: 'hr',
+              totalCost: 6800.00,
+              currency: 'USD'
+            }
+          ]),
+          notes: 'Outsourced specialist milling subcontractor.'
+        }
+      ];
+
+      for (const res of initialResources) {
+        await db.query(
+          `INSERT INTO enterprise_resources (
+            id, code, name, type, category, sub_category, more_sub_category,
+            unit, base_rate, operational_charge, charge_type, currency,
+            supplier_name, competitor_company, competitor_rate, industry_benchmark_rate,
+            status, skill_or_sla, alternatives, connected_allocations, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+          ON CONFLICT (id) DO NOTHING`,
+          [
+            res.id, res.code, res.name, res.type, res.category, res.sub_category, res.more_sub_category,
+            res.unit, res.base_rate, res.operational_charge, res.charge_type, res.currency,
+            res.supplier_name, res.competitor_company, res.competitor_rate, res.industry_benchmark_rate,
+            res.status, res.skill_or_sla, res.alternatives, res.connected_allocations, res.notes
+          ]
+        );
+      }
+      console.log('[PostgreSQL] Seeded initial enterprise resources (labour, machineries, equipments, tools).');
+    } catch (e: any) {
+      console.warn('[PostgreSQL] Error seeding enterprise resources:', e?.message);
+    }
+  }
+
+  public async getResourcesPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
+    const db = await this.getDb();
+    const rowsRes = await db.query('SELECT * FROM enterprise_resources ORDER BY type ASC, name ASC');
+    const records = (rowsRes.rows || []).map((r: any) => ({
+      ...r,
+      baseRate: Number(r.base_rate || 0),
+      operationalCharge: Number(r.operational_charge || 0),
+      chargeType: r.charge_type || 'hourly',
+      subCategory: r.sub_category,
+      moreSubCategory: r.more_sub_category,
+      supplierId: r.supplier_id,
+      supplierName: r.supplier_name,
+      competitorCompany: r.competitor_company,
+      competitorRate: Number(r.competitor_rate || 0),
+      industryBenchmarkRate: Number(r.industry_benchmark_rate || 0),
+      leadTimeDays: Number(r.lead_time_days || 1),
+      skillOrSla: r.skill_or_sla,
+      effectiveDate: formatSqlDate(r.effective_date),
+      alternatives: typeof r.alternatives === 'string' ? JSON.parse(r.alternatives || '[]') : (r.alternatives || []),
+      specifications: typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {}),
+      connectedAllocations: typeof r.connected_allocations === 'string' ? JSON.parse(r.connected_allocations || '[]') : (r.connected_allocations || [])
+    }));
+
+    return parseFilterPagination(records, opts, ['name', 'code', 'category', 'subCategory', 'type', 'supplierName', 'competitorCompany']);
+  }
+
+  public async getResourceById(id: string): Promise<any | null> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1', [id]);
+    if (!res.rows || res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      ...r,
+      baseRate: Number(r.base_rate || 0),
+      operationalCharge: Number(r.operational_charge || 0),
+      chargeType: r.charge_type || 'hourly',
+      subCategory: r.sub_category,
+      moreSubCategory: r.more_sub_category,
+      supplierId: r.supplier_id,
+      supplierName: r.supplier_name,
+      competitorCompany: r.competitor_company,
+      competitorRate: Number(r.competitor_rate || 0),
+      industryBenchmarkRate: Number(r.industry_benchmark_rate || 0),
+      leadTimeDays: Number(r.lead_time_days || 1),
+      skillOrSla: r.skill_or_sla,
+      effectiveDate: formatSqlDate(r.effective_date),
+      alternatives: typeof r.alternatives === 'string' ? JSON.parse(r.alternatives || '[]') : (r.alternatives || []),
+      specifications: typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {}),
+      connectedAllocations: typeof r.connected_allocations === 'string' ? JSON.parse(r.connected_allocations || '[]') : (r.connected_allocations || [])
+    };
+  }
+
+  public async createResource(data: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `res-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const prefix = data.type ? String(data.type).slice(0, 3).toUpperCase() : 'RES';
+    const code = data.code || `RES-${prefix}-${Math.floor(100 + Math.random() * 900)}`;
+    const baseRate = Number(data.baseRate ?? data.rate ?? 0);
+    const operationalCharge = Number(data.operationalCharge ?? 0);
+    const competitorRate = Number(data.competitorRate ?? 0);
+    const benchmarkRate = Number(data.industryBenchmarkRate ?? 0);
+
+    const altsJson = JSON.stringify(data.alternatives || []);
+    const specsJson = JSON.stringify(data.specifications || {});
+    const allocsJson = JSON.stringify(data.connectedAllocations || []);
+
+    await db.query(
+      `INSERT INTO enterprise_resources (
+        id, code, name, type, category, sub_category, more_sub_category,
+        unit, base_rate, operational_charge, charge_type, currency,
+        supplier_id, supplier_name, competitor_company, competitor_rate,
+        industry_benchmark_rate, lead_time_days, status, skill_or_sla,
+        alternatives, specifications, connected_allocations, notes, effective_date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+      [
+        id, code, data.name || 'Untitled Resource', data.type || 'labour',
+        data.category || 'General', data.subCategory || null, data.moreSubCategory || null,
+        data.unit || 'hr', baseRate, operationalCharge, data.chargeType || 'hourly',
+        data.currency || 'USD', data.supplierId || null, data.supplierName || null,
+        data.competitorCompany || null, competitorRate, benchmarkRate,
+        data.leadTimeDays || 1, data.status || 'Available', data.skillOrSla || null,
+        altsJson, specsJson, allocsJson, data.notes || '', data.effectiveDate || new Date().toISOString().slice(0, 10)
+      ]
+    );
+
+    return this.getResourceById(id);
+  }
+
+  public async updateResource(id: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await this.getResourceById(id);
+    if (!existing) throw new Error('Resource not found');
+
+    const name = data.name !== undefined ? data.name : existing.name;
+    const type = data.type !== undefined ? data.type : existing.type;
+    const category = data.category !== undefined ? data.category : existing.category;
+    const subCategory = data.subCategory !== undefined ? data.subCategory : existing.subCategory;
+    const unit = data.unit !== undefined ? data.unit : existing.unit;
+    const baseRate = data.baseRate !== undefined ? Number(data.baseRate) : existing.baseRate;
+    const operationalCharge = data.operationalCharge !== undefined ? Number(data.operationalCharge) : existing.operationalCharge;
+    const chargeType = data.chargeType !== undefined ? data.chargeType : existing.chargeType;
+    const supplierName = data.supplierName !== undefined ? data.supplierName : existing.supplierName;
+    const competitorCompany = data.competitorCompany !== undefined ? data.competitorCompany : existing.competitorCompany;
+    const competitorRate = data.competitorRate !== undefined ? Number(data.competitorRate) : existing.competitorRate;
+    const industryBenchmarkRate = data.industryBenchmarkRate !== undefined ? Number(data.industryBenchmarkRate) : existing.industryBenchmarkRate;
+    const status = data.status !== undefined ? data.status : existing.status;
+    const skillOrSla = data.skillOrSla !== undefined ? data.skillOrSla : existing.skillOrSla;
+    const notes = data.notes !== undefined ? data.notes : existing.notes;
+    const altsJson = data.alternatives !== undefined ? JSON.stringify(data.alternatives) : JSON.stringify(existing.alternatives);
+    const allocsJson = data.connectedAllocations !== undefined ? JSON.stringify(data.connectedAllocations) : JSON.stringify(existing.connectedAllocations);
+
+    // If price changed, record in price_history_records
+    if (data.baseRate !== undefined && Number(data.baseRate) !== existing.baseRate) {
+      const prev = existing.baseRate;
+      const next = Number(data.baseRate);
+      const diff = calcPctChange(prev, next);
+      await db.query(
+        `INSERT INTO price_history_records (
+          id, entity_type, entity_id, entity_code, entity_name,
+          previous_price, new_price, change_pct, currency, effective_date, reason, updated_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          `ph-${Date.now()}`, 'material', id, existing.code, existing.name,
+          prev, next, diff, existing.currency || 'USD', new Date().toISOString().slice(0, 10),
+          data.reason || 'Resource rate revision via portal', data.updatedBy || 'Resource Manager'
+        ]
+      ).catch(() => {});
+    }
+
+    await db.query(
+      `UPDATE enterprise_resources SET
+        name = $1, type = $2, category = $3, sub_category = $4,
+        unit = $5, base_rate = $6, operational_charge = $7, charge_type = $8,
+        supplier_name = $9, competitor_company = $10, competitor_rate = $11,
+        industry_benchmark_rate = $12, status = $13, skill_or_sla = $14,
+        notes = $15, alternatives = $16, connected_allocations = $17, updated_at = NOW()
+       WHERE id = $18`,
+      [
+        name, type, category, subCategory, unit, baseRate, operationalCharge,
+        chargeType, supplierName, competitorCompany, competitorRate,
+        industryBenchmarkRate, status, skillOrSla, notes, altsJson, allocsJson, id
+      ]
+    );
+
+    return this.getResourceById(id);
+  }
+
+  public async deleteResource(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM enterprise_resources WHERE id = $1', [id]);
+    return true;
+  }
+
+  public async addResourceAlternative(resourceId: string, altData: any): Promise<any> {
+    const resource = await this.getResourceById(resourceId);
+    if (!resource) throw new Error('Resource not found');
+
+    const newAlt = {
+      id: altData.id || `alt-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      name: altData.name || 'Alternative Option',
+      providerOrCompetitor: altData.providerOrCompetitor || 'Industry Supplier',
+      type: altData.type || 'supplier_alternative',
+      rate: Number(altData.rate || 0),
+      unit: altData.unit || resource.unit,
+      operationalCharge: Number(altData.operationalCharge || 0),
+      savingsDiff: resource.baseRate - Number(altData.rate || 0),
+      savingsPct: resource.baseRate > 0 ? Math.round(((resource.baseRate - Number(altData.rate || 0)) / resource.baseRate) * 1000) / 10 : 0,
+      leadTimeDays: Number(altData.leadTimeDays || 1),
+      reliabilityRating: Number(altData.reliabilityRating || 4.5),
+      isRecommended: Boolean(altData.isRecommended),
+      notes: altData.notes || ''
+    };
+
+    const updatedAlternatives = [...(resource.alternatives || []), newAlt];
+    return this.updateResource(resourceId, { alternatives: updatedAlternatives });
+  }
+
+  public async applyResourceAlternative(resourceId: string, alternativeId: string, reason?: string, actor?: string): Promise<any> {
+    const resource = await this.getResourceById(resourceId);
+    if (!resource) throw new Error('Resource not found');
+
+    const alt = (resource.alternatives || []).find((a: any) => a.id === alternativeId);
+    if (!alt) throw new Error('Alternative not found');
+
+    const previousRate = resource.baseRate;
+    const newRate = alt.rate;
+    const updatedAlternatives = (resource.alternatives || []).map((a: any) => ({
+      ...a,
+      isRecommended: a.id === alternativeId
+    }));
+
+    return this.updateResource(resourceId, {
+      baseRate: newRate,
+      supplierName: alt.providerOrCompetitor,
+      operationalCharge: alt.operationalCharge !== undefined ? alt.operationalCharge : resource.operationalCharge,
+      alternatives: updatedAlternatives,
+      reason: reason || `Applied industry alternative: ${alt.name} (${alt.providerOrCompetitor})`,
+      updatedBy: actor || 'Resource Manager'
+    });
+  }
+
+  public async allocateResourceToProject(
+    resourceId: string,
+    projectId: string,
+    phaseId: string,
+    quantity: number,
+    unit: string,
+    unitCost: number
+  ): Promise<any> {
+    const db = await this.getDb();
+    const resource = await this.getResourceById(resourceId);
+    if (!resource) throw new Error('Resource not found');
+
+    const projRes = await db.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (!projRes.rows || projRes.rows.length === 0) throw new Error('Project not found');
+    const project = projRes.rows[0];
+
+    const selectedItems = typeof project.selected_items === 'string' ? JSON.parse(project.selected_items || '[]') : (project.selected_items || []);
+    const phases = typeof project.phases === 'string' ? JSON.parse(project.phases || '[]') : (project.phases || []);
+    const targetPhase = phases.find((p: any) => p.id === phaseId) || phases[0];
+
+    const totalCost = Number(quantity) * Number(unitCost);
+
+    const newItem = {
+      id: `cost-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      phaseId: targetPhase?.id || 'phase-01',
+      type: resource.type,
+      itemId: resource.id,
+      name: resource.name,
+      category: resource.category,
+      subCategory: resource.subCategory,
+      supplierOrProvider: resource.supplierName || 'Assigned Provider',
+      quantity: Number(quantity),
+      unit: unit || resource.unit,
+      unitCost: Number(unitCost),
+      totalCost,
+      notes: `Allocated from Resource Portal: ${resource.code}`
+    };
+
+    selectedItems.push(newItem);
+
+    // Recalculate direct cost
+    await db.query(
+      'UPDATE projects SET selected_items = $1, updated_at_ts = NOW() WHERE id = $2',
+      [JSON.stringify(selectedItems), projectId]
+    );
+
+    // Update resource's connectedAllocations
+    const existingAllocations = resource.connectedAllocations || [];
+    const allocIdx = existingAllocations.findIndex((a: any) => a.projectId === projectId && a.phaseId === targetPhase?.id);
+    if (allocIdx >= 0) {
+      existingAllocations[allocIdx].quantity += Number(quantity);
+      existingAllocations[allocIdx].totalCost += totalCost;
+    } else {
+      existingAllocations.push({
+        projectId: project.id,
+        projectCode: project.code,
+        projectName: project.name,
+        phaseId: targetPhase?.id,
+        phaseName: targetPhase?.name || 'General',
+        quantity: Number(quantity),
+        unit: unit || resource.unit,
+        totalCost,
+        currency: project.currency || 'USD'
+      });
+    }
+
+    await db.query(
+      'UPDATE enterprise_resources SET connected_allocations = $1, updated_at = NOW() WHERE id = $2',
+      [JSON.stringify(existingAllocations), resourceId]
+    );
+
+    return {
+      resource: await this.getResourceById(resourceId),
+      allocatedItem: newItem
+    };
+  }
+
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
     const tables = [
@@ -13947,7 +14793,8 @@ export class PostgresService {
       'suppliers', 'materials', 'material_vendor_quotes', 'material_vendor_price_history', 'vendor_deletion_archives', 'outsourced_services',
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
-      'users', 'account_requests', 'media_assets', 'audit_logs', 'tariffs', 'tariff_versions', 'plan_tariffs', 'schema_migrations'
+      'users', 'account_requests', 'media_assets', 'audit_logs', 'tariffs', 'tariff_versions', 'plan_tariffs',
+      'enterprise_resources', 'schema_migrations'
     ];
     const counts: Record<string, number> = {};
     for (const t of tables) {

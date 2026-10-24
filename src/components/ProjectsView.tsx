@@ -972,6 +972,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             const defaultTheme = getRandomThemeIndex(idx);
             const cardTheme = cardThemes[proj.id] || (proj.themeId ? { themeId: proj.themeId, customGradient: proj.customGradient } : { themeId: defaultTheme.id });
 
+            const resBreakdown = (() => {
+              let mat = 0, lab = 0, mach = 0, eq = 0, tool = 0, sub = 0;
+              (proj.selectedItems || []).forEach((it) => {
+                const cost = typeof it.totalCost === 'number' ? it.totalCost : ((it.quantity || 1) * (it.unitCost || 0));
+                if (it.type === 'labour') lab += cost;
+                else if (it.type === 'machinery') mach += cost;
+                else if (it.type === 'equipment') eq += cost;
+                else if (it.type === 'tool') tool += cost;
+                else if (it.type === 'subcontractor') sub += cost;
+                else mat += cost;
+              });
+              return { mat, lab, mach, eq, tool, sub, total: mat + lab + mach + eq + tool + sub };
+            })();
+
             return (
               <ModernTileCard
                 key={proj.id}
@@ -985,12 +999,28 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 customGradient={cardTheme.customGradient}
                 selected={isSelected}
                 extraMeta={
-                  marginAnalysis.isMarginBelowThreshold ? (
-                    <div className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[10px] font-bold">
-                      <AlertTriangle className="w-3 h-3 text-amber-300 shrink-0" />
-                      <span>Low Margin ({marginAnalysis.netMarginPct.toFixed(1)}%)</span>
+                  <div className="space-y-1 w-full">
+                    {marginAnalysis.isMarginBelowThreshold && (
+                      <div className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[10px] font-bold">
+                        <AlertTriangle className="w-3 h-3 text-amber-300 shrink-0" />
+                        <span>Low Margin ({marginAnalysis.netMarginPct.toFixed(1)}%)</span>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1 text-[9px] text-white/90">
+                      <span className="bg-black/30 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 font-mono">
+                        Labour: ${resBreakdown.lab.toLocaleString()}
+                      </span>
+                      <span className="bg-black/30 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 font-mono">
+                        Machinery: ${resBreakdown.mach.toLocaleString()}
+                      </span>
+                      <span className="bg-black/30 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 font-mono">
+                        Equip: ${resBreakdown.eq.toLocaleString()}
+                      </span>
+                      <span className="bg-black/30 backdrop-blur-xs px-1.5 py-0.5 rounded border border-white/10 font-mono">
+                        Tools: ${resBreakdown.tool.toLocaleString()}
+                      </span>
                     </div>
-                  ) : undefined
+                  </div>
                 }
                 onChangeTheme={(tId, grad) => handleUpdateCardTheme(proj.id, tId, grad)}
                 onDelete={onDeleteProject ? () => setProjectToDelete(proj) : undefined}
@@ -1035,6 +1065,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           const revenue = proj.quotedPrice;
           const marginPct = analytics?.grossMarginPct || proj.targetMarginPct;
           const marginAnalysis = calculateProjectProfitability(proj, marginThreshold);
+
+          const resBreakdown = (() => {
+            let mat = 0, lab = 0, mach = 0, eq = 0, tool = 0, sub = 0;
+            (proj.selectedItems || []).forEach((it) => {
+              const cost = typeof it.totalCost === 'number' ? it.totalCost : ((it.quantity || 1) * (it.unitCost || 0));
+              if (it.type === 'labour') lab += cost;
+              else if (it.type === 'machinery') mach += cost;
+              else if (it.type === 'equipment') eq += cost;
+              else if (it.type === 'tool') tool += cost;
+              else if (it.type === 'subcontractor') sub += cost;
+              else mat += cost;
+            });
+            return { mat, lab, mach, eq, tool, sub, total: mat + lab + mach + eq + tool + sub };
+          })();
 
           return (
             <div
@@ -1116,6 +1160,107 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <div className="text-[9px] text-[#003049] mt-0.5 capitalize">{phase.status}</div>
                     </div>
                   ))}
+                </div>
+
+                {/* Resource Allocations Breakdown (Labour, Machinery, Equipment, Tools, Materials, Trades) */}
+                <div className="mt-2 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    <div className="flex items-center space-x-1">
+                      <Users className="w-3 h-3 text-[#0078d4]" />
+                      <span>Resources</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                      }}
+                      className="text-[#0078d4] hover:underline font-semibold flex items-center space-x-0.5 cursor-pointer text-[10px]"
+                    >
+                      <span>Explore</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 text-center">
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'labour' } })), 50);
+                      }}
+                      className="p-1 rounded bg-amber-50 hover:bg-amber-100 border border-amber-200 cursor-pointer transition-colors"
+                      title="View Labour Cost"
+                    >
+                      <div className="text-[9px] font-bold text-amber-800 uppercase">Labour</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.lab.toLocaleString()}</div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'machinery' } })), 50);
+                      }}
+                      className="p-1 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 cursor-pointer transition-colors"
+                      title="View Machinery Cost"
+                    >
+                      <div className="text-[9px] font-bold text-indigo-800 uppercase">Machinery</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.mach.toLocaleString()}</div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'equipment' } })), 50);
+                      }}
+                      className="p-1 rounded bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 cursor-pointer transition-colors"
+                      title="View Equipment Cost"
+                    >
+                      <div className="text-[9px] font-bold text-cyan-800 uppercase">Equip</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.eq.toLocaleString()}</div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'tool' } })), 50);
+                      }}
+                      className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer transition-colors"
+                      title="View Tools Cost"
+                    >
+                      <div className="text-[9px] font-bold text-emerald-800 uppercase">Tools</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.tool.toLocaleString()}</div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'material' } })), 50);
+                      }}
+                      className="p-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer transition-colors"
+                      title="View Materials Cost"
+                    >
+                      <div className="text-[9px] font-bold text-blue-800 uppercase">Materials</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.mat.toLocaleString()}</div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        onSelectProject(proj);
+                        if (onViewResources) onViewResources(proj);
+                        setTimeout(() => window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'subcontractor' } })), 50);
+                      }}
+                      className="p-1 rounded bg-purple-50 hover:bg-purple-100 border border-purple-200 cursor-pointer transition-colors"
+                      title="View Trades Cost"
+                    >
+                      <div className="text-[9px] font-bold text-purple-800 uppercase">Trades</div>
+                      <div className="font-semibold text-slate-800 text-xs">${resBreakdown.sub.toLocaleString()}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 

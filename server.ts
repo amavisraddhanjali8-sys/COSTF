@@ -225,6 +225,10 @@ function fallbackAnalytics(projectData: any) {
   let materialCost = 0;
   let subcontractorCost = 0;
   let outsourcedCost = 0;
+  let labourCost = 0;
+  let machineryCost = 0;
+  let equipmentCost = 0;
+  let toolCost = 0;
 
   for (const item of items) {
     const { totalAmount: discounted } = calcDiscountedLine(
@@ -234,11 +238,16 @@ function fallbackAnalytics(projectData: any) {
     );
     if (item.type === 'material') materialCost = decAdd(materialCost, discounted);
     else if (item.type === 'subcontractor') subcontractorCost = decAdd(subcontractorCost, discounted);
+    else if (item.type === 'labour') labourCost = decAdd(labourCost, discounted);
+    else if (item.type === 'machinery') machineryCost = decAdd(machineryCost, discounted);
+    else if (item.type === 'equipment') equipmentCost = decAdd(equipmentCost, discounted);
+    else if (item.type === 'tool') toolCost = decAdd(toolCost, discounted);
     else if (item.type === 'outsourced') outsourcedCost = decAdd(outsourcedCost, discounted);
     else materialCost = decAdd(materialCost, discounted);
   }
 
-  const totalDirectCost = decAdd(decAdd(materialCost, subcontractorCost), outsourcedCost);
+  const resourceCost = decAdd(decAdd(labourCost, machineryCost), decAdd(equipmentCost, toolCost));
+  const totalDirectCost = decAdd(decAdd(decAdd(materialCost, subcontractorCost), outsourcedCost), resourceCost);
   const overheadPct = round2(projectData.overheadPct ?? 8.5);
   const contingencyPct = round2(projectData.contingencyPct ?? 5.0);
   const overheadAmount = round2(decMul(totalDirectCost, decDiv(overheadPct, 100)));
@@ -283,6 +292,11 @@ function fallbackAnalytics(projectData: any) {
     materialCost: round2(materialCost),
     subcontractorCost: round2(subcontractorCost),
     outsourcedCost: round2(outsourcedCost),
+    labourCost: round2(labourCost),
+    machineryCost: round2(machineryCost),
+    equipmentCost: round2(equipmentCost),
+    toolCost: round2(toolCost),
+    resourceCost: round2(resourceCost),
     totalDirectCost: round2(totalDirectCost),
     overheadAmount,
     contingencyAmount,
@@ -308,8 +322,9 @@ function fallbackAnalytics(projectData: any) {
     },
     costDistribution: [
       { category: 'Materials', amount: Math.round(materialCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(materialCost, totalDirectCost), 100)) : 0 },
-      { category: 'Subcontractor Labour', amount: Math.round(subcontractorCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(subcontractorCost, totalDirectCost), 100)) : 0 },
-      { category: 'Outsourced Services', amount: Math.round(outsourcedCost), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(outsourcedCost, totalDirectCost), 100)) : 0 },
+      { category: 'Labour & Charges', amount: Math.round(decAdd(subcontractorCost, labourCost)), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(decAdd(subcontractorCost, labourCost), totalDirectCost), 100)) : 0 },
+      { category: 'Machinery & Equipment', amount: Math.round(decAdd(machineryCost, equipmentCost)), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(decAdd(machineryCost, equipmentCost), totalDirectCost), 100)) : 0 },
+      { category: 'Tools & Outsourced', amount: Math.round(decAdd(toolCost, outsourcedCost)), pct: totalDirectCost > 0 ? Math.round(decMul(decDiv(decAdd(toolCost, outsourcedCost), totalDirectCost), 100)) : 0 },
       { category: 'Overhead & Contingency', amount: Math.round(decAdd(overheadAmount, contingencyAmount)), pct: totalProjectCost > 0 ? Math.round(decMul(decDiv(decAdd(overheadAmount, contingencyAmount), totalProjectCost), 100)) : 0 }
     ]
   };
@@ -1596,6 +1611,106 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to delete category:', e);
       res.status(500).json({ error: 'Failed to delete category', details: e?.message });
+    }
+  });
+
+  // --- Enterprise Resources API (PostgreSQL inno_cost) ---
+  // Labours and charges, machineries, equipments, tools, materials, subcontractors
+  app.get('/api/resources', async (req, res) => {
+    try {
+      const opts = extractListOptions(req.query);
+      const result = await postgresService.getResourcesPaginated(opts);
+      return sendListResponse(res, result, opts.paginated);
+    } catch (e: any) {
+      console.error('Failed to fetch resources:', e);
+      res.status(500).json({ error: 'Failed to fetch enterprise resources from PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.get('/api/resources/:id', async (req, res) => {
+    try {
+      const resource = await postgresService.getResourceById(req.params.id);
+      if (!resource) return res.status(404).json({ error: 'Resource not found' });
+      res.json(resource);
+    } catch (e: any) {
+      console.error('Failed to fetch resource:', e);
+      res.status(500).json({ error: 'Failed to fetch resource', details: e?.message });
+    }
+  });
+
+  app.post('/api/resources', async (req, res) => {
+    try {
+      if (!req.body?.name) {
+        return res.status(400).json({ error: 'Resource name is required' });
+      }
+      const created = await postgresService.createResource(req.body);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create resource:', e);
+      res.status(500).json({ error: 'Failed to create resource in PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.put('/api/resources/:id', async (req, res) => {
+    try {
+      const updated = await postgresService.updateResource(req.params.id, req.body);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update resource:', e);
+      res.status(500).json({ error: 'Failed to update resource in PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.delete('/api/resources/:id', async (req, res) => {
+    try {
+      await postgresService.deleteResource(req.params.id);
+      res.json({ success: true, message: 'Resource deleted' });
+    } catch (e: any) {
+      console.error('Failed to delete resource:', e);
+      res.status(500).json({ error: 'Failed to delete resource in PostgreSQL', details: e?.message });
+    }
+  });
+
+  app.post('/api/resources/:id/alternatives', async (req, res) => {
+    try {
+      const updated = await postgresService.addResourceAlternative(req.params.id, req.body);
+      res.status(201).json(updated);
+    } catch (e: any) {
+      console.error('Failed to add resource alternative:', e);
+      res.status(500).json({ error: 'Failed to add resource alternative', details: e?.message });
+    }
+  });
+
+  app.post('/api/resources/:id/apply-alternative', async (req, res) => {
+    try {
+      const { alternativeId, reason } = req.body;
+      const actor = (req as any).user?.name || 'Resource Manager';
+      const updated = await postgresService.applyResourceAlternative(req.params.id, alternativeId, reason, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to apply resource alternative:', e);
+      res.status(500).json({ error: 'Failed to apply alternative', details: e?.message });
+    }
+  });
+
+  app.post('/api/resources/:id/allocate', async (req, res) => {
+    try {
+      const { projectId, phaseId, quantity, unit, unitCost } = req.body;
+      if (!projectId || quantity === undefined) {
+        return res.status(400).json({ error: 'projectId and quantity are required' });
+      }
+      const result = await postgresService.allocateResourceToProject(
+        req.params.id,
+        projectId,
+        phaseId,
+        Number(quantity),
+        unit,
+        unitCost
+      );
+      res.json(result);
+    } catch (e: any) {
+      console.error('Failed to allocate resource:', e);
+      res.status(500).json({ error: 'Failed to allocate resource to project', details: e?.message });
     }
   });
 

@@ -38,7 +38,12 @@ import {
   ShieldAlert,
   ArrowDownLeft,
   Clock,
-  Download
+  Download,
+  HardHat,
+  Cog,
+  Wrench,
+  Scale,
+  Cpu
 } from 'lucide-react';
 import {
   Project,
@@ -503,7 +508,72 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       word: 'Resources',
       icon: <Activity className="w-4 h-4 text-white" />,
       badgeColor: 'bg-[#0078d4]',
-      action: () => onNavigateTab('resource-allocation')
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'all' } }));
+        }, 50);
+      }
+    },
+    {
+      id: 'ql-labour',
+      word: 'Labour',
+      icon: <HardHat className="w-4 h-4 text-white" />,
+      badgeColor: 'bg-amber-600',
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'labour' } }));
+        }, 50);
+      }
+    },
+    {
+      id: 'ql-machinery',
+      word: 'Machinery',
+      icon: <Cog className="w-4 h-4 text-white" />,
+      badgeColor: 'bg-indigo-600',
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'machinery' } }));
+        }, 50);
+      }
+    },
+    {
+      id: 'ql-equipment',
+      word: 'Equipment',
+      icon: <Cpu className="w-4 h-4 text-white" />,
+      badgeColor: 'bg-cyan-600',
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'equipment' } }));
+        }, 50);
+      }
+    },
+    {
+      id: 'ql-tools',
+      word: 'Tools',
+      icon: <Wrench className="w-4 h-4 text-white" />,
+      badgeColor: 'bg-emerald-600',
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { type: 'tool' } }));
+        }, 50);
+      }
+    },
+    {
+      id: 'ql-compare',
+      word: 'Compare',
+      icon: <Scale className="w-4 h-4 text-white" />,
+      badgeColor: 'bg-rose-600',
+      action: () => {
+        onNavigateTab('resource-allocation');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { openCompare: true } }));
+        }, 50);
+      }
     },
     {
       id: 'ql-scanner',
@@ -1328,9 +1398,24 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
 
                 <button
                   type="button"
+                  id="btn-create-resource"
+                  onClick={() => {
+                    onNavigateTab('resource-allocation');
+                    setTimeout(() => {
+                      window.dispatchEvent(new CustomEvent('fxtt-resource-filter', { detail: { openCreate: true } }));
+                    }, 50);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5 text-cyan-600" />
+                  <span>Resource</span>
+                </button>
+
+                <button
+                  type="button"
                   id="btn-create-event"
                   onClick={() => setIsAddEventModalOpen(true)}
-                  className="col-span-1 sm:col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer border border-slate-200 dark:border-slate-700 transition-colors"
                 >
                   <Calendar className="w-3.5 h-3.5 text-[#0078d4]" />
                   <span>Event</span>
@@ -1435,6 +1520,15 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               <div className="text-[11px] text-blue-200 font-medium">Inventory</div>
               <div className="text-lg font-bold text-teal-300 mt-0.5">
                 {inventory.length}
+              </div>
+            </div>
+            <div
+              onClick={() => onNavigateTab('resource-allocation')}
+              className="p-2.5 bg-white/10 hover:bg-white/15 rounded-lg border border-white/15 cursor-pointer text-center transition-colors"
+            >
+              <div className="text-[11px] text-blue-200 font-medium">Resources</div>
+              <div className="text-lg font-bold text-amber-300 mt-0.5">
+                {postgresStatus?.tables?.enterprise_resources || 6}
               </div>
             </div>
           </div>

@@ -30,7 +30,9 @@ import {
   CompetitorBenchmarkSummary,
   ProductCompetitorQuote,
   ProductCompetitorPriceHistoryRecord,
-  ProjectDeliverableItem
+  ProjectDeliverableItem,
+  EnterpriseResource,
+  ResourceAlternative
 } from '../types';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
 import { authFetch as fetch } from './http';
@@ -114,7 +116,8 @@ export const api = {
       transactions,
       categories,
       overheads,
-      revenueItems
+      revenueItems,
+      resources
     ] = await Promise.all([
       this.getProjects().catch(() => []),
       this.getMaterials().catch(() => []),
@@ -126,7 +129,8 @@ export const api = {
       this.getInventoryTransactions().catch(() => []),
       this.getCategories().catch(() => []),
       this.getOverheadItems().catch(() => []),
-      this.getRevenueItemsList().catch(() => [])
+      this.getRevenueItemsList().catch(() => []),
+      this.getResources().catch(() => [])
     ]);
     return {
       projects,
@@ -139,8 +143,93 @@ export const api = {
       transactions,
       categories,
       overheads,
-      revenueItems
+      revenueItems,
+      resources
     };
+  },
+
+  // --- Enterprise Resources Portal (PostgreSQL inno_cost) ---
+  // Labours and charges, machineries, equipments, tools, materials, subcontractors
+  async getResources(params?: ListQueryParams): Promise<EnterpriseResource[]> {
+    const res = await fetch(`/api/resources?${buildQueryString(params)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch enterprise resources');
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.data || [];
+  },
+
+  async getResourcesPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<EnterpriseResource>> {
+    const res = await fetch(`/api/resources?${buildQueryString(params, true)}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch paginated enterprise resources');
+    return await res.json();
+  },
+
+  async getResourceById(id: string): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources/${id}`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch resource');
+    return await res.json();
+  },
+
+  async createResource(data: Partial<EnterpriseResource>): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create resource in PostgreSQL');
+    return await res.json();
+  },
+
+  async updateResource(id: string, data: Partial<EnterpriseResource>): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update resource in PostgreSQL');
+    return await res.json();
+  },
+
+  async deleteResource(id: string): Promise<any> {
+    const res = await fetch(`/api/resources/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete resource');
+    return await res.json();
+  },
+
+  async addResourceAlternative(resourceId: string, altData: Partial<ResourceAlternative>): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources/${resourceId}/alternatives`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(altData)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to add alternative');
+    return await res.json();
+  },
+
+  async applyResourceAlternative(resourceId: string, alternativeId: string, reason?: string, actor?: string): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources/${resourceId}/apply-alternative`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alternativeId, reason, actor })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to apply alternative');
+    return await res.json();
+  },
+
+  async allocateResourceToProject(
+    resourceId: string,
+    projectId: string,
+    phaseId: string,
+    quantity: number,
+    unit?: string,
+    unitCost?: number
+  ): Promise<any> {
+    const res = await fetch(`/api/resources/${resourceId}/allocate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, phaseId, quantity, unit, unitCost })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to allocate resource to project');
+    return await res.json();
   },
 
   // --- Clients (PostgreSQL inno_cost) ---
