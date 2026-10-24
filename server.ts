@@ -1627,6 +1627,33 @@ async function startServer() {
     }
   });
 
+  app.get('/api/resources/:id/price-history', async (req, res) => {
+    try {
+      const history = await postgresService.getResourcePriceHistory(req.params.id);
+      res.json(history);
+    } catch (e: any) {
+      console.error('Failed to fetch resource price history:', e);
+      res.status(500).json({ error: 'Failed to fetch resource price history', details: e?.message });
+    }
+  });
+
+  app.post('/api/resources/:id/commit-price', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateResource(req.params.id, {
+        baseRate: req.body.newRate ?? req.body.baseRate,
+        reason: req.body.reason || req.body.changeReason || 'Resource rate revision via Directory FXTT table',
+        effectiveDate: req.body.effectiveDate,
+        updatedBy: actor?.name || req.body.updatedBy || 'Resource Manager',
+        currency: req.body.currency || 'LKR'
+      });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to commit resource price:', e);
+      res.status(500).json({ error: 'Failed to commit resource rate', details: e?.message });
+    }
+  });
+
   app.get('/api/resources/:id', async (req, res) => {
     try {
       const resource = await postgresService.getResourceById(req.params.id);
@@ -2515,108 +2542,7 @@ async function startServer() {
     }
   });
 
-  // ============================================================================
-  // ENTERPRISE RESOURCES PORTAL API (LABOURS, MACHINERIES, EQUIPMENTS, TOOLS)
-  // ============================================================================
-  app.get('/api/resources', async (req, res) => {
-    try {
-      const opts = extractListOptions(req.query);
-      const result = await postgresService.getResourcesPaginated(opts);
-      return sendListResponse(res, result, opts.paginated);
-    } catch (e: any) {
-      console.error('Failed to get enterprise resources:', e);
-      res.status(500).json({ error: 'Failed to fetch enterprise resources', details: e?.message });
-    }
-  });
 
-  app.get('/api/resources/:id', async (req, res) => {
-    try {
-      const resource = await postgresService.getResourceById(req.params.id);
-      if (!resource) return res.status(404).json({ error: 'Resource not found' });
-      res.json(resource);
-    } catch (e: any) {
-      console.error('Failed to get resource by id:', e);
-      res.status(500).json({ error: 'Failed to fetch resource', details: e?.message });
-    }
-  });
-
-  app.post('/api/resources', async (req, res) => {
-    try {
-      if (!req.body || !req.body.name) {
-        return res.status(400).json({ error: 'Resource name is required' });
-      }
-      const created = await postgresService.createResource(req.body);
-      res.status(201).json(created);
-    } catch (e: any) {
-      console.error('Failed to create resource:', e);
-      res.status(500).json({ error: 'Failed to create resource in PostgreSQL', details: e?.message });
-    }
-  });
-
-  app.put('/api/resources/:id', async (req, res) => {
-    try {
-      const updated = await postgresService.updateResource(req.params.id, req.body);
-      if (!updated) return res.status(404).json({ error: 'Resource not found' });
-      res.json(updated);
-    } catch (e: any) {
-      console.error('Failed to update resource:', e);
-      res.status(500).json({ error: 'Failed to update resource', details: e?.message });
-    }
-  });
-
-  app.delete('/api/resources/:id', async (req, res) => {
-    try {
-      await postgresService.deleteResource(req.params.id);
-      res.json({ success: true, message: 'Resource deleted successfully' });
-    } catch (e: any) {
-      console.error('Failed to delete resource:', e);
-      res.status(500).json({ error: 'Failed to delete resource', details: e?.message });
-    }
-  });
-
-  app.post('/api/resources/:id/alternatives', async (req, res) => {
-    try {
-      const updated = await postgresService.addResourceAlternative(req.params.id, req.body);
-      res.status(201).json(updated);
-    } catch (e: any) {
-      console.error('Failed to add alternative:', e);
-      res.status(500).json({ error: 'Failed to add alternative', details: e?.message });
-    }
-  });
-
-  app.post('/api/resources/:id/apply-alternative', async (req, res) => {
-    try {
-      const { alternativeId, reason, actor } = req.body || {};
-      if (!alternativeId) return res.status(400).json({ error: 'Alternative ID is required' });
-      const updated = await postgresService.applyResourceAlternative(req.params.id, alternativeId, reason, actor);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('Failed to apply alternative:', e);
-      res.status(500).json({ error: 'Failed to apply alternative', details: e?.message });
-    }
-  });
-
-  app.post('/api/resources/:id/allocate', async (req, res) => {
-    try {
-      const { projectId, phaseId, quantity, unit, unitCost, planId } = req.body || {};
-      if (!projectId || !phaseId) {
-        return res.status(400).json({ error: 'projectId and phaseId are required for allocation' });
-      }
-      const result = await postgresService.allocateResourceToProject(
-        req.params.id,
-        projectId,
-        phaseId,
-        Number(quantity) || 1,
-        unit,
-        unitCost !== undefined ? Number(unitCost) : undefined,
-        planId
-      );
-      res.json(result);
-    } catch (e: any) {
-      console.error('Failed to allocate resource:', e);
-      res.status(500).json({ error: 'Failed to allocate resource', details: e?.message });
-    }
-  });
 
   // --- Shared app settings (numbering rules, templates, image overrides, calendar, FX rates) ---
   const KV_KEY = /^[A-Za-z0-9_.\-]{1,80}$/;

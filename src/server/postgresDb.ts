@@ -14741,10 +14741,10 @@ export class PostgresService {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           `ph-${Date.now()}`, 'material', id, existing.code, existing.name,
-          prev, next, diff, existing.currency || 'USD', new Date().toISOString().slice(0, 10),
+          prev, next, diff, data.currency || existing.currency || 'LKR', data.effectiveDate || new Date().toISOString().slice(0, 10),
           data.reason || 'Resource rate revision via portal', data.updatedBy || 'Resource Manager'
         ]
-      ).catch(() => {});
+      ).catch((err: any) => console.warn('Could not record resource price history:', err));
     }
 
     await db.query(
@@ -14763,6 +14763,31 @@ export class PostgresService {
     );
 
     return this.getResourceById(id);
+  }
+
+  public async getResourcePriceHistory(resourceId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT *, effective_date::text as effective_date_iso FROM price_history_records
+       WHERE entity_id = $1
+       ORDER BY effective_date DESC, recorded_at DESC`,
+      [resourceId]
+    );
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      entityType: r.entity_type,
+      entityId: r.entity_id,
+      entityCode: r.entity_code,
+      entityName: r.entity_name,
+      previousPrice: round4(r.previous_price || 0),
+      newPrice: round4(r.new_price || 0),
+      changePct: round2(r.change_pct || 0),
+      currency: r.currency || 'LKR',
+      effectiveDate: formatSqlDate(r.effective_date_iso || r.effective_date, ''),
+      recordedAt: r.recorded_at ? new Date(r.recorded_at).toISOString() : new Date().toISOString(),
+      reason: r.reason || '',
+      updatedBy: r.updated_by || 'Resource Manager'
+    }));
   }
 
   public async deleteResource(id: string): Promise<boolean> {

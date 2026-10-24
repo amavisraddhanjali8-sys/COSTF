@@ -45,7 +45,8 @@ import {
   Percent,
   Trash2,
   Upload,
-  Package
+  Package,
+  Eye
 } from 'lucide-react';
 import { ModernTileCard } from './ModernTileCard';
 import { ColorGradientPicker } from './ColorGradientPicker';
@@ -83,6 +84,13 @@ import {
   EditItemModal,
   DeleteConfirmModal
 } from './DirectoryCRUDModals';
+import {
+  CreateEditResourceModal,
+  DeleteResourceConfirmModal,
+  ResourceDetailsModal,
+  ResourcePriceChangeModal,
+  ResourcePriceHistoryModal
+} from './DirectoryResourceModals';
 import { bizStore } from '../services/bizStore';
 
 export type DirectoryTab =
@@ -281,6 +289,13 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   // Enterprise Resources State (Labour, Machinery, Equipment, Tools, Subcontractors, Materials)
   const [enterpriseResources, setEnterpriseResources] = useState<EnterpriseResource[]>([]);
   const [selectedResourceCategory, setSelectedResourceCategory] = useState<string | null>(null);
+  const [resourceViewMode, setResourceViewMode] = useState<'cards' | 'table'>('cards');
+  const [isCreateResourceModalOpen, setIsCreateResourceModalOpen] = useState(false);
+  const [editingResource, setEditingResource] = useState<EnterpriseResource | null>(null);
+  const [viewingResource, setViewingResource] = useState<EnterpriseResource | null>(null);
+  const [priceChangeResource, setPriceChangeResource] = useState<EnterpriseResource | null>(null);
+  const [priceHistoryResource, setPriceHistoryResource] = useState<EnterpriseResource | null>(null);
+  const [deletingResource, setDeletingResource] = useState<EnterpriseResource | null>(null);
 
   useEffect(() => {
     api.getResources()
@@ -289,6 +304,34 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       })
       .catch((err) => console.warn('Could not load enterprise resources in Directory Hub:', err));
   }, []);
+
+  const handleResourceSaved = (saved: EnterpriseResource) => {
+    setEnterpriseResources((prev) => {
+      const idx = prev.findIndex((r) => r.id === saved.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = saved;
+        return copy;
+      }
+      return [saved, ...prev];
+    });
+  };
+
+  const handleResourceDeleted = (id: string) => {
+    setEnterpriseResources((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleResourcePriceUpdated = (updated: EnterpriseResource) => {
+    setEnterpriseResources((prev) => {
+      const idx = prev.findIndex((r) => r.id === updated.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = updated;
+        return copy;
+      }
+      return prev;
+    });
+  };
 
   const resourceCategoriesData = useMemo(() => {
     const types: Array<{
@@ -320,9 +363,23 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   }, [enterpriseResources]);
 
   const filteredCategoryResources = useMemo(() => {
-    if (!selectedResourceCategory) return [];
-    return enterpriseResources.filter((r) => r.type === selectedResourceCategory);
-  }, [enterpriseResources, selectedResourceCategory]);
+    let list = enterpriseResources;
+    if (selectedResourceCategory) {
+      list = list.filter((r) => r.type === selectedResourceCategory);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (r) =>
+          r.name?.toLowerCase().includes(q) ||
+          r.code?.toLowerCase().includes(q) ||
+          r.category?.toLowerCase().includes(q) ||
+          r.supplierName?.toLowerCase().includes(q) ||
+          r.type?.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [enterpriseResources, selectedResourceCategory, searchQuery]);
 
   // Competitor Intelligence & Market Benchmark Directory States
   const [competitorsList, setCompetitorsList] = useState<Competitor[]>(competitorsProp || []);
@@ -2079,7 +2136,10 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           {activeTab === 'resources' && (
             <button
               type="button"
-              onClick={() => onNavigateTab('resource-allocation')}
+              onClick={() => {
+                setEditingResource(null);
+                setIsCreateResourceModalOpen(true);
+              }}
               className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-all shadow-2xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-white" />
@@ -2790,99 +2850,280 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {/* TAB: ENTERPRISE RESOURCES (LABOUR, MACHINERY, EQUIPMENT, TOOLS, SUBCONTRACTORS, MATERIALS) */}
       {activeTab === 'resources' && (
         <div className="space-y-4">
-          {/* Breadcrumb Header */}
-          <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-            <div className="flex items-center space-x-2">
+          {/* Navigation & Controls Bar */}
+          <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300">
+            {/* Category Filter Tabs */}
+            <div className="flex items-center flex-wrap gap-1.5">
               <button
                 type="button"
                 onClick={() => setSelectedResourceCategory(null)}
-                className={`font-semibold hover:text-[#0078d4] transition-colors cursor-pointer ${
-                  !selectedResourceCategory ? 'text-[#0078d4] font-bold' : ''
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                  !selectedResourceCategory
+                    ? 'bg-[#0078d4] text-white shadow-2xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
-                All Resources
+                All ({enterpriseResources.length})
               </button>
-              {selectedResourceCategory && (
-                <>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="font-bold capitalize text-slate-900 dark:text-slate-100">
-                    {selectedResourceCategory}
-                  </span>
-                </>
-              )}
+              {resourceCategoriesData.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedResourceCategory(cat.type)}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                    selectedResourceCategory === cat.type
+                      ? 'bg-[#0078d4] text-white shadow-2xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span className="w-3.5 h-3.5 flex items-center justify-center">{cat.icon}</span>
+                  <span>{cat.title} ({cat.count})</span>
+                </button>
+              ))}
             </div>
 
-            <div className="flex items-center space-x-2">
+            {/* Right Controls: View Switcher, + Resource, Allocation */}
+            <div className="flex items-center space-x-2 ml-auto">
+              {/* View Switcher Toggle */}
+              <div className="flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setResourceViewMode('cards')}
+                  title="Cards View"
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    resourceViewMode === 'cards'
+                      ? 'bg-white dark:bg-slate-700 text-[#0078d4] shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>Cards</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResourceViewMode('table')}
+                  title="Table View"
+                  className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                    resourceViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-700 text-[#0078d4] shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>Table</span>
+                </button>
+              </div>
+
+              {/* Quick Add Resource */}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingResource(null);
+                  setIsCreateResourceModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-3 py-1 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Resource</span>
+              </button>
+
+              {/* Allocation Link */}
               <button
                 type="button"
                 onClick={() => onNavigateTab('resource-allocation')}
-                className="px-3 py-1 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                className="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
               >
                 Allocation
               </button>
             </div>
           </div>
 
-          {/* 6 Resource Category Cards */}
-          {!selectedResourceCategory ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Root Category Cards Summary (shown when looking at All Resources) */}
+          {!selectedResourceCategory && !searchQuery.trim() && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               {resourceCategoriesData.map((cat) => (
                 <div
                   key={cat.id}
                   onClick={() => setSelectedResourceCategory(cat.type)}
-                  className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs hover:shadow-md hover:border-[#0078d4] transition-all cursor-pointer group flex flex-col justify-between"
+                  className="bg-white dark:bg-[#0f172a] rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 shadow-2xs hover:shadow-md hover:border-[#0078d4] transition-all cursor-pointer group flex flex-col justify-between"
                 >
                   <div className="flex items-start justify-between">
-                    <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950 text-[#0078d4] group-hover:bg-[#0078d4] group-hover:text-white transition-colors">
+                    <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950 text-[#0078d4] group-hover:bg-[#0078d4] group-hover:text-white transition-colors">
                       {cat.icon}
                     </div>
-                    <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                      {cat.count} Items
+                    <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      {cat.count}
                     </span>
                   </div>
 
-                  <div className="mt-4">
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-[#0078d4] transition-colors">
+                  <div className="mt-2.5">
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 group-hover:text-[#0078d4] transition-colors">
                       {cat.title}
                     </h3>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-slate-500">Average:</span>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        {formatCurrency(cat.avgRate, 'LKR')} / {cat.unit}
-                      </span>
+                    <div className="mt-1 text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                      {formatCurrency(cat.avgRate, 'LKR')} / {cat.unit}
                     </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-[#0078d4]">
-                      View
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#0078d4] group-hover:translate-x-1 transition-all" />
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            /* Items Table for Selected Resource Category */
-            <div className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-              <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize">
-                    {selectedResourceCategory}
-                  </h3>
-                  <span className="text-xs text-slate-500 font-mono">
-                    {filteredCategoryResources.length} records in PostgreSQL
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedResourceCategory(null)}
-                  className="px-3 py-1 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg font-semibold cursor-pointer"
-                >
-                  Back
-                </button>
-              </div>
+          )}
 
+          {/* Section Subheader: Active Category / Item Counter */}
+          <div className="flex items-center justify-between text-xs px-1">
+            <div className="flex items-center space-x-2">
+              <span className="font-bold capitalize text-slate-800 dark:text-slate-200 text-sm">
+                {selectedResourceCategory ? `${selectedResourceCategory} Resources` : 'All Resources'}
+              </span>
+              <span className="text-slate-400 font-mono text-xs">
+                ({filteredCategoryResources.length} items)
+              </span>
+            </div>
+            {selectedResourceCategory && (
+              <button
+                type="button"
+                onClick={() => setSelectedResourceCategory(null)}
+                className="text-xs text-[#0078d4] hover:underline font-semibold cursor-pointer"
+              >
+                Show All
+              </button>
+            )}
+          </div>
+
+          {/* CARDS UI VIEW */}
+          {resourceViewMode === 'cards' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4">
+              {filteredCategoryResources.map((res) => {
+                const categoryIcon = resourceCategoriesData.find((c) => c.type === res.type)?.icon || <Package className="w-4 h-4" />;
+                return (
+                  <div
+                    key={res.id}
+                    className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs hover:shadow-md hover:border-[#0078d4]/40 transition-all flex flex-col justify-between"
+                  >
+                    {/* Top Row: Type, Code & Status */}
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="p-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                            {categoryIcon}
+                          </span>
+                          <span className="font-mono text-[11px] font-bold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                            {res.code}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          {res.status || 'Available'}
+                        </span>
+                      </div>
+
+                      {/* Resource Name */}
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                        {res.name}
+                      </h4>
+
+                      {/* Meta Information */}
+                      <div className="mt-2 space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center justify-between">
+                          <span>Category:</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            {res.category}{res.subCategory ? ` • ${res.subCategory}` : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Supplier:</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            {res.supplierName || 'Primary'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Rate and Market Benchmark Box */}
+                      <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800">
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-[10px] uppercase font-bold text-slate-400">Rate</span>
+                          <span className="font-mono font-extrabold text-sm text-[#0078d4] dark:text-blue-400">
+                            {formatCurrency(res.baseRate, res.currency || 'LKR')}
+                            <span className="text-[11px] font-normal text-slate-500 ml-1">/ {res.unit}</span>
+                          </span>
+                        </div>
+                        {res.competitorRate && Number(res.competitorRate) > 0 && (
+                          <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/50 dark:border-slate-800 text-[10px]">
+                            <span className="text-slate-400">Market</span>
+                            <span className="font-mono text-slate-600 dark:text-slate-400 font-semibold">
+                              {formatCurrency(res.competitorRate, res.currency || 'LKR')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom Action Buttons: View, Edit, Rate, History, Delete */}
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setViewingResource(res)}
+                        className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold transition-colors cursor-pointer"
+                        title="View Details"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditingResource(res)}
+                        className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold transition-colors cursor-pointer"
+                        title="Edit Resource"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPriceChangeResource(res)}
+                        className="flex-1 flex items-center justify-center space-x-1 py-1 px-2 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-[#0078d4] font-semibold transition-colors cursor-pointer"
+                        title="Change Price / Rate"
+                      >
+                        <DollarSign className="w-3.5 h-3.5" />
+                        <span>Rate</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPriceHistoryResource(res)}
+                        className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 transition-colors cursor-pointer"
+                        title="FXTT Price History Log"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDeletingResource(res)}
+                        className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/60 dark:hover:bg-red-900/60 text-red-600 transition-colors cursor-pointer"
+                        title="Delete Resource"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredCategoryResources.length === 0 && (
+                <div className="col-span-full py-12 text-center text-slate-400 bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                  <p className="text-sm font-semibold">No resources found.</p>
+                  <p className="text-xs text-slate-400 mt-1">Try adjusting your search or add a new resource.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TABLE UI VIEW */}
+          {resourceViewMode === 'table' && (
+            <div className="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
@@ -2894,6 +3135,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       <th className="px-4 py-2.5 text-right">Rate (LKR)</th>
                       <th className="px-4 py-2.5 text-right">Market (LKR)</th>
                       <th className="px-4 py-2.5 text-center">Status</th>
+                      <th className="px-4 py-2.5 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2922,12 +3164,56 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             {res.status || 'Available'}
                           </span>
                         </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <div className="flex items-center justify-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => setViewingResource(res)}
+                              className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-[11px] cursor-pointer"
+                              title="View Details"
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingResource(res)}
+                              className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-[11px] cursor-pointer"
+                              title="Edit Resource"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPriceChangeResource(res)}
+                              className="px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-[#0078d4] font-semibold text-[11px] cursor-pointer"
+                              title="Change Price / Rate"
+                            >
+                              Rate
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPriceHistoryResource(res)}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
+                              title="FXTT History"
+                            >
+                              <History className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingResource(res)}
+                              className="p-1 rounded bg-red-50 hover:bg-red-100 dark:bg-red-950/60 dark:hover:bg-red-900/60 text-red-600 cursor-pointer"
+                              title="Delete Resource"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {filteredCategoryResources.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                          No {selectedResourceCategory} resources registered.
+                        <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                          No {selectedResourceCategory || ''} resources found.
                         </td>
                       </tr>
                     )}
@@ -7649,6 +7935,68 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           onClose={() => setActiveOutsourcedRangesItem(null)}
         />
       )}
+
+      {/* 16. MODAL: ENTERPRISE RESOURCE CREATE & EDIT */}
+      <CreateEditResourceModal
+        isOpen={isCreateResourceModalOpen || !!editingResource}
+        onClose={() => {
+          setIsCreateResourceModalOpen(false);
+          setEditingResource(null);
+        }}
+        editingResource={editingResource}
+        defaultType={selectedResourceCategory || 'machinery'}
+        suppliers={suppliers}
+        onSaved={handleResourceSaved}
+        showToast={showToast}
+      />
+
+      {/* 17. MODAL: ENTERPRISE RESOURCE DELETE CONFIRM */}
+      <DeleteResourceConfirmModal
+        isOpen={!!deletingResource}
+        resource={deletingResource}
+        onClose={() => setDeletingResource(null)}
+        onDeleted={handleResourceDeleted}
+        showToast={showToast}
+      />
+
+      {/* 18. MODAL: ENTERPRISE RESOURCE DETAILS & METRICS */}
+      <ResourceDetailsModal
+        isOpen={!!viewingResource}
+        resource={viewingResource}
+        onClose={() => setViewingResource(null)}
+        onEdit={(r) => {
+          setViewingResource(null);
+          setEditingResource(r);
+        }}
+        onPriceChange={(r) => {
+          setViewingResource(null);
+          setPriceChangeResource(r);
+        }}
+        onViewHistory={(r) => {
+          setViewingResource(null);
+          setPriceHistoryResource(r);
+        }}
+      />
+
+      {/* 19. MODAL: ENTERPRISE RESOURCE PRICE / RATE CHANGE */}
+      <ResourcePriceChangeModal
+        isOpen={!!priceChangeResource}
+        resource={priceChangeResource}
+        onClose={() => setPriceChangeResource(null)}
+        onPriceUpdated={handleResourcePriceUpdated}
+        showToast={showToast}
+      />
+
+      {/* 20. MODAL: ENTERPRISE RESOURCE FXTT PRICE HISTORY */}
+      <ResourcePriceHistoryModal
+        isOpen={!!priceHistoryResource}
+        resource={priceHistoryResource}
+        onClose={() => setPriceHistoryResource(null)}
+        onNewPriceChange={(r) => {
+          setPriceHistoryResource(null);
+          setPriceChangeResource(r);
+        }}
+      />
     </div>
   );
 };

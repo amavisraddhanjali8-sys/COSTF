@@ -195,6 +195,22 @@ export const api = {
     return await res.json();
   },
 
+  async getResourcePriceHistory(resourceId: string): Promise<any[]> {
+    const res = await fetch(`/api/resources/${encodeURIComponent(resourceId)}/price-history`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch resource price history');
+    return await res.json();
+  },
+
+  async commitResourcePrice(resourceId: string, data: { newRate: number; reason?: string; effectiveDate?: string; updatedBy?: string; currency?: string }): Promise<EnterpriseResource> {
+    const res = await fetch(`/api/resources/${encodeURIComponent(resourceId)}/commit-price`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to commit resource price');
+    return await res.json();
+  },
+
   async addResourceAlternative(resourceId: string, altData: Partial<ResourceAlternative>): Promise<EnterpriseResource> {
     const res = await fetch(`/api/resources/${resourceId}/alternatives`, {
       method: 'POST',
