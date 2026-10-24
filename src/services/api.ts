@@ -1912,6 +1912,30 @@ export const api = {
       method: 'DELETE'
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete project deliverable');
+  },
+
+  // ============================================================================
+  // KV STORE API (PostgreSQL / SQLite Key-Value Storage)
+  // ============================================================================
+
+  async getKv<T = any>(key: string): Promise<T | null> {
+    try {
+      const res = await fetch(`/api/kv/${encodeURIComponent(key)}`);
+      if (!res.ok) return null;
+      const body = await res.json();
+      return body.value ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  async setKv(key: string, value: any): Promise<void> {
+    const res = await fetch(`/api/kv/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, `Failed to update KV store for ${key}`);
   }
 };
 

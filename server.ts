@@ -325,7 +325,6 @@ async function startServer() {
   // ---- Login and role checks for every /api route ----
   const PUBLIC_ROUTES: Array<[string, RegExp]> = [
     ['GET', /^\/api\/health$/],
-    ['GET', /^\/api\/database\/status$/],
     ['GET', /^\/api\/company-details$/],
     ['GET', /^\/api\/images\/[^/]+$/],
     ['POST', /^\/api\/auth\/(login|verify-mfa|google-login|signup-init|signup-verify)$/],
@@ -339,7 +338,7 @@ async function startServer() {
     ['GET', /^\/api\/audit-logs$/],
     ['GET', /^\/api\/account-requests$/],
     ['PUT', /^\/api\/account-requests\/[^/]+\/status$/],
-    ['*', /^\/api\/database\/(?!status$)/],
+    ['*', /^\/api\/database(\/|$)/],
     ['*', /^\/api\/reset-data$/],
     ['PUT', /^\/api\/company-details$/]
   ];

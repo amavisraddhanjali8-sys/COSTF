@@ -1,6 +1,10 @@
 // Role test: no login / project manager / admin against every route group
 const B = process.env.BASE || 'http://localhost:3000';
-const ADMIN = { id: process.env.ADMIN_EMAIL, pw: process.env.ADMIN_PASSWORD, code: process.env.ADMIN_CODE };
+const ADMIN = {
+  id: process.env.ADMIN_EMAIL || 'admin@example.com',
+  pw: process.env.ADMIN_PASSWORD || 'AdminPass123!',
+  code: process.env.ADMIN_CODE || '000000'
+};
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'}  ${n} ${c ? '' : x}`); };
 const call = async (m, p, body, t) => {

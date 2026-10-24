@@ -24,7 +24,13 @@ export const ALL_SYSTEM_TABS: { id: ActiveTab; label: string; group: 'Core' | 'O
   { id: 'home', label: 'Home Command Dashboard', group: 'Core' },
   { id: 'directory-hub', label: 'Directory Cards Hub', group: 'Core' },
   { id: 'item-grid', label: 'Master Data Grid Catalog', group: 'Core' },
+  { id: 'materials', label: 'Materials & Raw Stock Directory', group: 'Operations' },
+  { id: 'produce', label: 'Manufactured Products & SKUs', group: 'Operations' },
+  { id: 'suppliers', label: 'Suppliers & Vendor Registry', group: 'Operations' },
+  { id: 'outsourced', label: 'Outsourced Finishing & Tariffs', group: 'Operations' },
+  { id: 'subcontractors', label: 'Specialist Trades & Labor Roster', group: 'Operations' },
   { id: 'projects', label: 'Projects & Portfolios', group: 'Operations' },
+  { id: 'project-home', label: 'Project Dashboard & Plan Details', group: 'Operations' },
   { id: 'cost-analysis', label: 'Margins & Profitability', group: 'Finance' },
   { id: 'project-timelines', label: 'Timelines & Gantt Schedules', group: 'Operations' },
   { id: 'resource-allocation', label: 'Resource & Subcontractor Capacity', group: 'Operations' },
@@ -48,7 +54,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'directory-hub',
       'item-grid',
+      'materials',
+      'produce',
+      'suppliers',
+      'outsourced',
+      'subcontractors',
       'projects',
+      'project-home',
       'cost-analysis',
       'project-timelines',
       'resource-allocation',
@@ -80,7 +92,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'directory-hub',
       'item-grid',
+      'materials',
+      'produce',
+      'suppliers',
+      'outsourced',
+      'subcontractors',
       'projects',
+      'project-home',
       'cost-analysis',
       'project-timelines',
       'resource-allocation',
@@ -110,7 +128,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'directory-hub',
       'item-grid',
+      'materials',
+      'produce',
+      'suppliers',
+      'outsourced',
+      'subcontractors',
       'projects',
+      'project-home',
       'cost-analysis',
       'tariffs-portal',
       'overhead-portal',
@@ -138,6 +162,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'directory-hub',
       'item-grid',
+      'materials',
+      'suppliers',
       'inventory',
       'price-history-portal'
     ],
@@ -161,7 +187,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'directory-hub',
       'item-grid',
+      'materials',
+      'produce',
+      'suppliers',
+      'outsourced',
+      'subcontractors',
       'projects',
+      'project-home',
       'cost-analysis',
       'overhead-portal',
       'revenue-portal',
@@ -187,6 +219,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = 
       'home',
       'cost-analysis',
       'projects',
+      'project-home',
       'overhead-portal',
       'revenue-portal',
       'price-history-portal',
@@ -234,6 +267,9 @@ class PermissionService {
 
   constructor() {
     this.permissions = this.loadPermissions();
+    if (typeof window !== 'undefined') {
+      void this.syncWithServer();
+    }
   }
 
   private loadPermissions(): Record<UserRole, RolePermissionConfig> {
@@ -241,7 +277,6 @@ class PermissionService {
       const saved = bizStore.getItem(PERMISSIONS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Merge with defaults to guarantee all roles and fields are present
         const merged: Record<UserRole, RolePermissionConfig> = { ...DEFAULT_ROLE_PERMISSIONS };
         (Object.keys(DEFAULT_ROLE_PERMISSIONS) as UserRole[]).forEach((role) => {
           if (parsed[role]) {
@@ -260,6 +295,37 @@ class PermissionService {
       console.warn('Error loading role permissions:', e);
     }
     return { ...DEFAULT_ROLE_PERMISSIONS };
+  }
+
+  public async syncWithServer(): Promise<void> {
+    try {
+      const res = await fetch('/api/kv');
+      if (res.ok) {
+        const kv = await res.json();
+        if (kv && kv.role_permissions) {
+          const parsed = JSON.parse(kv.role_permissions);
+          const merged = { ...this.permissions };
+          (Object.keys(DEFAULT_ROLE_PERMISSIONS) as UserRole[]).forEach((role) => {
+            if (parsed[role]) {
+              merged[role] = {
+                ...DEFAULT_ROLE_PERMISSIONS[role],
+                ...parsed[role],
+                allowedTabs: Array.isArray(parsed[role].allowedTabs)
+                  ? parsed[role].allowedTabs
+                  : DEFAULT_ROLE_PERMISSIONS[role].allowedTabs
+              };
+            }
+          });
+          this.permissions = merged;
+          bizStore.setItem(PERMISSIONS_STORAGE_KEY, JSON.stringify(this.permissions));
+          window.dispatchEvent(
+            new CustomEvent('fxtt-permissions-updated', { detail: { permissions: this.permissions } })
+          );
+        }
+      }
+    } catch (e) {
+      // Ignore background sync errors
+    }
   }
 
   public getAll(): Record<UserRole, RolePermissionConfig> {
@@ -301,6 +367,12 @@ class PermissionService {
       window.dispatchEvent(
         new CustomEvent('fxtt-permissions-updated', { detail: { permissions: this.permissions } })
       );
+      // Persist to PostgreSQL KV store
+      void fetch('/api/kv/role_permissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: JSON.stringify(this.permissions) })
+      }).catch(() => {});
     } catch (e) {
       console.warn('Error saving role permissions:', e);
     }
@@ -310,14 +382,24 @@ class PermissionService {
     if (!role || !tab) return false;
     if (role === 'ADMIN') return true;
     const config = this.getRoleConfig(role);
-    // Allow subtabs/portals that belong to a category
-    if (tab === 'materials' || tab === 'produce' || tab === 'subcontractors' || tab === 'outsourced' || tab === 'suppliers') {
-      return config.allowedTabs.includes('directory-hub') || config.allowedTabs.includes('item-grid') || config.allowedTabs.includes(tab);
+    // Explicit tab match
+    if (config.allowedTabs.includes(tab)) return true;
+
+    // Subcontractors, outsourced, materials, produce, suppliers
+    const directoryTabs = ['materials', 'produce', 'subcontractors', 'outsourced', 'suppliers'];
+    if (directoryTabs.includes(tab)) {
+      const hasSpecificConfig = config.allowedTabs.some(t => directoryTabs.includes(t));
+      // Only fallback to directory-hub/item-grid if admin hasn't configured specific directory tabs
+      if (!hasSpecificConfig && (config.allowedTabs.includes('directory-hub') || config.allowedTabs.includes('item-grid'))) {
+        return true;
+      }
+      return false;
     }
-    if (tab === 'project-home' || tab === 'plan-details') {
-      return config.allowedTabs.includes('projects');
+
+    if ((tab === 'project-home' || tab === 'plan-details') && (config.allowedTabs.includes('projects') || config.allowedTabs.includes('project-home'))) {
+      return true;
     }
-    return config.allowedTabs.includes(tab);
+    return false;
   }
 
   public hasCapability(

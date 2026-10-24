@@ -1885,6 +1885,7 @@ export default function App() {
             materials={materials}
             subcontractors={subcontractors}
             outsourcedServices={outsourcedServices}
+            clients={clients}
             onSelectProject={(p) => setSelectedProjectId(p.id)}
             onCreateProject={handleCreateProject}
             onUpdateProject={handleUpdateProject}

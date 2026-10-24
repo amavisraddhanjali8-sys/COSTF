@@ -9,7 +9,7 @@ import {
   InventoryItem,
   CompanyDetails
 } from '../types';
-import { formatLKR } from './currency';
+import { formatCurrency, getStoredCurrency, formatLKR, getCurrencyInfo } from './currency';
 
 /**
  * Clean and escape values for standard RFC 4180 CSV format
@@ -42,7 +42,8 @@ export function triggerDownload(content: string, filename: string, mimeType = 't
 // 1. INDIVIDUAL CSV BUILDERS (WITH SRI LANKA RUPEES - LKR)
 // -------------------------------------------------------------
 
-export function generateMaterialsCSV(materials: MaterialItem[]): string {
+export function generateMaterialsCSV(materials: MaterialItem[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Material Code',
     'Item Name',
@@ -50,7 +51,7 @@ export function generateMaterialsCSV(materials: MaterialItem[]): string {
     'Sub-Category',
     'Classification',
     'Unit of Measure',
-    'Retail Price (LKR)',
+    `Retail Price (${cur})`,
     'In Stock Qty',
     'Reorder Point',
     'Lead Time (Days)',
@@ -116,7 +117,8 @@ export function generateSuppliersCSV(suppliers: Supplier[]): string {
   return [headers.map(escapeCSV).join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
 }
 
-export function generateSubcontractorsCSV(subcontractors: SubcontractorRateItem[]): string {
+export function generateSubcontractorsCSV(subcontractors: SubcontractorRateItem[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Subcontractor Code',
     'Contractor Name',
@@ -125,10 +127,10 @@ export function generateSubcontractorsCSV(subcontractors: SubcontractorRateItem[
     'Sub-Category',
     'Skill Level',
     'Unit of Rate',
-    'Base Cost Rate (LKR)',
-    'Retail Billable Rate (LKR)',
+    `Base Cost Rate (${cur})`,
+    `Retail Billable Rate (${cur})`,
     'Rate Model',
-    'Contract Estimate (LKR)',
+    `Contract Estimate (${cur})`,
     'Operational Location'
   ];
 
@@ -150,15 +152,16 @@ export function generateSubcontractorsCSV(subcontractors: SubcontractorRateItem[
   return [headers.map(escapeCSV).join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
 }
 
-export function generateOutsourcedCSV(services: OutsourcedService[]): string {
+export function generateOutsourcedCSV(services: OutsourcedService[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Service Code',
     'Surface / Finishing Process',
     'Partner Provider',
     'Category',
     'Base Unit Type',
-    'Internal Rate (LKR)',
-    'Retail Tariff (LKR)',
+    `Internal Rate (${cur})`,
+    `Retail Tariff (${cur})`,
     'SLA Level Guarantee',
     'Last Updated'
   ];
@@ -178,15 +181,16 @@ export function generateOutsourcedCSV(services: OutsourcedService[]): string {
   return [headers.map(escapeCSV).join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
 }
 
-export function generateProduceCSV(produce: ProduceItem[]): string {
+export function generateProduceCSV(produce: ProduceItem[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Product SKU Code',
     'Product / Assembly Name',
     'Category',
     'Sub-Category',
     'Unit',
-    'Internal Production Cost (LKR)',
-    'Target Retail Price (LKR)',
+    `Internal Production Cost (${cur})`,
+    `Target Retail Price (${cur})`,
     'Projected Margin (%)',
     'Lead Time (Days)',
     'Status',
@@ -213,14 +217,15 @@ export function generateProduceCSV(produce: ProduceItem[]): string {
   return [headers.map(escapeCSV).join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
 }
 
-export function generateProjectsCSV(projects: Project[]): string {
+export function generateProjectsCSV(projects: Project[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Project Code',
     'Project Name',
     'Client Name',
     'Product Category',
-    'Quoted Price (LKR)',
-    'Actual Cost to Date (LKR)',
+    `Quoted Price (${cur})`,
+    `Actual Cost to Date (${cur})`,
     'Target Margin (%)',
     'Delivery Deadline',
     'Status',
@@ -319,7 +324,8 @@ export function generateProjectCostItemsCSV(project: Project): string {
   return [headers.map(escapeCSV).join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
 }
 
-export function generateInventoryCSV(inventory: InventoryItem[]): string {
+export function generateInventoryCSV(inventory: InventoryItem[], currency?: string): string {
+  const cur = currency || getStoredCurrency() || 'USD';
   const headers = [
     'Inventory ID',
     'Item Code',
@@ -329,8 +335,8 @@ export function generateInventoryCSV(inventory: InventoryItem[]): string {
     'Quantity On Hand',
     'Reserved Qty',
     'Unit of Measure',
-    'Unit Valuation Cost (LKR)',
-    'Total Valuation (LKR)',
+    `Unit Valuation Cost (${cur})`,
+    `Total Valuation (${cur})`,
     'Quality Status',
     'Last Count Date'
   ];
@@ -372,6 +378,7 @@ export interface EnterpriseExportData {
   inventory: InventoryItem[];
   companyDetails?: CompanyDetails;
   selectedProject?: Project | null;
+  currency?: string;
 }
 
 export interface ExportSelectionOptions {
@@ -398,11 +405,15 @@ export function generateEnterpriseMasterPDF(
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const activeCur = data.currency || getStoredCurrency() || 'USD';
+  const currInfo = getCurrencyInfo(activeCur);
+  const symbol = currInfo.symbol;
+
   const company = data.companyDetails || {
     name: 'FXTT Enterprise Solutions Ltd',
-    tagline: 'Precision Cost, Tariff & Project Profitability Management (LKR)',
+    tagline: `Precision Cost, Tariff & Project Profitability Management (${activeCur})`,
     address: '100 Galle Road, World Trade Center Tower, Colombo 01, Sri Lanka',
-    currency: 'LKR (Rs.)'
+    currency: `${activeCur} (${symbol})`
   };
 
   const timestamp = new Date().toLocaleString('en-US', {
@@ -432,7 +443,7 @@ export function generateEnterpriseMasterPDF(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 213, 225);
   doc.text('ENTERPRISE DATA AUDIT & RESOURCE MASTER SPECIFICATION', 14, 19);
-  doc.text(`Generated: ${timestamp} | Currency: Sri Lankan Rupee (LKR / Rs.)`, 14, 25);
+  doc.text(`Generated: ${timestamp} | Currency: ${currInfo.name} (${activeCur} / ${symbol})`, 14, 25);
 
   y = 42;
 
@@ -450,7 +461,7 @@ export function generateEnterpriseMasterPDF(
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('PORTFOLIO KPI SUMMARY (SRI LANKA RUPEES - LKR)', 20, y + 6);
+  doc.text(`PORTFOLIO KPI SUMMARY (${currInfo.name.toUpperCase()} - ${activeCur})`, 20, y + 6);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -468,8 +479,8 @@ export function generateEnterpriseMasterPDF(
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`Stock Valuation: ${formatLKR(totalInventoryValuation, { compact: true })}`, 20 + colWidth * 3, y + 13);
-  doc.text(`Quoted Portfolio: ${formatLKR(totalProjectQuotedVal, { compact: true })}`, 20 + colWidth * 3, y + 19);
+  doc.text(`Stock Valuation: ${formatCurrency(totalInventoryValuation, activeCur, { compact: true })}`, 20 + colWidth * 3, y + 13);
+  doc.text(`Quoted Portfolio: ${formatCurrency(totalProjectQuotedVal, activeCur, { compact: true })}`, 20 + colWidth * 3, y + 19);
 
   y += 32;
 
@@ -483,7 +494,7 @@ export function generateEnterpriseMasterPDF(
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${company.name} • Master Enterprise Dossier (LKR)`, 14, 8);
+      doc.text(`${company.name} • Master Enterprise Dossier (${activeCur})`, 14, 8);
       doc.setTextColor(15, 23, 42);
       y = 18;
     }
@@ -507,7 +518,7 @@ export function generateEnterpriseMasterPDF(
     doc.text('MATERIAL NAME', 42, y + 4);
     doc.text('CATEGORY', 95, y + 4);
     doc.text('UNIT', 135, y + 4);
-    doc.text('PRICE (LKR)', 150, y + 4);
+    doc.text(`PRICE (${activeCur})`, 150, y + 4);
     doc.text('STOCK', 178, y + 4);
     y += 7;
 
@@ -518,7 +529,7 @@ export function generateEnterpriseMasterPDF(
       doc.text((m.name || '').substring(0, 32), 42, y);
       doc.text((m.category || '').substring(0, 24), 95, y);
       doc.text(m.unit || 'pcs', 135, y);
-      doc.text(formatLKR(m.retailPrice || 0), 150, y);
+      doc.text(formatCurrency(m.retailPrice || 0, activeCur), 150, y);
       doc.text(String(m.inStock || 0), 178, y);
       y += 5;
     });
@@ -580,8 +591,8 @@ export function generateEnterpriseMasterPDF(
     doc.text('CODE', 16, y + 4);
     doc.text('CONTRACTOR / SPECIALIST', 36, y + 4);
     doc.text('TRADE / SERVICE', 85, y + 4);
-    doc.text('BASE RATE (LKR)', 135, y + 4);
-    doc.text('RETAIL BILLABLE (LKR)', 165, y + 4);
+    doc.text(`BASE RATE (${activeCur})`, 135, y + 4);
+    doc.text(`RETAIL BILLABLE (${activeCur})`, 165, y + 4);
     y += 7;
 
     doc.setFont('helvetica', 'normal');
@@ -590,8 +601,8 @@ export function generateEnterpriseMasterPDF(
       doc.text((sub.code || sub.id || '').substring(0, 10), 16, y);
       doc.text((sub.subcontractorName || sub.name || '').substring(0, 28), 36, y);
       doc.text((sub.nicheServiceName || sub.serviceType || '').substring(0, 28), 85, y);
-      doc.text(`${formatLKR(sub.baseRate || sub.rate || 0)} / ${sub.unit || 'hr'}`, 135, y);
-      doc.text(`${formatLKR(sub.retailRate || 0)} / ${sub.unit || 'hr'}`, 165, y);
+      doc.text(`${formatCurrency(sub.baseRate || sub.rate || 0, activeCur)} / ${sub.unit || 'hr'}`, 135, y);
+      doc.text(`${formatCurrency(sub.retailRate || 0, activeCur)} / ${sub.unit || 'hr'}`, 165, y);
       y += 5;
     });
     y += 4;
@@ -613,7 +624,7 @@ export function generateEnterpriseMasterPDF(
     doc.text('PROCESS / TREATMENT', 16, y + 4);
     doc.text('SERVICE PARTNER', 75, y + 4);
     doc.text('UNIT TYPE', 120, y + 4);
-    doc.text('TARIFF RATE (LKR)', 155, y + 4);
+    doc.text(`TARIFF RATE (${activeCur})`, 155, y + 4);
     y += 7;
 
     doc.setFont('helvetica', 'normal');
@@ -622,7 +633,7 @@ export function generateEnterpriseMasterPDF(
       doc.text((srv.name || '').substring(0, 32), 16, y);
       doc.text((srv.providerName || (srv as any).provider || '').substring(0, 24), 75, y);
       doc.text(srv.baseUnitType || srv.unit || 'per_unit', 120, y);
-      doc.text(formatLKR(srv.retailPrice || srv.rate || 0), 155, y);
+      doc.text(formatCurrency(srv.retailPrice || srv.rate || 0, activeCur), 155, y);
       y += 5;
     });
     y += 4;
@@ -642,7 +653,7 @@ export function generateEnterpriseMasterPDF(
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(71, 85, 105);
       doc.text(
-        `Project: ${data.selectedProject.name} | Client: ${data.selectedProject.clientName} | Quoted Value: ${formatLKR(data.selectedProject.quotedPrice)} | Margin: ${data.selectedProject.targetMarginPct}%`,
+        `Project: ${data.selectedProject.name} | Client: ${data.selectedProject.clientName} | Quoted Value: ${formatCurrency(data.selectedProject.quotedPrice, activeCur)} | Margin: ${data.selectedProject.targetMarginPct}%`,
         14,
         y
       );
@@ -726,7 +737,7 @@ export function generateEnterpriseMasterPDF(
       doc.text('CODE', 16, y + 4);
       doc.text('PROJECT NAME', 35, y + 4);
       doc.text('CLIENT', 85, y + 4);
-      doc.text('CONTRACT VALUE (LKR)', 130, y + 4);
+      doc.text(`CONTRACT VALUE (${activeCur})`, 130, y + 4);
       doc.text('STATUS', 175, y + 4);
       y += 7;
 
@@ -736,7 +747,7 @@ export function generateEnterpriseMasterPDF(
         doc.text((prj.code || '').substring(0, 10), 16, y);
         doc.text((prj.name || '').substring(0, 28), 35, y);
         doc.text((prj.clientName || '').substring(0, 22), 85, y);
-        doc.text(formatLKR(prj.quotedPrice || 0), 130, y);
+        doc.text(formatCurrency(prj.quotedPrice || 0, activeCur), 130, y);
         doc.text(prj.status || 'Active', 175, y);
         y += 5;
       });
@@ -752,7 +763,7 @@ export function generateEnterpriseMasterPDF(
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `Page ${i} of ${pageCount} • ${company.name} • Official Enterprise Ledger (LKR)`,
+      `Page ${i} of ${pageCount} • ${company.name} • Official Enterprise Ledger (${activeCur})`,
       pageWidth / 2,
       pageHeight - 8,
       { align: 'center' }
@@ -772,11 +783,12 @@ export function downloadCompleteEnterpriseArchive(data: EnterpriseExportData): {
 } {
   const dateStr = new Date().toISOString().split('T')[0];
 
+  const activeCur = data.currency || getStoredCurrency() || 'USD';
   // 1. Download Master JSON Backup
   const fullBackupPayload = {
     enterprise: data.companyDetails?.name || 'FXTT Enterprise Solutions',
     exportDate: new Date().toISOString(),
-    currency: 'LKR',
+    currency: activeCur,
     dataset: {
       materials: data.materials,
       suppliers: data.suppliers,
@@ -794,17 +806,17 @@ export function downloadCompleteEnterpriseArchive(data: EnterpriseExportData): {
   );
 
   // 2. Download Individual CSV files
-  triggerDownload(generateMaterialsCSV(data.materials), `FXTT-Materials-Catalog-${dateStr}.csv`);
+  triggerDownload(generateMaterialsCSV(data.materials, activeCur), `FXTT-Materials-Catalog-${dateStr}.csv`);
   triggerDownload(generateSuppliersCSV(data.suppliers), `FXTT-Suppliers-Directory-${dateStr}.csv`);
-  triggerDownload(generateSubcontractorsCSV(data.subcontractors), `FXTT-Subcontractors-Labor-${dateStr}.csv`);
-  triggerDownload(generateOutsourcedCSV(data.outsourcedServices), `FXTT-Outsourced-Finishing-${dateStr}.csv`);
-  triggerDownload(generateProduceCSV(data.produceItems), `FXTT-Produce-Assemblies-${dateStr}.csv`);
-  triggerDownload(generateProjectsCSV(data.projects), `FXTT-Projects-Portfolio-${dateStr}.csv`);
-  triggerDownload(generateInventoryCSV(data.inventory), `FXTT-Inventory-Valuations-${dateStr}.csv`);
+  triggerDownload(generateSubcontractorsCSV(data.subcontractors, activeCur), `FXTT-Subcontractors-Labor-${dateStr}.csv`);
+  triggerDownload(generateOutsourcedCSV(data.outsourcedServices, activeCur), `FXTT-Outsourced-Finishing-${dateStr}.csv`);
+  triggerDownload(generateProduceCSV(data.produceItems, activeCur), `FXTT-Produce-Assemblies-${dateStr}.csv`);
+  triggerDownload(generateProjectsCSV(data.projects, activeCur), `FXTT-Projects-Portfolio-${dateStr}.csv`);
+  triggerDownload(generateInventoryCSV(data.inventory, activeCur), `FXTT-Inventory-Valuations-${dateStr}.csv`);
 
   // 3. Generate and trigger download of the Master PDF
-  const pdfDoc = generateEnterpriseMasterPDF(data);
-  pdfDoc.save(`FXTT-Master-Executive-Dossier-LKR-${dateStr}.pdf`);
+  const pdfDoc = generateEnterpriseMasterPDF({ ...data, currency: activeCur });
+  pdfDoc.save(`FXTT-Master-Executive-Dossier-${activeCur}-${dateStr}.pdf`);
 
   return {
     success: true,

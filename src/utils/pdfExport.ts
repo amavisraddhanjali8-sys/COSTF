@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Project } from '../types';
+import { formatCurrency, getStoredCurrency, getCurrencyInfo } from './currency';
 
 export function exportProjectQuotePDF(project: Project) {
   const doc = new jsPDF({
@@ -385,6 +386,7 @@ export function exportPriceAuditLogPDF(options: {
   currentRate: number;
   unit?: string;
   supplierOrContractor?: string;
+  currency?: string;
   history: Array<{
     date: string;
     previousRate: number;
@@ -395,7 +397,10 @@ export function exportPriceAuditLogPDF(options: {
     status?: string;
   }>;
 }) {
-  const { itemCode, itemName, category, currentRate, unit, supplierOrContractor, history } = options;
+  const { itemCode, itemName, category, currentRate, unit, supplierOrContractor, currency, history } = options;
+  const activeCurr = currency || getStoredCurrency() || 'LKR';
+  const currInfo = getCurrencyInfo(activeCurr);
+  const symbol = currInfo.symbol;
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -447,7 +452,7 @@ export function exportPriceAuditLogPDF(options: {
   doc.text(`Item Name: ${itemName}`, marginX + 5, y + 17);
   doc.text(`Category: ${category || 'General Industrial Catalog'}`, marginX + 5, y + 22);
 
-  doc.text(`Current Active Rate: Rs. ${currentRate.toLocaleString()} / ${unit || 'unit'}`, marginX + 100, y + 12);
+  doc.text(`Current Active Rate: ${formatCurrency(currentRate, activeCurr)} / ${unit || 'unit'}`, marginX + 100, y + 12);
   doc.text(`Supplier / Partner: ${supplierOrContractor || 'Standard Catalog Supplier'}`, marginX + 100, y + 17);
   doc.text(`Total Recorded Revisions: ${history.length} Event(s)`, marginX + 100, y + 22);
 
@@ -463,8 +468,8 @@ export function exportPriceAuditLogPDF(options: {
   // Table Columns layout
   const cols = [
     { label: 'Date', width: 22 },
-    { label: 'Previous (LKR)', width: 27, align: 'right' },
-    { label: 'New Rate (LKR)', width: 27, align: 'right' },
+    { label: `Previous (${activeCurr})`, width: 27, align: 'right' },
+    { label: `New Rate (${activeCurr})`, width: 27, align: 'right' },
     { label: 'Variance', width: 18, align: 'center' },
     { label: 'Business Justification / Reason', width: 56 },
     { label: 'Auditor / Approver', width: 30 }
@@ -518,13 +523,13 @@ export function exportPriceAuditLogPDF(options: {
 
     // Previous Rate
     doc.setTextColor(100, 116, 139);
-    doc.text(`Rs. ${Number(rec.previousRate).toLocaleString()}`, curX + cols[1].width - 2, y + 4.5, { align: 'right' });
+    doc.text(formatCurrency(rec.previousRate, activeCurr), curX + cols[1].width - 2, y + 4.5, { align: 'right' });
     curX += cols[1].width;
 
     // New Rate
     doc.setTextColor(15, 23, 42);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Rs. ${Number(rec.newRate).toLocaleString()}`, curX + cols[2].width - 2, y + 4.5, { align: 'right' });
+    doc.text(formatCurrency(rec.newRate, activeCurr), curX + cols[2].width - 2, y + 4.5, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     curX += cols[2].width;
 
@@ -561,9 +566,9 @@ export function exportPriceAuditLogPDF(options: {
   doc.setFontSize(7);
   doc.setTextColor(100, 116, 139);
   doc.text('CERTIFIED AUDIT TRAIL: All rate updates are cryptographically hashed and logged under immutable commercial governance.', marginX + 4, y + 5);
-  doc.text('Currency Standard: Sri Lanka Rupees (LKR / Rs.) • Sign-off by Procurement Lead and Finance Controller.', marginX + 4, y + 9.5);
+  doc.text(`Currency Standard: ${currInfo.name} (${activeCurr} / ${symbol}) • Sign-off by Procurement Lead and Finance Controller.`, marginX + 4, y + 9.5);
 
-  const safeFilename = `Price_Audit_${itemCode.replace(/[^a-zA-Z0-9_-]/g, '_')}_LKR.pdf`;
+  const safeFilename = `Price_Audit_${itemCode.replace(/[^a-zA-Z0-9_-]/g, '_')}_${activeCurr}.pdf`;
   doc.save(safeFilename);
   return doc;
 }
@@ -620,6 +625,10 @@ export function exportMasterExecutiveReportPDF(
     outsourced = outsourcedParam || [];
     suppliers = suppliersParam || [];
   }
+  const activeCurr = optionsOrCompany?.currency || getStoredCurrency() || 'USD';
+  const currInfo = getCurrencyInfo(activeCurr);
+  const symbol = currInfo.symbol;
+
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -638,9 +647,9 @@ export function exportMasterExecutiveReportPDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
-  doc.text('MASTER ENTERPRISE AUDIT & COMMERCIAL OPERATIONS REPORT (LKR)', marginX, 18);
+  doc.text(`MASTER ENTERPRISE AUDIT & COMMERCIAL OPERATIONS REPORT (${activeCurr})`, marginX, 18);
   doc.text(
-    `Registration: ${company?.registrationNumber || 'FX-CORP-LK-2026'} | Tax ID: ${company?.taxId || 'LK-VAT-94'} | Currency: Sri Lanka Rupees (LKR / Rs.)`,
+    `Registration: ${company?.registrationNumber || 'FX-CORP-LK-2026'} | Tax ID: ${company?.taxId || 'LK-VAT-94'} | Currency: ${currInfo.name} (${activeCurr} / ${symbol})`,
     marginX,
     24
   );
@@ -662,15 +671,15 @@ export function exportMasterExecutiveReportPDF(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text('INVENTORY VALUATION (LKR)', marginX + 6, y + 6);
-  doc.text('PROJECT PIPELINE REVENUE (LKR)', marginX + 65, y + 6);
-  doc.text('TRANSACTIONS VOLUME (LKR)', marginX + 128, y + 6);
+  doc.text(`INVENTORY VALUATION (${activeCurr})`, marginX + 6, y + 6);
+  doc.text(`PROJECT PIPELINE REVENUE (${activeCurr})`, marginX + 65, y + 6);
+  doc.text(`TRANSACTIONS VOLUME (${activeCurr})`, marginX + 128, y + 6);
 
   doc.setFontSize(10.5);
   doc.setTextColor(15, 23, 42);
-  doc.text(`Rs. ${Math.round(totalStockValuation).toLocaleString()}`, marginX + 6, y + 15);
-  doc.text(`Rs. ${Math.round(totalProjectRevenue).toLocaleString()}`, marginX + 65, y + 15);
-  doc.text(`Rs. ${Math.round(totalTransactionsVolume).toLocaleString()}`, marginX + 128, y + 15);
+  doc.text(formatCurrency(Math.round(totalStockValuation), activeCurr), marginX + 6, y + 15);
+  doc.text(formatCurrency(Math.round(totalProjectRevenue), activeCurr), marginX + 65, y + 15);
+  doc.text(formatCurrency(Math.round(totalTransactionsVolume), activeCurr), marginX + 128, y + 15);
 
   y += 28;
 
@@ -735,8 +744,8 @@ export function exportMasterExecutiveReportPDF(
   doc.text('Material / Item Name', marginX + 32, y + 4.5);
   doc.text('Location', marginX + 96, y + 4.5);
   doc.text('Stock', marginX + 130, y + 4.5);
-  doc.text('Unit Cost (LKR)', marginX + 148, y + 4.5);
-  doc.text('Valuation (LKR)', marginX + 182, y + 4.5, { align: 'right' });
+  doc.text(`Unit Cost (${activeCurr})`, marginX + 148, y + 4.5);
+  doc.text(`Valuation (${activeCurr})`, marginX + 182, y + 4.5, { align: 'right' });
   y += 6.5;
 
   inventory.slice(0, 8).forEach((inv, idx) => {
@@ -756,9 +765,9 @@ export function exportMasterExecutiveReportPDF(
     doc.text(itemName.substring(0, 34), marginX + 32, y + 4.2);
     doc.text((inv.location || 'Warehouse').substring(0, 18), marginX + 96, y + 4.2);
     doc.text(String(stockQty), marginX + 130, y + 4.2);
-    doc.text(`Rs. ${unitCost.toLocaleString()}`, marginX + 148, y + 4.2);
+    doc.text(formatCurrency(unitCost, activeCurr), marginX + 148, y + 4.2);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Rs. ${Math.round(lineValuation).toLocaleString()}`, marginX + 182, y + 4.2, { align: 'right' });
+    doc.text(formatCurrency(Math.round(lineValuation), activeCurr), marginX + 182, y + 4.2, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     y += 6;
   });
@@ -786,8 +795,8 @@ export function exportMasterExecutiveReportPDF(
   doc.text('Date', marginX + 48, y + 4.5);
   doc.text('Material Code & Batch', marginX + 68, y + 4.5);
   doc.text('Qty', marginX + 120, y + 4.5);
-  doc.text('Unit Price (LKR)', marginX + 136, y + 4.5);
-  doc.text('Total Amount (LKR)', marginX + 182, y + 4.5, { align: 'right' });
+  doc.text(`Unit Price (${activeCurr})`, marginX + 136, y + 4.5);
+  doc.text(`Total Amount (${activeCurr})`, marginX + 182, y + 4.5, { align: 'right' });
   y += 6.5;
 
   transactions.slice(0, 6).forEach((tx, idx) => {
@@ -810,9 +819,9 @@ export function exportMasterExecutiveReportPDF(
     doc.text(tx.date, marginX + 48, y + 4.2);
     doc.text(`${tx.materialCode} [${tx.batchLotNumber || 'LOT-AUTO'}]`.substring(0, 30), marginX + 68, y + 4.2);
     doc.text(`${tx.quantity} ${tx.unit}`, marginX + 120, y + 4.2);
-    doc.text(`Rs. ${Number(tx.price).toLocaleString()}`, marginX + 136, y + 4.2);
+    doc.text(formatCurrency(tx.price, activeCurr), marginX + 136, y + 4.2);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Rs. ${Number(tx.totalAmount).toLocaleString()}`, marginX + 182, y + 4.2, { align: 'right' });
+    doc.text(formatCurrency(tx.totalAmount, activeCurr), marginX + 182, y + 4.2, { align: 'right' });
     y += 6;
   });
 
@@ -829,7 +838,7 @@ export function exportMasterExecutiveReportPDF(
   doc.setTextColor(71, 85, 105);
   doc.text('OFFICIAL CERTIFICATION & INTEGRITY GUARANTEE:', marginX + 4, y + 5);
   doc.text(
-    'All inventory transactions, items, rates, and projects are permanently synchronized with the central database in Sri Lanka Rupees (LKR).',
+    `All inventory transactions, items, rates, and projects are permanently synchronized with the central database in ${currInfo.name} (${activeCurr}).`,
     marginX + 4,
     y + 9
   );
@@ -839,7 +848,7 @@ export function exportMasterExecutiveReportPDF(
     y + 13
   );
 
-  doc.save(`Master_Enterprise_Executive_Report_LKR_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`Master_Enterprise_Executive_Report_${activeCurr}_${new Date().toISOString().slice(0, 10)}.pdf`);
   return doc;
 }
 

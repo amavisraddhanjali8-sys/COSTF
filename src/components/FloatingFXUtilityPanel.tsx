@@ -73,12 +73,15 @@ export const FloatingFXUtilityPanel: React.FC<FloatingFXUtilityPanelProps> = ({
       }
     };
 
+    const handleOpenPanel = () => setIsOpen(true);
     window.addEventListener('fxtt-rates-updated', handleRatesUpdated);
     window.addEventListener('fxtt-currency-changed', handleCurrencyChanged);
+    window.addEventListener('open-fxtt-panel', handleOpenPanel);
 
     return () => {
       window.removeEventListener('fxtt-rates-updated', handleRatesUpdated);
       window.removeEventListener('fxtt-currency-changed', handleCurrencyChanged);
+      window.removeEventListener('open-fxtt-panel', handleOpenPanel);
     };
   }, []);
 

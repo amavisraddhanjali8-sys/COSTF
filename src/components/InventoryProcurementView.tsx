@@ -35,7 +35,7 @@ import { INITIAL_MATERIALS } from '../data/initialData';
 import { generateBarcodeBits } from '../utils/barcodeGenerator';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
 import { generateNextNumber, peekNextNumber } from '../services/autoNumberingService';
-import { formatLKR } from '../utils/currency';
+import { formatCurrency, getStoredCurrency, formatLKR } from '../utils/currency';
 import { addBarcodeScanListener, playHardwareScanBeep } from '../services/globalBarcodeScanner';
 import { calcDiscountedLine } from '../utils/decimalMath';
 
@@ -1397,7 +1397,7 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
 
                       {/* Net Total */}
                       <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono whitespace-nowrap">
-                        Rs. {formatLKR(tot, false)}
+                        {formatCurrency(tot)}
                       </td>
 
                       {/* Project Dropdown */}
@@ -1671,10 +1671,9 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between font-mono">
                 <span className="text-slate-600 font-sans text-xs">Net Amount:</span>
                 <span className="font-bold text-slate-900 text-sm">
-                  Rs. {formatLKR(
+                  {formatCurrency(
                     (editingPendingItem.quantity * editingPendingItem.price) *
-                      (1 - (editingPendingItem.discountPct || 0) / 100),
-                    false
+                      (1 - (editingPendingItem.discountPct || 0) / 100)
                   )}
                 </span>
               </div>
@@ -2029,18 +2028,18 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
           <div className="flex items-center space-x-6">
             <div>
               <span className="text-[10px] text-slate-500 uppercase font-semibold block">Subtotal</span>
-              <span className="font-mono font-bold text-slate-900">Rs. {formatLKR(subtotal, false)}</span>
+              <span className="font-mono font-bold text-slate-900">{formatCurrency(subtotal)}</span>
             </div>
             {discountAmount > 0 && (
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-semibold block">Discount ({discountPct}%)</span>
-                <span className="font-mono font-bold text-emerald-600">-Rs. {formatLKR(discountAmount, false)}</span>
+                <span className="font-mono font-bold text-emerald-600">-{formatCurrency(discountAmount)}</span>
               </div>
             )}
             <div>
               <span className="text-[10px] text-slate-500 uppercase font-semibold block">Total Amount</span>
               <span className="font-mono font-extrabold text-base text-slate-900">
-                Rs. {formatLKR(totalAmount, false)}
+                {formatCurrency(totalAmount)}
               </span>
             </div>
             {selectedMaterial && (
@@ -2217,7 +2216,7 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
                     {tx.quantity} {tx.unit}
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                    Rs. {formatLKR(tx.totalAmount, false)}
+                    {formatCurrency(tx.totalAmount)}
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono text-[11px] text-slate-600">
                     {tx.previousAvailableQuantity} → <strong className="text-slate-900">{tx.newAvailableQuantity}</strong>
@@ -2551,7 +2550,7 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
                 <span className="text-slate-600">Calculated Total:</span>
                 <span className="font-bold text-slate-900 font-mono text-sm">
-                  Rs. {formatLKR((editingTx.quantity * editingTx.price) * (1 - (editingTx.discount || 0) / 100), false)}
+                  {formatCurrency((editingTx.quantity * editingTx.price) * (1 - (editingTx.discount || 0) / 100))}
                 </span>
               </div>
 
@@ -2671,9 +2670,9 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Net Total (LKR)</span>
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Net Total</span>
                 <span className="font-bold text-slate-900 text-sm font-mono">
-                  Rs. {formatLKR(traceabilityModalTx.totalAmount, false)}
+                  {formatCurrency(traceabilityModalTx.totalAmount)}
                 </span>
               </div>
             </div>

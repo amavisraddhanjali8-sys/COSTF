@@ -12563,7 +12563,9 @@ export class PostgresService {
     }
 
     let archiveRecord: any = null;
-    const actorUser = actor || archivePayload?.user || { id: 'ADMIN-01', name: 'Administrator', role: 'ADMIN' };
+    const actorUser = (archivePayload?.user && (archivePayload.user.name || archivePayload.user.id))
+      ? archivePayload.user
+      : (actor || { id: 'ADMIN-01', name: 'Administrator', role: 'ADMIN' });
 
     if (historyCount > 0) {
       const matRes = await db.query('SELECT code, name FROM materials WHERE id = $1', [materialId]);
@@ -13181,12 +13183,12 @@ export class PostgresService {
     try {
       if (materialId) {
         const res = await db.query(
-          'SELECT * FROM vendor_deletion_archives WHERE material_id = $1 ORDER BY deleted_at DESC',
+          'SELECT * FROM vendor_deletion_archives WHERE material_id = $1 ORDER BY archived_at DESC',
           [materialId]
         );
         return res.rows;
       }
-      const res = await db.query('SELECT * FROM vendor_deletion_archives ORDER BY deleted_at DESC');
+      const res = await db.query('SELECT * FROM vendor_deletion_archives ORDER BY archived_at DESC');
       return res.rows;
     } catch (e: any) {
       console.warn('[PostgreSQL] vendor_deletion_archives query fallback:', e?.message);
@@ -13325,6 +13327,7 @@ export class PostgresService {
         competitorId: q.competitor_id,
         competitorName: q.competitor_name,
         currentPrice: cPrice,
+        competitorPrice: cPrice,
         currency: q.currency || 'USD',
         ourPrice: ourRate,
         ourCost: ourCost,
@@ -13373,7 +13376,7 @@ export class PostgresService {
   public async createProductCompetitorQuote(itemId: string, data: any, actor?: any): Promise<any> {
     const db = await this.getDb();
     const id = data.id || `pcq-${itemId}-${Date.now()}`;
-    const price = round4(data.currentPrice || data.price || 0);
+    const price = round4(data.currentPrice ?? data.competitorPrice ?? data.price ?? 0);
     const ourPrice = round4(data.ourPrice || 0);
     const delta = round4(price - ourPrice);
     const spreadPct = ourPrice > 0 ? round2(((price - ourPrice) / ourPrice) * 100) : 0;
@@ -13460,7 +13463,9 @@ export class PostgresService {
     if (existing.rows.length === 0) return null;
     const prev = existing.rows[0];
 
-    const price = data.currentPrice !== undefined ? round4(data.currentPrice) : round4(prev.current_price);
+    const price = data.currentPrice !== undefined
+      ? round4(data.currentPrice)
+      : (data.competitorPrice !== undefined ? round4(data.competitorPrice) : (data.price !== undefined ? round4(data.price) : round4(prev.current_price)));
     const ourPrice = data.ourPrice !== undefined ? round4(data.ourPrice) : round4(prev.our_price);
     const delta = round4(price - ourPrice);
     const spreadPct = ourPrice > 0 ? round2(((price - ourPrice) / ourPrice) * 100) : 0;

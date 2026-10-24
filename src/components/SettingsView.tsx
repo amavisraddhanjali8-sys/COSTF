@@ -203,8 +203,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [totpConfigured, setTotpConfigured] = useState(false);
   const [isSecurityLoading, setIsSecurityLoading] = useState(false);
 
-  // Load Admin Security Configuration
+  // Load Admin Security Configuration & Role Permissions
   useEffect(() => {
+    // Synchronize role permissions from server
+    permissionService.syncWithServer().then(() => {
+      setAllPermConfigs(permissionService.getAll());
+    }).catch(() => {});
+
     if (currentUser.role === 'ADMIN') {
       const token = getStoredSessionToken();
       fetch('/api/security/admin-config', {

@@ -41,6 +41,7 @@ import { getRandomThemeIndex, getThemeById } from '../data/tileThemes';
 import { parseSmartSearch, evaluateSmartSearch, SearchableField } from '../utils/smartSearch';
 import { formatCurrency, SUPPORTED_CURRENCIES, getStoredCurrency } from '../utils/currency';
 import { bizStore } from '../services/bizStore';
+import { ClientProfile } from '../data/categoriesAndProfiles';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -48,6 +49,7 @@ interface ProjectsViewProps {
   materials: MaterialItem[];
   subcontractors: SubcontractorRateItem[];
   outsourcedServices: OutsourcedService[];
+  clients?: ClientProfile[];
   onSelectProject: (proj: Project) => void;
   onCreateProject: (proj: Partial<Project>) => void;
   onUpdateProject: (proj: Project) => void;
@@ -65,6 +67,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   materials,
   subcontractors,
   outsourcedServices,
+  clients = [],
   onSelectProject,
   onCreateProject,
   onUpdateProject,
@@ -332,12 +335,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [form, setForm] = useState({
     code: `PRJ-2026-00${projects.length + 1}`,
     name: '',
-    clientName: '',
+    clientId: clients[0]?.id || '',
+    clientName: clients[0]?.name || '',
     productCategory: 'Industrial Automation & Robotics',
     productSubCategory: 'Heavy Robotic Arms & Gantry Positioning',
     productMoreSubCategory: 'Modular Gantry & Tool Changer Platforms',
     targetProduct: '6-Axis Gantry Mill',
-    currency: getStoredCurrency(),
+    currency: clients[0]?.currency || getStoredCurrency(),
     quotedPrice: 450000,
     targetMarginPct: 25,
     overheadPct: 6,
@@ -352,6 +356,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     e.preventDefault();
     onCreateProject({
       ...form,
+      clientId: form.clientId || undefined,
+      clientName: form.clientName || 'General Enterprise Client',
       contractLocked: false,
       phases: [
         {
@@ -1335,15 +1341,53 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-700 mb-0.5 font-medium">Client Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.clientName}
-                    onChange={(e) => setForm({ ...form, clientName: e.target.value })}
-                    placeholder="Client Name"
-                    className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#003049]"
-                  />
+                  <label className="block text-slate-700 mb-0.5 font-medium">Enterprise Client</label>
+                  {clients.length > 0 ? (
+                    <div className="space-y-1">
+                      <select
+                        value={form.clientId}
+                        onChange={(e) => {
+                          const cId = e.target.value;
+                          const selected = clients.find(c => c.id === cId);
+                          setForm({
+                            ...form,
+                            clientId: cId,
+                            clientName: selected?.name || form.clientName,
+                            currency: selected?.currency || form.currency
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#003049] text-xs"
+                      >
+                        <option value="">-- Custom / Unlinked Client --</option>
+                        {clients.map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.clientCode || c.id})
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        required
+                        value={form.clientName}
+                        onChange={(e) => setForm({
+                          ...form,
+                          clientName: e.target.value,
+                          clientId: clients.find(c => c.name.toLowerCase() === e.target.value.toLowerCase())?.id || form.clientId
+                        })}
+                        placeholder="Client Legal Name"
+                        className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#003049] text-xs"
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      value={form.clientName}
+                      onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+                      placeholder="Client Name"
+                      className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-[#003049]"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -1486,7 +1530,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   id="preview-proj"
                   tag={`PROJECT • ${form.code}`}
                   title={form.name || 'Project Name'}
-                  brief={`Client: ${form.clientName || 'Client'} • Quoted: Rs. ${(Number(form.quotedPrice) || 0).toLocaleString()}`}
+                  brief={`Client: ${form.clientName || 'Client'} • Quoted: ${formatCurrency(Number(form.quotedPrice) || 0, form.currency)}`}
                   actionLabel="SELECT"
                   actionVariant="link"
                   themeId={form.themeId}
@@ -1531,7 +1575,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
               <div className="font-bold text-slate-900">{projectToDelete.name}</div>
               <div className="text-slate-500 font-mono text-[11px]">
-                Code: {projectToDelete.code} • Client: {projectToDelete.clientName || 'Unassigned'} • Value: ${projectToDelete.quotedPrice.toLocaleString()}
+                Code: {projectToDelete.code} • Client: {projectToDelete.clientName || 'Unassigned'} • Value: {formatCurrency(projectToDelete.quotedPrice, projectToDelete.currency)}
               </div>
             </div>
 
