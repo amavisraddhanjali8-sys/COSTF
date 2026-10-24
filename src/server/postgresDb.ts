@@ -1235,6 +1235,49 @@ export class PostgresService {
     await this.ensureMaterialVendorQuotesSchema();
     // Ensure product competitor quotes, price matrix & project deliverables schema exist
     await this.ensureProductCompetitorSchema();
+    // Ensure enterprise resources portal schema exists (Labours, Machineries, Equipments, Tools)
+    await this.ensureEnterpriseResourcesSchema();
+  }
+
+  public async ensureEnterpriseResourcesSchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS enterprise_resources (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          category TEXT NOT NULL,
+          sub_category TEXT,
+          more_sub_category TEXT,
+          unit TEXT NOT NULL DEFAULT 'hr',
+          base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          operational_charge NUMERIC(18, 4) DEFAULT 0,
+          charge_type TEXT DEFAULT 'hourly',
+          currency TEXT NOT NULL DEFAULT 'USD',
+          supplier_id TEXT,
+          supplier_name TEXT,
+          competitor_company TEXT,
+          competitor_rate NUMERIC(18, 4) DEFAULT 0,
+          industry_benchmark_rate NUMERIC(18, 4) DEFAULT 0,
+          lead_time_days INT DEFAULT 1,
+          status TEXT NOT NULL DEFAULT 'Available',
+          skill_or_sla TEXT,
+          alternatives JSONB DEFAULT '[]',
+          specifications JSONB DEFAULT '{}',
+          connected_allocations JSONB DEFAULT '[]',
+          notes TEXT DEFAULT '',
+          effective_date DATE DEFAULT CURRENT_DATE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+
+      await this.seedEnterpriseResourcesIfEmpty();
+    } catch (e: any) {
+      console.warn('[PostgreSQL] ensureEnterpriseResourcesSchema warning:', e?.message);
+    }
   }
 
   public async ensureOverheadAndRevenueTables(): Promise<void> {
@@ -13970,8 +14013,40 @@ export class PostgresService {
   // =========================================================================
 
   public async seedEnterpriseResourcesIfEmpty(): Promise<void> {
-    const db = this.db!;
+    const db = await this.getDb();
     try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS enterprise_resources (
+          id TEXT PRIMARY KEY,
+          code TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          category TEXT NOT NULL,
+          sub_category TEXT,
+          more_sub_category TEXT,
+          unit TEXT NOT NULL DEFAULT 'hr',
+          base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          operational_charge NUMERIC(18, 4) DEFAULT 0,
+          charge_type TEXT DEFAULT 'hourly',
+          currency TEXT NOT NULL DEFAULT 'USD',
+          supplier_id TEXT,
+          supplier_name TEXT,
+          competitor_company TEXT,
+          competitor_rate NUMERIC(18, 4) DEFAULT 0,
+          industry_benchmark_rate NUMERIC(18, 4) DEFAULT 0,
+          lead_time_days INT DEFAULT 1,
+          status TEXT NOT NULL DEFAULT 'Available',
+          skill_or_sla TEXT,
+          alternatives JSONB DEFAULT '[]',
+          specifications JSONB DEFAULT '{}',
+          connected_allocations JSONB DEFAULT '[]',
+          notes TEXT DEFAULT '',
+          effective_date DATE DEFAULT CURRENT_DATE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+
       const chk = await db.query('SELECT COUNT(*) as cnt FROM enterprise_resources');
       if (Number(chk.rows[0]?.cnt || 0) > 0) return;
 
@@ -14505,6 +14580,7 @@ export class PostgresService {
 
   public async getResourcesPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
+    await this.ensureEnterpriseResourcesSchema();
     const rowsRes = await db.query('SELECT * FROM enterprise_resources ORDER BY type ASC, name ASC');
     const records = (rowsRes.rows || []).map((r: any) => ({
       ...r,
@@ -14531,6 +14607,7 @@ export class PostgresService {
 
   public async getResourceById(id: string): Promise<any | null> {
     const db = await this.getDb();
+    await this.ensureEnterpriseResourcesSchema();
     const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1', [id]);
     if (!res.rows || res.rows.length === 0) return null;
     const r = res.rows[0];
@@ -14557,6 +14634,7 @@ export class PostgresService {
 
   public async createResource(data: any): Promise<any> {
     const db = await this.getDb();
+    await this.ensureEnterpriseResourcesSchema();
     const id = data.id || `res-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const prefix = data.type ? String(data.type).slice(0, 3).toUpperCase() : 'RES';
     const code = data.code || `RES-${prefix}-${Math.floor(100 + Math.random() * 900)}`;
@@ -14652,6 +14730,7 @@ export class PostgresService {
 
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();
+    await this.ensureEnterpriseResourcesSchema();
     await db.query('DELETE FROM enterprise_resources WHERE id = $1', [id]);
     return true;
   }
@@ -14709,10 +14788,11 @@ export class PostgresService {
     projectId: string,
     phaseId: string,
     quantity: number,
-    unit: string,
-    unitCost: number
+    unit?: string,
+    unitCost?: number
   ): Promise<any> {
     const db = await this.getDb();
+    await this.ensureEnterpriseResourcesSchema();
     const resource = await this.getResourceById(resourceId);
     if (!resource) throw new Error('Resource not found');
 
@@ -14724,7 +14804,8 @@ export class PostgresService {
     const phases = typeof project.phases === 'string' ? JSON.parse(project.phases || '[]') : (project.phases || []);
     const targetPhase = phases.find((p: any) => p.id === phaseId) || phases[0];
 
-    const totalCost = Number(quantity) * Number(unitCost);
+    const effectiveCost = unitCost !== undefined ? Number(unitCost) : Number(resource.baseRate || 0);
+    const totalCost = Number(quantity) * effectiveCost;
 
     const newItem = {
       id: `cost-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -14737,7 +14818,7 @@ export class PostgresService {
       supplierOrProvider: resource.supplierName || 'Assigned Provider',
       quantity: Number(quantity),
       unit: unit || resource.unit,
-      unitCost: Number(unitCost),
+      unitCost: effectiveCost,
       totalCost,
       notes: `Allocated from Resource Portal: ${resource.code}`
     };
