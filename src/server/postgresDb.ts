@@ -3662,8 +3662,14 @@ export class PostgresService {
     const prevPrice = round4(data.previousPrice || data.previousRate || data.oldPrice || 0);
     const newPrice = round4(data.newPrice || data.newRate || data.rate || 0);
     const changePct = prevPrice > 0 ? round2(((newPrice - prevPrice) / prevPrice) * 100) : 0;
-    const effectiveDate = (data.effectiveDate || data.date || new Date().toISOString()).slice(0, 10);
-    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || 'Authorized Auditor';
+    const effectiveDate = formatSqlDate(data.effectiveDate || data.date, new Date().toISOString().slice(0, 10));
+    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || 'Resource Manager';
+    const entityType = data.entityType || data.itemType || 'resource';
+    const entityId = data.entityId || data.resourceId || data.itemId || id;
+    const entityCode = data.entityCode || data.code || '';
+    const entityName = data.entityName || data.name || 'Resource Rate Update';
+    const currency = data.currency || 'LKR';
+    const reason = data.reason || 'Price update audit log';
 
     await db.query(
       `INSERT INTO price_history_records
@@ -3671,34 +3677,42 @@ export class PostgresService {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         id,
-        data.entityType || data.itemType || 'material',
-        data.entityId || data.itemId || id,
-        data.entityCode || data.itemCode || '',
-        data.entityName || data.itemName || 'Price Update',
+        entityType,
+        entityId,
+        entityCode,
+        entityName,
         prevPrice,
         newPrice,
         newPrice,
         changePct,
-        data.currency || 'LKR',
+        currency,
         effectiveDate,
-        data.reason || 'Price update audit log',
+        reason,
         updatedBy,
         data.notes || ''
       ]
     );
 
+    // If it's a resource, keep enterprise_resources base_rate in sync with the new price
+    if (entityType === 'resource' && entityId) {
+      await db.query(
+        `UPDATE enterprise_resources SET base_rate = $1, effective_date = $2::date, updated_at = NOW() WHERE id = $3`,
+        [newPrice, effectiveDate, entityId]
+      ).catch(() => {});
+    }
+
     return {
       id,
-      entityType: data.entityType || data.itemType || 'material',
-      entityId: data.entityId || data.itemId || id,
-      entityCode: data.entityCode || data.itemCode || '',
-      entityName: data.entityName || data.itemName || 'Price Update',
+      entityType,
+      entityId,
+      entityCode,
+      entityName,
       previousPrice: prevPrice,
       newPrice,
       changePct,
-      currency: data.currency || 'LKR',
+      currency,
       effectiveDate,
-      reason: data.reason || 'Price update audit log',
+      reason,
       updatedBy
     };
   }
@@ -3706,22 +3720,42 @@ export class PostgresService {
   public async updatePriceHistoryRecord(id: string, data: any, actor?: any): Promise<any> {
     const db = await this.getDb();
     const existingRes = await db.query('SELECT * FROM price_history_records WHERE id = $1', [id]);
-    if (existingRes.rows.length === 0) return null;
+    if (existingRes.rows.length === 0) {
+      // Check procurement_price_history fallback
+      const procRes = await db.query('SELECT * FROM procurement_price_history WHERE id = $1', [id]);
+      if (procRes.rows.length === 0) return null;
+      const pr = procRes.rows[0];
+      const newPrice = data.newPrice !== undefined ? round4(data.newPrice) : Number(pr.unit_price || 0);
+      const effectiveDate = data.effectiveDate ? String(data.effectiveDate).slice(0, 10) : formatSqlDate(pr.effective_date, '');
+      const reason = data.reason !== undefined ? data.reason : pr.notes;
+      await db.query('UPDATE procurement_price_history SET unit_price = $1, effective_date = $2::date, notes = $3 WHERE id = $4', [
+        newPrice, effectiveDate, reason, id
+      ]);
+      return { id, newPrice, effectiveDate, reason };
+    }
     const existing = existingRes.rows[0];
 
     const prevPrice = data.previousPrice !== undefined ? round4(data.previousPrice) : round4(existing.previous_price || 0);
     const newPrice = data.newPrice !== undefined ? round4(data.newPrice) : round4(existing.new_price || 0);
     const changePct = prevPrice > 0 ? round2(((newPrice - prevPrice) / prevPrice) * 100) : 0;
-    const effectiveDate = data.effectiveDate ? String(data.effectiveDate).slice(0, 10) : existing.effective_date;
+    const effectiveDate = data.effectiveDate ? String(data.effectiveDate).slice(0, 10) : formatSqlDate(existing.effective_date, new Date().toISOString().slice(0, 10));
     const reason = data.reason !== undefined ? data.reason : existing.reason;
-    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || existing.updated_by;
+    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || existing.updated_by || 'Resource Manager';
 
     await db.query(
       `UPDATE price_history_records
-       SET previous_price = $1, new_price = $2, retail_price = $3, change_pct = $4, effective_date = $5, reason = $6, updated_by = $7
+       SET previous_price = $1, new_price = $2, retail_price = $3, change_pct = $4, effective_date = $5::date, reason = $6, updated_by = $7
        WHERE id = $8`,
       [prevPrice, newPrice, newPrice, changePct, effectiveDate, reason, updatedBy, id]
     );
+
+    // Keep enterprise_resources base_rate in sync if this was the latest revision
+    if (existing.entity_type === 'resource' && existing.entity_id) {
+      await db.query(
+        `UPDATE enterprise_resources SET base_rate = $1, effective_date = $2::date, updated_at = NOW() WHERE id = $3`,
+        [newPrice, effectiveDate, existing.entity_id]
+      ).catch(() => {});
+    }
 
     return {
       id,
@@ -3732,7 +3766,7 @@ export class PostgresService {
       previousPrice: prevPrice,
       newPrice,
       changePct,
-      currency: existing.currency,
+      currency: existing.currency || 'LKR',
       effectiveDate,
       reason,
       updatedBy
@@ -3741,9 +3775,14 @@ export class PostgresService {
 
   public async deletePriceHistoryRecord(id: string): Promise<boolean> {
     const db = await this.getDb();
-    const res = await db.query('DELETE FROM price_history_records WHERE id = $1 RETURNING id', [id]);
-    await db.query('DELETE FROM procurement_price_history WHERE id = $1', [id]).catch(() => {});
-    return (res.rowCount || 0) > 0;
+    try {
+      await db.query('DELETE FROM price_history_records WHERE id = $1', [id]);
+      await db.query('DELETE FROM procurement_price_history WHERE id = $1', [id]).catch(() => {});
+      return true;
+    } catch (e: any) {
+      console.error('[PostgreSQL] Failed to delete price history record:', e);
+      return false;
+    }
   }
 
   // --- Projects CRUD ---
@@ -14935,19 +14974,21 @@ export class PostgresService {
     }
     const specsJson = JSON.stringify(specs);
 
-    // If price changed, record in price_history_records
-    if (data.baseRate !== undefined && Number(data.baseRate) !== existing.baseRate) {
-      const prev = existing.baseRate;
-      const next = Number(data.baseRate);
-      const diff = calcPctChange(prev, next);
+    // If price changed or reason provided, record in price_history_records
+    if (data.baseRate !== undefined && (Number(data.baseRate) !== existing.baseRate || data.reason)) {
+      const prev = round4(existing.baseRate || 0);
+      const next = round4(data.baseRate);
+      const diff = prev > 0 ? calcPctChange(prev, next) : 0;
+      const histId = `ph-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const effDate = formatSqlDate(data.effectiveDate || new Date().toISOString().slice(0, 10), new Date().toISOString().slice(0, 10));
       await db.query(
         `INSERT INTO price_history_records (
           id, entity_type, entity_id, entity_code, entity_name,
-          previous_price, new_price, change_pct, currency, effective_date, reason, updated_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          previous_price, new_price, retail_price, change_pct, currency, effective_date, reason, updated_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
-          `ph-${Date.now()}`, 'material', id, existing.code, existing.name,
-          prev, next, diff, data.currency || existing.currency || 'LKR', data.effectiveDate || new Date().toISOString().slice(0, 10),
+          histId, 'resource', id, existing.code, existing.name,
+          prev, next, next, diff, data.currency || existing.currency || 'LKR', effDate,
           data.reason || 'Resource rate revision via portal', data.updatedBy || 'Resource Manager'
         ]
       ).catch((err: any) => console.warn('Could not record resource price history:', err));
@@ -14996,34 +15037,6 @@ export class PostgresService {
     }));
   }
 
-  public async updatePriceHistoryRecord(historyId: string, data: any): Promise<any> {
-    const db = await this.getDb();
-    const existing = await db.query('SELECT * FROM price_history_records WHERE id = $1', [historyId]);
-    if (!existing.rows || existing.rows.length === 0) throw new Error('Price history record not found');
-    const r = existing.rows[0];
-    const newPrice = data.newPrice !== undefined ? Number(data.newPrice) : Number(r.new_price);
-    const prevPrice = Number(r.previous_price || 0);
-    const changePct = prevPrice > 0 ? calcPctChange(prevPrice, newPrice) : Number(r.change_pct || 0);
-    const reason = data.reason !== undefined ? data.reason : r.reason;
-    const effectiveDate = data.effectiveDate !== undefined ? data.effectiveDate : r.effective_date;
-    const updatedBy = data.updatedBy !== undefined ? data.updatedBy : r.updated_by;
-
-    await db.query(
-      `UPDATE price_history_records SET new_price = $1, change_pct = $2, reason = $3, effective_date = $4, updated_by = $5 WHERE id = $6`,
-      [newPrice, changePct, reason, effectiveDate, updatedBy, historyId]
-    );
-
-    return {
-      id: historyId,
-      entityId: r.entity_id,
-      previousPrice: prevPrice,
-      newPrice,
-      changePct,
-      reason,
-      effectiveDate,
-      updatedBy
-    };
-  }
 
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();

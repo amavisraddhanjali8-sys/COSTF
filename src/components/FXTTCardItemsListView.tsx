@@ -986,7 +986,9 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
   // Convert and filter card-specific items into uniform FXTT rows
   const rows: FXTTGridRow[] = useMemo(() => {
     const list: FXTTGridRow[] = [];
-    const titleLower = cardTitle.toLowerCase();
+    const cleanTitle = cardTitle.replace(/^(commercial service:|customer service:|service:|contracted service:|tariff:|product:|material:)\s*/i, '').trim();
+    const titleLower = cleanTitle.toLowerCase();
+    const rawTitleLower = cardTitle.toLowerCase();
     const idLower = (cardId || '').toLowerCase();
 
     const isSubCat =
@@ -999,7 +1001,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       (cardSubtitle && cardSubtitle.toLowerCase().includes('sub-category')) ||
       (categories || []).some(
         (c) =>
-          (c.id === cardId || c.name.toLowerCase() === titleLower) &&
+          (c.id === cardId || c.name.toLowerCase() === titleLower || c.name.toLowerCase() === rawTitleLower) &&
           (c.type === 'sub_category' || c.type === 'sub_sub_category')
       );
 
@@ -1479,7 +1481,9 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         !cardTitle ||
         cardTitle.toLowerCase() === 'all outsourced services' ||
         cardTitle.toLowerCase() === 'all' ||
-        cardId === 'all-outsourced';
+        cardTitle.toLowerCase().includes('all customer service') ||
+        cardId === 'all-outsourced' ||
+        cardId === 'outsourced-catalog';
 
       let filteredOutsourced: OutsourcedService[] = [];
 
@@ -1490,11 +1494,12 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         const catNode = activeCategories.find(
           (c) =>
             (cardId && c.id === cardId) ||
-            c.name.trim().toLowerCase() === titleLower.trim()
+            c.name.trim().toLowerCase() === titleLower ||
+            c.name.trim().toLowerCase() === rawTitleLower
         );
 
         const isServiceSub = isSubCat || catNode?.type === 'sub_category' || catNode?.type === 'sub_sub_category';
-        const matchTarget = (catNode?.name || cardTitle).toLowerCase().trim();
+        const matchTarget = (catNode?.name || cleanTitle || cardTitle).toLowerCase().trim();
 
         if (isServiceSub) {
           filteredOutsourced = outsourcedServices.filter((o) => {
@@ -1544,6 +1549,47 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           rawItem: o
         });
       });
+
+      // Also include matching commercial services from revenue catalogue
+      const targetMatch = (cleanTitle || cardTitle).toLowerCase().trim();
+      (revenueItems || [])
+        .filter((r) => r.type === 'service')
+        .forEach((r, idx) => {
+          const rCat = (r.category || '').toLowerCase().trim();
+          const rSub = (r.subCategory || '').toLowerCase().trim();
+          const matches =
+            isAll ||
+            rCat === targetMatch ||
+            rSub === targetMatch ||
+            rCat.includes(targetMatch) ||
+            targetMatch.includes(rCat) ||
+            rSub.includes(targetMatch) ||
+            targetMatch.includes(rSub) ||
+            (cardId && (r.categoryId === cardId || r.subCategoryId === cardId || r.category === cardId || r.subCategory === cardId));
+          if (matches && !list.some((existing) => existing.id === r.id)) {
+            list.push({
+              id: r.id,
+              code: r.code || `SRV-${1000 + idx}`,
+              name: r.name,
+              itemType: 'service',
+              status: r.status === 'Inactive' ? 'Under Review' : 'Enabled',
+              category: r.category || 'Commercial Deliverables',
+              subCategory: r.subCategory || 'General Service',
+              moreSubCategory: r.type,
+              supplierName: r.providerName || 'Commercial Operations',
+              supplierCountry: 'United States',
+              email: 'services@fxtt-enterprise.com',
+              phone: '+1 415 252 7217',
+              rate: Number(r.costPrice) || Number(r.rate) || 0,
+              retailPrice: Number(r.defaultRate) || Number(r.retailPrice) || 0,
+              unit: (r.unit || 'hr').replace('per_', ''),
+              stockOrScope: `Service Tariff • ${r.status || 'Active'}`,
+              createdTime: r.effectiveDate || '',
+              assignedTo: 'Service Manager',
+              rawItem: r
+            });
+          }
+        });
     }
 
     // 6. SUBCONTRACTOR PROFILE OR TRADE CARD

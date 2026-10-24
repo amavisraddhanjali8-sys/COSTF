@@ -66,6 +66,7 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
   const [history, setHistory] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isCommittingChange, setIsCommittingChange] = useState(false);
+  const [isAddFormOpen, setIsAddFormOpen] = useState(true);
   const [newRateInput, setNewRateInput] = useState<number>(0);
   const [changeDate, setChangeDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [changeReason, setChangeReason] = useState<string>('Market rate adjustment');
@@ -329,6 +330,20 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
         currency: currCurrency
       });
 
+      // Also ensure explicit price history entry in case commitResourcePrice only updated resource
+      await api.createPriceHistoryRecord({
+        entityType: 'resource',
+        entityId: resource.id,
+        entityCode: resource.code,
+        entityName: resource.name,
+        previousPrice: currentRate,
+        newPrice: newRateInput,
+        currency: currCurrency,
+        effectiveDate: changeDate,
+        reason: changeReason.trim() || 'Rate change revision recorded via FXTT table',
+        updatedBy: changeAuthor.trim() || 'Resource Manager'
+      }).catch(() => {});
+
       showToast(`Rate revised to ${formatCurrency(newRateInput, currCurrency)} for "${resource.name}".`);
       onResourceUpdated(updated);
       await loadPriceHistory(resource.id);
@@ -345,7 +360,7 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
     if (!editingHistoryItem) return;
     setIsUpdatingHistory(true);
     try {
-      await api.updatePriceHistoryRecord(editingHistoryItem.id, {
+      const updatedRecord = await api.updatePriceHistoryRecord(editingHistoryItem.id, {
         newPrice: editHistoryPrice,
         reason: editHistoryReason,
         effectiveDate: editHistoryDate,
@@ -353,7 +368,14 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
       });
       showToast('Price change history audit record updated.');
       setEditingHistoryItem(null);
+      // Immediately reflect in state
+      setHistory((prev) =>
+        prev.map((h) => (h.id === editingHistoryItem.id ? { ...h, ...updatedRecord } : h))
+      );
       await loadPriceHistory(resource.id);
+      // Refresh resource if the updated record is current
+      const refreshed = await api.getResourceById(resource.id).catch(() => null);
+      if (refreshed) onResourceUpdated(refreshed);
     } catch (err: any) {
       console.error('Failed to update history record:', err);
       showToast(err?.message || 'Failed to update record');
@@ -364,10 +386,16 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
 
   // Delete History Record
   const handleDeleteHistoryRecord = async (historyId: string) => {
+    if (!window.confirm('Are you sure you want to delete this price history audit record?')) {
+      return;
+    }
     try {
       await api.deletePriceHistoryRecord(historyId);
-      showToast('Price history record deleted.');
+      showToast('Price history record deleted successfully.');
       setHistory((prev) => prev.filter((h) => h.id !== historyId));
+      await loadPriceHistory(resource.id);
+      const refreshed = await api.getResourceById(resource.id).catch(() => null);
+      if (refreshed) onResourceUpdated(refreshed);
     } catch (err: any) {
       console.error('Failed to delete history record:', err);
       showToast(err?.message || 'Failed to delete record');
@@ -760,88 +788,99 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
             <div className="space-y-5">
               
               {/* Commit New Price Revision Card */}
-              <form onSubmit={handleCommitPriceChange} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-1.5">
-                    <DollarSign className="w-4 h-4 text-emerald-600" />
-                    <span className="font-bold text-slate-900 dark:text-slate-100 text-xs">
-                      Commit New Rate Revision
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-400">
-                    Audited into PostgreSQL price history ledger
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      New Base Rate ({currCurrency}) *
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      value={newRateInput}
-                      onChange={(e) => setNewRateInput(parseFloat(e.target.value) || 0)}
-                      className="w-full font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Effective Date *
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={changeDate}
-                      onChange={(e) => setChangeDate(e.target.value)}
-                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Audit Reason & Justification *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Fuel escalation, Annual wage review, Supplier adjustment"
-                      value={changeReason}
-                      onChange={(e) => setChangeReason(e.target.value)}
-                      className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Quick Chips for reason */}
-                <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
-                  <div className="flex flex-wrap gap-1">
-                    {['Annual indexation', 'Fuel escalation', 'Supplier renegotiation', 'Quarterly review', 'Market correction'].map((chip) => (
+              {isAddFormOpen && (
+                <form onSubmit={handleCommitPriceChange} className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-emerald-300 dark:border-emerald-800/80 shadow-2xs space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5">
+                      <DollarSign className="w-4 h-4 text-emerald-600" />
+                      <span className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                        Add New Price Update / Rate Revision
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] text-slate-400 hidden sm:inline">
+                        Audited into PostgreSQL price history ledger
+                      </span>
                       <button
-                        key={chip}
                         type="button"
-                        onClick={() => setChangeReason(chip)}
-                        className="px-2 py-0.5 text-[10px] rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 cursor-pointer"
+                        onClick={() => setIsAddFormOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 cursor-pointer p-0.5"
                       >
-                        {chip}
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                    ))}
+                    </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isCommittingChange}
-                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center space-x-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isCommittingChange ? 'Committing...' : 'Commit Revision'}</span>
-                  </button>
-                </div>
-              </form>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        New Base Rate ({currCurrency}) *
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="any"
+                        value={newRateInput}
+                        onChange={(e) => setNewRateInput(parseFloat(e.target.value) || 0)}
+                        className="w-full font-mono font-bold text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Effective Date *
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={changeDate}
+                        onChange={(e) => setChangeDate(e.target.value)}
+                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        Audit Reason & Justification *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Fuel escalation, Annual wage review, Supplier adjustment"
+                        value={changeReason}
+                        onChange={(e) => setChangeReason(e.target.value)}
+                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Chips for reason */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                    <div className="flex flex-wrap gap-1">
+                      {['Annual indexation', 'Fuel escalation', 'Supplier renegotiation', 'Quarterly review', 'Market correction'].map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setChangeReason(chip)}
+                          className="px-2 py-0.5 text-[10px] rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 cursor-pointer"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isCommittingChange}
+                      className="px-4 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center space-x-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{isCommittingChange ? 'Saving...' : 'Add Price Update'}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
 
               {/* Inline Edit Historical Item Form */}
               {editingHistoryItem && (
@@ -914,13 +953,27 @@ export const ResourcePriceRangesAndChangesModal: React.FC<ResourcePriceRangesAnd
               {/* Historical Changes Audit Table */}
               <div className="bg-white dark:bg-[#0f172a] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
                 <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/40">
-                  <span className="font-bold text-slate-900 dark:text-slate-100 text-xs flex items-center space-x-1.5">
-                    <History className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Price Change History Audit Log</span>
-                  </span>
-                  <span className="text-[11px] font-mono text-slate-500">
-                    {history.length} records found
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-slate-900 dark:text-slate-100 text-xs flex items-center space-x-1.5">
+                      <History className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Price Change History Audit Log</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      ({history.length} records)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddFormOpen(true);
+                      setNewRateInput(currentRate);
+                      setChangeDate(new Date().toISOString().slice(0, 10));
+                    }}
+                    className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center space-x-1 cursor-pointer shadow-2xs transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Price Update</span>
+                  </button>
                 </div>
 
                 <div className="overflow-x-auto">

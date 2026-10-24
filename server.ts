@@ -1654,26 +1654,6 @@ async function startServer() {
     }
   });
 
-  app.put('/api/price-history/:id', async (req, res) => {
-    try {
-      const updated = await postgresService.updatePriceHistoryRecord(req.params.id, req.body);
-      res.json(updated);
-    } catch (e: any) {
-      console.error('Failed to update price history record:', e);
-      res.status(500).json({ error: 'Failed to update price history record', details: e?.message });
-    }
-  });
-
-  app.delete('/api/price-history/:id', async (req, res) => {
-    try {
-      const db = await postgresService.getDb();
-      await db.query('DELETE FROM price_history_records WHERE id = $1', [req.params.id]);
-      res.json({ success: true, message: 'Price history record deleted' });
-    } catch (e: any) {
-      console.error('Failed to delete price history record:', e);
-      res.status(500).json({ error: 'Failed to delete price history record', details: e?.message });
-    }
-  });
 
   app.get('/api/resources/:id', async (req, res) => {
     try {

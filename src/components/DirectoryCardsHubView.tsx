@@ -3014,194 +3014,19 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             </div>
           </div>
 
-          {/* Sub-Category Filter Chips (if available) */}
-          {availableResourceSubCategories.length > 0 && (
-            <div className="bg-slate-50/70 dark:bg-slate-900/40 px-3 py-2 rounded-xl border border-slate-200/60 dark:border-slate-800 flex items-center flex-wrap gap-1.5 text-xs">
-              <span className="font-semibold text-slate-500 text-[11px] mr-1 flex items-center space-x-1">
-                <Layers className="w-3 h-3 text-[#0078d4]" />
-                <span>Sub-Category:</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedResourceSubCategory(null)}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  !selectedResourceSubCategory
-                    ? 'bg-[#0078d4] text-white shadow-2xs font-bold'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 hover:bg-slate-100 border border-slate-200 dark:border-slate-700'
-                }`}
-              >
-                All Sub-Categories
-              </button>
-              {availableResourceSubCategories.map((subCat) => (
-                <button
-                  key={subCat}
-                  type="button"
-                  onClick={() => setSelectedResourceSubCategory(subCat)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                    selectedResourceSubCategory === subCat
-                      ? 'bg-[#0078d4] text-white shadow-2xs font-bold'
-                      : 'bg-white dark:bg-slate-800 text-slate-600 hover:bg-slate-100 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {subCat}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* CATEGORY CARDS VIEW: Keep resources strictly inside their category cards (e.g. equipment items in equipment card) */}
-          {resourceViewMode === 'cards' && !selectedResourceCategory && !searchQuery.trim() && (
+          {/* CARDS VIEW: Unified ModernTileCard grid for all resources matching Image 1 */}
+          {resourceViewMode === 'cards' && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {resourceCategoriesData.map((cat, idx) => {
-                  const defaultTheme = getRandomThemeIndex(idx + 3);
-                  const style = getTileStyle(cat.id, defaultTheme.id);
-                  const items = enterpriseResources.filter((r) => r.type === cat.type);
-
-                  return (
-                    <div
-                      key={cat.id}
-                      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a] shadow-xs overflow-hidden flex flex-col transition-all hover:shadow-md"
-                    >
-                      {/* Category Header (One-word style, no wordy descriptions) */}
-                      <div
-                        className="p-3 text-white flex items-center justify-between"
-                        style={{ background: style.customGradient || defaultTheme.gradientStyle }}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <span className="p-1.5 rounded-lg bg-black/20 text-white shrink-0">
-                            {cat.icon}
-                          </span>
-                          <div>
-                            <h3 className="font-bold text-sm tracking-tight text-white capitalize">{cat.title}</h3>
-                            <span className="text-[10px] text-white/80 font-mono">
-                              {items.length} {items.length === 1 ? 'Item' : 'Items'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center space-x-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedResourceCategory(cat.type);
-                              setResourceViewMode('table');
-                            }}
-                            className="px-2 py-1 rounded text-[11px] font-semibold bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
-                            title="Table"
-                          >
-                            Table
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingResource({ type: cat.type } as any);
-                              setIsCreateResourceModalOpen(true);
-                            }}
-                            className="px-2 py-1 rounded text-[11px] font-semibold bg-white text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shadow-xs"
-                            title="Add"
-                          >
-                            + Add
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Items List Inside Category Card */}
-                      <div className="p-2.5 flex-1 divide-y divide-slate-100 dark:divide-slate-800/60 overflow-y-auto max-h-[340px]">
-                        {items.length === 0 ? (
-                          <div className="py-8 text-center text-slate-400">
-                            <span className="text-xs">No items</span>
-                          </div>
-                        ) : (
-                          items.map((res) => (
-                            <div
-                              key={res.id}
-                              className="py-2 px-1.5 flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-900/40 rounded-lg transition-colors group"
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center space-x-1.5">
-                                  <span className="font-mono text-[10px] text-slate-400 shrink-0">
-                                    {res.code}
-                                  </span>
-                                  <span
-                                    onClick={() => handleOpenItemMatrix(res)}
-                                    className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate hover:text-[#0078d4] cursor-pointer"
-                                    title={res.name}
-                                  >
-                                    {res.name}
-                                  </span>
-                                </div>
-                                <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                                  {formatCurrency(res.baseRate, res.currency || 'LKR')}/{res.unit}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center space-x-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenItemMatrix(res)}
-                                  className="px-2.5 py-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-[#003049] hover:text-white text-[#003049] dark:text-sky-300 text-[11px] font-semibold border border-blue-200 dark:border-blue-900 transition-colors cursor-pointer shadow-2xs"
-                                  title="Matrix"
-                                >
-                                  Matrix
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingResource(res);
-                                    setIsCreateResourceModalOpen(true);
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
-                                  title="Edit"
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeletingResource(res)}
-                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                      {/* Card Summary Footer */}
-                      <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
-                        <span>Avg: {formatCurrency(cat.avgRate, 'LKR')}/{cat.unit}</span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedResourceCategory(cat.type)}
-                          className="text-[#0078d4] hover:underline font-semibold cursor-pointer"
-                        >
-                          View
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* FILTERED CARDS VIEW: Shown ONLY when a category is selected or search query active */}
-          {resourceViewMode === 'cards' && (selectedResourceCategory || searchQuery.trim()) && (
-            <div className="space-y-3">
               <div className="flex items-center justify-between text-xs px-1">
                 <div className="flex items-center space-x-2">
                   <span className="font-bold capitalize text-slate-800 dark:text-slate-200 text-sm">
-                    {selectedResourceCategory ? `${selectedResourceCategory} Resources` : 'Search Results'}
-                    {selectedResourceSubCategory ? ` > ${selectedResourceSubCategory}` : ''}
+                    {selectedResourceCategory ? `${selectedResourceCategory} Resources` : 'All Enterprise Resources'}
                   </span>
-                  <span className="text-slate-400 font-mono text-xs">
-                    ({filteredCategoryResources.length} items)
+                  <span className="text-slate-500 font-mono text-xs bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700">
+                    ({filteredCategoryResources.length} {filteredCategoryResources.length === 1 ? 'item' : 'items'})
                   </span>
                 </div>
-                {(selectedResourceCategory || selectedResourceSubCategory || searchQuery.trim()) && (
+                {(selectedResourceCategory || searchQuery.trim()) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3215,9 +3040,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredCategoryResources.map((res, idx) => {
-                  const defaultTheme = getRandomThemeIndex(idx + 12);
+                  const defaultTheme = getRandomThemeIndex(idx + 5);
                   const style = getTileStyle(res.id, defaultTheme.id);
                   return (
                     <ModernTileCard
@@ -3226,9 +3051,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       tag={(res.type || res.category || 'RESOURCE').toUpperCase()}
                       title={res.name}
                       brief={`${res.code} • Rate: ${formatCurrency(res.baseRate, res.currency || 'LKR')}/${res.unit}`}
-                      actionLabel="Matrix"
+                      actionLabel="View Benchmark Rates / FXTT Matrix"
                       actionVariant="button"
-                      listViewLabel="Matrix"
+                      listViewLabel="Open FXTT Price Matrix"
                       themeId={style.themeId}
                       customGradient={style.customGradient}
                       onChangeTheme={(tId, grad) => handleUpdateTileTheme(res.id, tId, grad)}
@@ -3238,9 +3063,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       }}
                       onDelete={() => setDeletingResource(res)}
                       onDuplicate={() => handleDuplicateResource(res)}
-                      onAction={() => handleOpenItemMatrix(res)}
-                      onViewListView={() => handleOpenItemMatrix(res)}
-                      onClick={() => handleOpenItemMatrix(res)}
+                      onAction={() => handleOpenRangesAndChanges(res, 'changes')}
+                      onViewListView={() => handleOpenRangesAndChanges(res, 'changes')}
+                      onClick={() => handleOpenRangesAndChanges(res, 'changes')}
                     />
                   );
                 })}
@@ -3318,13 +3143,13 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             </div>
                           </td>
 
-                          {/* Resource Name: Clickable to open FXTT Price Matrix */}
+                          {/* Resource Name: Clickable to open Price Changes Page */}
                           <td className="px-4 py-2.5">
                             <button
                               type="button"
-                              onClick={() => handleOpenItemMatrix(res)}
+                              onClick={() => handleOpenRangesAndChanges(res, 'changes')}
                               className="text-left font-bold text-slate-900 dark:text-slate-100 hover:text-[#0078d4] dark:hover:text-sky-400 hover:underline flex items-center space-x-1.5 cursor-pointer group-hover:text-[#0078d4]"
-                              title="Matrix"
+                              title="Open Price Changes & Audit Log"
                             >
                               <span>{res.name}</span>
                               <ExternalLink className="w-3 h-3 text-[#0078d4] opacity-40 group-hover:opacity-100 transition-opacity" />
