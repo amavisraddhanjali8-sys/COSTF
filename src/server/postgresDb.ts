@@ -1237,6 +1237,8 @@ export class PostgresService {
     await this.ensureProductCompetitorSchema();
     // Ensure enterprise resources portal schema exists (Labours, Machineries, Equipments, Tools)
     await this.ensureEnterpriseResourcesSchema();
+    // Ensure project plan cost controls schema exists
+    await this.ensureProjectPlanCostControlsSchema();
   }
 
   public async ensureEnterpriseResourcesSchema(): Promise<void> {
@@ -12851,6 +12853,17 @@ export class PostgresService {
         -- Ensure deliverables column exists on projects table for synchronized storage
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS deliverables JSONB DEFAULT '[]'::jsonb;
 
+        -- Enhance competitor quotes check constraints for enterprise resources and alternatives
+        ALTER TABLE product_competitor_quotes DROP CONSTRAINT IF EXISTS product_competitor_quotes_item_type_check;
+        ALTER TABLE product_competitor_quotes ADD CONSTRAINT product_competitor_quotes_item_type_check CHECK (
+          item_type IN ('product', 'service', 'produce', 'revenue_item', 'resource', 'equipment', 'machinery', 'labour', 'tool', 'subcontractor', 'material', 'overhead')
+        );
+        ALTER TABLE product_competitor_quotes DROP CONSTRAINT IF EXISTS product_competitor_quotes_status_check;
+        ALTER TABLE product_competitor_quotes ADD CONSTRAINT product_competitor_quotes_status_check CHECK (
+          status IN ('Active', 'Primary Competitor', 'Benchmark', 'Low Cost', 'Premium Rival', 'Archived', 'Alternative', 'Variable')
+        );
+        ALTER TABLE product_competitor_quotes DROP CONSTRAINT IF EXISTS product_competitor_quotes_competitor_id_fkey;
+
         -- 7. Dedicated Competitor Table tracking competitor name, product/service association, pricing, and timestamps
         CREATE TABLE IF NOT EXISTS competitor (
           id TEXT PRIMARY KEY,
@@ -13339,10 +13352,95 @@ export class PostgresService {
         itemCode = pi.code || '';
         itemName = pi.name || '';
         resolvedItemType = pi.type || 'product';
+      } else {
+        // Check enterprise_resources
+        const resRes = await db.query('SELECT * FROM enterprise_resources WHERE id = $1', [itemId]);
+        if (resRes.rows.length > 0) {
+          const r = resRes.rows[0];
+          ourRate = round4(r.base_rate || 0);
+          ourCost = round4(r.operational_charge || 0);
+          itemCode = r.code || '';
+          itemName = r.name || '';
+          resolvedItemType = r.type || 'resource';
+
+          // If quotes are empty and resource has alternatives JSONB, seed from alternatives
+          if (quotes.length === 0) {
+            const alts = typeof r.alternatives === 'string' ? JSON.parse(r.alternatives || '[]') : (r.alternatives || []);
+            if (Array.isArray(alts) && alts.length > 0) {
+              for (const alt of alts) {
+                const altPrice = Number(alt.rate || ourRate * 1.05);
+                const altQuoteId = `pcq-${itemId}-${alt.id || Date.now()}`;
+                const altDelta = round4(altPrice - ourRate);
+                const altSpread = ourRate > 0 ? round2(((altPrice - ourRate) / ourRate) * 100) : 0;
+                const altTiers = [
+                  { minQty: 1, maxQty: 4, unitPrice: altPrice, discountPct: 0, label: '1–4 (Base Rate)' },
+                  { minQty: 5, unitPrice: round2(altPrice * 0.94), discountPct: 6.0, label: '5+ (Volume Tier)' }
+                ];
+                await db.query(
+                  `INSERT INTO product_competitor_quotes (
+                    id, item_id, item_type, item_code, item_name, competitor_id, competitor_name,
+                    current_price, currency, our_price, price_delta, spread_pct, moq, lead_time_days,
+                    is_benchmark, last_quoted_date, status, notes, volume_pricing, created_at, updated_at
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'LKR', $9, $10, $11, 1, $12, false, CURRENT_DATE, 'Alternative', $13, $14, NOW(), NOW())
+                  ON CONFLICT (id) DO NOTHING`,
+                  [
+                    altQuoteId, itemId, resolvedItemType, itemCode, itemName,
+                    alt.id || 'comp-alt', alt.providerOrCompetitor || alt.name || 'Competitor Alternative',
+                    altPrice, ourRate, altDelta, altSpread, Number(alt.leadTimeDays || 7),
+                    alt.notes || 'Alternative option recorded in database', JSON.stringify(altTiers)
+                  ]
+                );
+                await db.query(
+                  `INSERT INTO product_competitor_price_history (
+                    id, quote_id, item_id, item_type, competitor_id, competitor_name, revision_date,
+                    price, previous_price, our_price, change_pct, reason, quote_ref, moq, lead_time_days,
+                    updated_by, target_tier_label, changed_tiers, tier_changes, applied_changes_summary, created_at
+                  ) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, $7, $7, $8, 0, $9, $10, 1, $11, 'Pricing Engine', 'Base Rate', '[]', '[]', $12, NOW())
+                  ON CONFLICT (id) DO NOTHING`,
+                  [
+                    `hist-${altQuoteId}-init`, altQuoteId, itemId, resolvedItemType,
+                    alt.id || 'comp-alt', alt.providerOrCompetitor || alt.name || 'Competitor Alternative',
+                    altPrice, ourRate, 'Initial competitor alternative benchmark',
+                    `QT-ALT-${itemCode || 'RES'}`, Number(alt.leadTimeDays || 7),
+                    JSON.stringify([`Initial alternative rate logged at LKR ${altPrice.toFixed(2)}`])
+                  ]
+                );
+              }
+            }
+          }
+        } else {
+          // Check overhead_items
+          const ovhRes = await db.query('SELECT * FROM overhead_items WHERE id = $1', [itemId]);
+          if (ovhRes.rows.length > 0) {
+            const ovh = ovhRes.rows[0];
+            ourRate = round4(ovh.amount || 0);
+            ourCost = round4(ovh.cost_baseline || 0);
+            itemCode = ovh.code || '';
+            itemName = ovh.name || '';
+            resolvedItemType = 'overhead';
+          } else {
+            // Check materials
+            const matRes = await db.query('SELECT * FROM materials WHERE id = $1', [itemId]);
+            if (matRes.rows.length > 0) {
+              const mat = matRes.rows[0];
+              ourRate = round4(mat.cost_per_unit || 0);
+              itemCode = mat.code || '';
+              itemName = mat.name || '';
+              resolvedItemType = 'material';
+            }
+          }
+        }
       }
     }
 
-    // If none exist yet, seed initial realistic competitor quotes & benchmarks
+    // Refresh quotes if we seeded from alternatives
+    const refreshedQuotesRes = await db.query(
+      `SELECT * FROM product_competitor_quotes WHERE item_id = $1 ORDER BY is_benchmark DESC, current_price ASC, created_at ASC`,
+      [itemId]
+    );
+    quotes = refreshedQuotesRes.rows;
+
+    // If still none exist yet, seed initial realistic competitor quotes & benchmarks
     if (quotes.length === 0 && (ourRate > 0 || itemName)) {
       const baseCompPrice1 = ourRate > 0 ? round2(ourRate * 1.05) : 5000;
       const baseCompPrice2 = ourRate > 0 ? round2(ourRate * 0.96) : 4800;
@@ -13694,6 +13792,12 @@ export class PostgresService {
         JSON.stringify(appliedSummary)
       ]
     );
+
+    // Keep enterprise_resources synced with latest competitor quote
+    await db.query(
+      `UPDATE enterprise_resources SET competitor_rate = $1, competitor_company = $2, updated_at = NOW() WHERE id = $3`,
+      [newPrice, quote.competitor_name, itemId]
+    ).catch(() => {});
 
     const quotes = await this.getProductCompetitorQuotes(itemId, quote.item_type);
     return quotes.find((q) => q.id === quoteId) || quotes[0];
@@ -15174,11 +15278,437 @@ export class PostgresService {
     return true;
   }
 
+  // --- Project Plan Cost Controls Engine ---
+  public async ensureProjectPlanCostControlsSchema(): Promise<void> {
+    const db = this.db!;
+    try {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS project_plan_cost_controls (
+          id TEXT PRIMARY KEY,
+          plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE UNIQUE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          budget_ceiling NUMERIC(18, 2) DEFAULT 0,
+          target_cost NUMERIC(18, 2) DEFAULT 0,
+          material_cost_cap NUMERIC(18, 2) DEFAULT 0,
+          labor_cost_cap NUMERIC(18, 2) DEFAULT 0,
+          equipment_cost_cap NUMERIC(18, 2) DEFAULT 0,
+          subcontractor_cost_cap NUMERIC(18, 2) DEFAULT 0,
+          overhead_cost_cap NUMERIC(18, 2) DEFAULT 0,
+          contingency_cap NUMERIC(18, 2) DEFAULT 0,
+          cost_status TEXT DEFAULT 'Active',
+          cost_stage TEXT DEFAULT 'Budget',
+          freeze_cost_lines BOOLEAN DEFAULT false,
+          escalation_lock BOOLEAN DEFAULT false,
+          target_margin_pct NUMERIC(8, 2) DEFAULT 25.0,
+          overhead_pct NUMERIC(8, 2) DEFAULT 8.5,
+          contingency_pct NUMERIC(8, 2) DEFAULT 5.0,
+          labor_burden_pct NUMERIC(8, 2) DEFAULT 0.0,
+          committed_savings NUMERIC(18, 2) DEFAULT 0,
+          cost_notes TEXT DEFAULT '',
+          item_controls JSONB DEFAULT '[]'::jsonb,
+          audit_trail JSONB DEFAULT '[]'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_plan_cost_controls_plan ON project_plan_cost_controls(plan_id);
+        CREATE INDEX IF NOT EXISTS idx_plan_cost_controls_project ON project_plan_cost_controls(project_id);
+      `);
+    } catch (e: any) {
+      console.warn('[PostgreSQL] ensureProjectPlanCostControlsSchema warning:', e?.message);
+    }
+  }
+
+  public async getPlanCostControls(planId: string): Promise<any> {
+    const db = await this.getDb();
+    const planRes = await db.query('SELECT * FROM project_plans WHERE id = $1', [planId]);
+    if (planRes.rows.length === 0) {
+      throw new Error(`Project plan '${planId}' not found`);
+    }
+    const plan = planRes.rows[0];
+
+    // Check existing cost controls
+    let ctrlRes = await db.query('SELECT * FROM project_plan_cost_controls WHERE plan_id = $1', [planId]);
+    let row: any = ctrlRes.rows[0];
+
+    // Compute live planned elements
+    const [boqRes, resRes, ovhRes, tarRes, sumRes] = await Promise.all([
+      db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC', [planId]),
+      db.query('SELECT * FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]),
+      db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1', [planId]),
+      db.query('SELECT * FROM plan_tariffs WHERE plan_id = $1', [planId]),
+      db.query('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId])
+    ]);
+
+    const boqItems = boqRes.rows;
+    const resources = resRes.rows;
+    const overheads = ovhRes.rows;
+    const tariffs = tarRes.rows;
+    const summary = sumRes.rows[0];
+
+    let matCostPlanned = 0;
+    let laborCostPlanned = 0;
+    let eqCostPlanned = 0;
+    let machCostPlanned = 0;
+    let toolCostPlanned = 0;
+    let subCostPlanned = 0;
+    let outCostPlanned = 0;
+
+    for (const b of boqItems) {
+      const tc = Number(b.total_cost || 0);
+      const t = String(b.item_type || '').toLowerCase();
+      if (t === 'material' || t === 'produce') matCostPlanned += tc;
+      else if (t === 'subcontractor') subCostPlanned += tc;
+      else if (t === 'outsourced' || t === 'service') outCostPlanned += tc;
+      else matCostPlanned += tc;
+    }
+
+    for (const r of resources) {
+      const tc = Number(r.total_cost || 0);
+      const t = String(r.resource_type || '').toLowerCase();
+      if (t === 'labour' || t === 'labor') laborCostPlanned += tc;
+      else if (t === 'machinery') machCostPlanned += tc;
+      else if (t === 'equipment') eqCostPlanned += tc;
+      else if (t === 'tool') toolCostPlanned += tc;
+      else if (t === 'subcontractor') subCostPlanned += tc;
+      else laborCostPlanned += tc;
+    }
+
+    let ovhCostPlanned = 0;
+    for (const o of overheads) {
+      ovhCostPlanned += Number(o.allocated_amount || 0);
+    }
+
+    let tariffCostPlanned = 0;
+    for (const tf of tariffs) {
+      tariffCostPlanned += Number(tf.calculated_tariff_amount || 0);
+    }
+
+    const equipmentGroupCostPlanned = round2(eqCostPlanned + machCostPlanned + toolCostPlanned);
+    const directCostPlanned = round2(matCostPlanned + laborCostPlanned + equipmentGroupCostPlanned + subCostPlanned + outCostPlanned);
+    const totalPlannedCost = summary
+      ? Number(summary.total_planned_cost || 0)
+      : round2(directCostPlanned + ovhCostPlanned + tariffCostPlanned);
+    const plannedRevenue = summary
+      ? Number(summary.planned_revenue || 0)
+      : Number(plan.planned_revenue || 0);
+
+    // If no row exists, initialize realistic defaults based on the plan
+    if (!row) {
+      const id = `pcc-${planId}`;
+      const ceiling = totalPlannedCost > 0 ? round2(totalPlannedCost * 1.10) : 100000;
+      const target = totalPlannedCost > 0 ? round2(totalPlannedCost * 0.95) : 85000;
+      const matCap = matCostPlanned > 0 ? round2(matCostPlanned * 1.05) : round2(ceiling * 0.4);
+      const labCap = laborCostPlanned > 0 ? round2(laborCostPlanned * 1.05) : round2(ceiling * 0.25);
+      const eqCap = equipmentGroupCostPlanned > 0 ? round2(equipmentGroupCostPlanned * 1.05) : round2(ceiling * 0.15);
+      const subCap = subCostPlanned > 0 ? round2(subCostPlanned * 1.05) : round2(ceiling * 0.1);
+      const ovhCap = ovhCostPlanned > 0 ? round2(ovhCostPlanned * 1.05) : round2(ceiling * 0.1);
+
+      await db.query(
+        `INSERT INTO project_plan_cost_controls (
+          id, plan_id, project_id, budget_ceiling, target_cost,
+          material_cost_cap, labor_cost_cap, equipment_cost_cap, subcontractor_cost_cap, overhead_cost_cap,
+          contingency_cap, cost_status, cost_stage, freeze_cost_lines, escalation_lock,
+          target_margin_pct, overhead_pct, contingency_pct, labor_burden_pct, committed_savings,
+          cost_notes, item_controls, audit_trail, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, 'Active', 'Budget', false, false,
+          $12, $13, $14, $15, 0,
+          $16, '[]'::jsonb, $17::jsonb, NOW(), NOW()
+        ) ON CONFLICT (plan_id) DO NOTHING`,
+        [
+          id, planId, plan.project_id, ceiling, target,
+          matCap, labCap, eqCap, subCap, ovhCap,
+          round2(ceiling * 0.05),
+          Number(plan.target_margin_pct || 25),
+          Number(plan.overhead_pct || 8.5),
+          Number(plan.contingency_pct || 5.0),
+          Number(plan.labor_burden_pct || 0),
+          'Baseline budget ceilings and cost stage initialized in PostgreSQL',
+          JSON.stringify([{
+            date: new Date().toISOString(),
+            action: 'INITIALIZED',
+            actor: 'System Cost Engine',
+            details: `Initialized budget ceiling at ${ceiling} and target cost at ${target}`
+          }])
+        ]
+      );
+
+      const reRes = await db.query('SELECT * FROM project_plan_cost_controls WHERE plan_id = $1', [planId]);
+      row = reRes.rows[0];
+    }
+
+    const budgetCeiling = Number(row.budget_ceiling || 0);
+    const targetCost = Number(row.target_cost || 0);
+    const materialCostCap = Number(row.material_cost_cap || 0);
+    const laborCostCap = Number(row.labor_cost_cap || 0);
+    const equipmentCostCap = Number(row.equipment_cost_cap || 0);
+    const subcontractorCostCap = Number(row.subcontractor_cost_cap || 0);
+    const overheadCostCap = Number(row.overhead_cost_cap || 0);
+    const contingencyCap = Number(row.contingency_cap || 0);
+
+    const ceilingVariance = round2(budgetCeiling - totalPlannedCost);
+    const ceilingVariancePct = budgetCeiling > 0 ? round2(((budgetCeiling - totalPlannedCost) / budgetCeiling) * 100) : 0;
+    const targetVariance = round2(targetCost - totalPlannedCost);
+
+    const materialVariance = round2(materialCostCap - matCostPlanned);
+    const laborVariance = round2(laborCostCap - laborCostPlanned);
+    const equipmentVariance = round2(equipmentCostCap - equipmentGroupCostPlanned);
+    const subcontractorVariance = round2(subcontractorCostCap - subCostPlanned);
+    const overheadVariance = round2(overheadCostCap - ovhCostPlanned);
+
+    // Build unified cost lines
+    const costLines: any[] = [
+      ...boqItems.map((b: any) => ({
+        id: b.id,
+        lineType: 'boq',
+        category: b.category || b.item_type || 'Material',
+        itemType: b.item_type || 'material',
+        code: b.item_code || '',
+        name: b.name,
+        supplierOrProvider: b.supplier_or_provider || '',
+        quantity: Number(b.quantity || 1),
+        unit: b.unit || 'pcs',
+        unitCost: Number(b.unit_cost || 0),
+        totalCost: Number(b.total_cost || 0),
+        costStage: b.cost_stage || row.cost_stage || 'Budget',
+        isFrozen: Boolean(row.freeze_cost_lines),
+        notes: b.notes || ''
+      })),
+      ...resources.map((r: any) => ({
+        id: r.id,
+        lineType: 'resource',
+        category: r.resource_type ? r.resource_type.toUpperCase() : 'RESOURCE',
+        itemType: r.resource_type || 'labour',
+        code: r.resource_id || '',
+        name: r.name,
+        roleOrTrade: r.role_or_trade || '',
+        supplierOrProvider: r.supplier_name || '',
+        quantity: Number(r.allocated_hours || 1),
+        unit: r.unit || 'hr',
+        unitCost: Number(r.hourly_rate || 0),
+        totalCost: Number(r.total_cost || 0),
+        costStage: row.cost_stage || 'Budget',
+        isFrozen: Boolean(row.freeze_cost_lines),
+        notes: r.notes || ''
+      })),
+      ...overheads.map((o: any) => ({
+        id: o.id,
+        lineType: 'overhead',
+        category: 'OVERHEAD',
+        itemType: 'overhead',
+        code: o.category || '',
+        name: o.category || 'Plan Overhead Allocation',
+        quantity: 1,
+        unit: 'allocation',
+        unitCost: Number(o.allocated_amount || 0),
+        totalCost: Number(o.allocated_amount || 0),
+        costStage: row.cost_stage || 'Budget',
+        isFrozen: Boolean(row.freeze_cost_lines),
+        notes: o.notes || ''
+      }))
+    ];
+
+    const auditTrail = typeof row.audit_trail === 'string'
+      ? JSON.parse(row.audit_trail || '[]')
+      : (row.audit_trail || []);
+
+    return {
+      id: row.id,
+      planId: row.plan_id,
+      projectId: row.project_id,
+      planNumber: plan.plan_number,
+      planName: plan.name,
+      currency: plan.currency || 'LKR',
+      plannedRevenue,
+      totalPlannedCost,
+      directCostPlanned,
+      overheadCostPlanned: round2(ovhCostPlanned + tariffCostPlanned),
+      budgetCeiling,
+      targetCost,
+      ceilingVariance,
+      ceilingVariancePct,
+      targetVariance,
+      isOverBudget: ceilingVariance < 0,
+      breakdown: {
+        materials: { planned: round2(matCostPlanned), cap: materialCostCap, variance: materialVariance },
+        labor: { planned: round2(laborCostPlanned), cap: laborCostCap, variance: laborVariance },
+        equipment: { planned: round2(equipmentGroupCostPlanned), cap: equipmentCostCap, variance: equipmentVariance },
+        subcontractors: { planned: round2(subCostPlanned), cap: subcontractorCostCap, variance: subcontractorVariance },
+        overheads: { planned: round2(ovhCostPlanned + tariffCostPlanned), cap: overheadCostCap, variance: overheadVariance }
+      },
+      contingencyCap,
+      costStatus: row.cost_status || 'Active',
+      costStage: row.cost_stage || 'Budget',
+      freezeCostLines: Boolean(row.freeze_cost_lines),
+      escalationLock: Boolean(row.escalation_lock),
+      targetMarginPct: Number(row.target_margin_pct || 25),
+      overheadPct: Number(row.overhead_pct || 8.5),
+      contingencyPct: Number(row.contingency_pct || 5.0),
+      laborBurdenPct: Number(row.labor_burden_pct || 0),
+      committedSavings: Number(row.committed_savings || 0),
+      costNotes: row.cost_notes || '',
+      costLines,
+      auditTrail,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  public async updatePlanCostControls(planId: string, updates: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await this.getPlanCostControls(planId);
+    if (!existing) throw new Error(`Plan '${planId}' cost controls not found`);
+
+    const actorName = actor?.name || actor || 'Cost Controller';
+
+    const budgetCeiling = updates.budgetCeiling !== undefined ? Math.max(0, Number(updates.budgetCeiling)) : existing.budgetCeiling;
+    const targetCost = updates.targetCost !== undefined ? Math.max(0, Number(updates.targetCost)) : existing.targetCost;
+    const materialCostCap = updates.materialCostCap !== undefined ? Math.max(0, Number(updates.materialCostCap)) : existing.breakdown.materials.cap;
+    const laborCostCap = updates.laborCostCap !== undefined ? Math.max(0, Number(updates.laborCostCap)) : existing.breakdown.labor.cap;
+    const equipmentCostCap = updates.equipmentCostCap !== undefined ? Math.max(0, Number(updates.equipmentCostCap)) : existing.breakdown.equipment.cap;
+    const subcontractorCostCap = updates.subcontractorCostCap !== undefined ? Math.max(0, Number(updates.subcontractorCostCap)) : existing.breakdown.subcontractors.cap;
+    const overheadCostCap = updates.overheadCostCap !== undefined ? Math.max(0, Number(updates.overheadCostCap)) : existing.breakdown.overheads.cap;
+    const contingencyCap = updates.contingencyCap !== undefined ? Math.max(0, Number(updates.contingencyCap)) : existing.contingencyCap;
+
+    const costStatus = updates.costStatus !== undefined ? String(updates.costStatus) : existing.costStatus;
+    const costStage = updates.costStage !== undefined ? String(updates.costStage) : existing.costStage;
+    const freezeCostLines = updates.freezeCostLines !== undefined ? Boolean(updates.freezeCostLines) : existing.freezeCostLines;
+    const escalationLock = updates.escalationLock !== undefined ? Boolean(updates.escalationLock) : existing.escalationLock;
+    const targetMarginPct = updates.targetMarginPct !== undefined ? Number(updates.targetMarginPct) : existing.targetMarginPct;
+    const overheadPct = updates.overheadPct !== undefined ? Number(updates.overheadPct) : existing.overheadPct;
+    const contingencyPct = updates.contingencyPct !== undefined ? Number(updates.contingencyPct) : existing.contingencyPct;
+    const laborBurdenPct = updates.laborBurdenPct !== undefined ? Number(updates.laborBurdenPct) : existing.laborBurdenPct;
+    const committedSavings = updates.committedSavings !== undefined ? Math.max(0, Number(updates.committedSavings)) : existing.committedSavings;
+    const costNotes = updates.costNotes !== undefined ? String(updates.costNotes) : existing.costNotes;
+
+    const auditEntry = {
+      date: new Date().toISOString(),
+      action: 'UPDATED',
+      actor: actorName,
+      details: updates.reason || `Updated cost control caps (Ceiling: ${budgetCeiling}, Stage: ${costStage}, Frozen: ${freezeCostLines})`
+    };
+
+    const newAuditTrail = [auditEntry, ...(existing.auditTrail || [])].slice(0, 50);
+
+    await db.query(
+      `UPDATE project_plan_cost_controls SET
+        budget_ceiling = $1,
+        target_cost = $2,
+        material_cost_cap = $3,
+        labor_cost_cap = $4,
+        equipment_cost_cap = $5,
+        subcontractor_cost_cap = $6,
+        overhead_cost_cap = $7,
+        contingency_cap = $8,
+        cost_status = $9,
+        cost_stage = $10,
+        freeze_cost_lines = $11,
+        escalation_lock = $12,
+        target_margin_pct = $13,
+        overhead_pct = $14,
+        contingency_pct = $15,
+        labor_burden_pct = $16,
+        committed_savings = $17,
+        cost_notes = $18,
+        audit_trail = $19::jsonb,
+        updated_at = NOW()
+      WHERE plan_id = $20`,
+      [
+        budgetCeiling, targetCost,
+        materialCostCap, laborCostCap, equipmentCostCap, subcontractorCostCap, overheadCostCap,
+        contingencyCap, costStatus, costStage, freezeCostLines, escalationLock,
+        targetMarginPct, overheadPct, contingencyPct, laborBurdenPct, committedSavings,
+        costNotes, JSON.stringify(newAuditTrail), planId
+      ]
+    );
+
+    // If margin/overhead/contingency changed, sync back to project_plans
+    if (
+      targetMarginPct !== existing.targetMarginPct ||
+      overheadPct !== existing.overheadPct ||
+      contingencyPct !== existing.contingencyPct ||
+      laborBurdenPct !== existing.laborBurdenPct
+    ) {
+      await db.query(
+        `UPDATE project_plans SET
+          target_margin_pct = $1,
+          overhead_pct = $2,
+          contingency_pct = $3,
+          labor_burden_pct = $4,
+          updated_at_ts = NOW()
+        WHERE id = $5`,
+        [targetMarginPct, overheadPct, contingencyPct, laborBurdenPct, planId]
+      );
+      await this.recalculatePlanFinancials(planId);
+    }
+
+    return await this.getPlanCostControls(planId);
+  }
+
+  public async applyPlanCostControlAction(planId: string, action: string, payload: any, actor?: any): Promise<any> {
+    if (action === 'freeze_all') {
+      return await this.updatePlanCostControls(planId, {
+        freezeCostLines: true,
+        costStatus: 'Cost Frozen',
+        reason: 'Administrator engaged comprehensive cost freeze across all plan cost lines'
+      }, actor);
+    }
+
+    if (action === 'unfreeze_all') {
+      return await this.updatePlanCostControls(planId, {
+        freezeCostLines: false,
+        costStatus: 'Active',
+        reason: 'Administrator unlocked cost lines for budgeting and estimation revisions'
+      }, actor);
+    }
+
+    if (action === 'lock_escalation') {
+      return await this.updatePlanCostControls(planId, {
+        escalationLock: true,
+        reason: 'Rate escalation barrier enabled against vendor price creep'
+      }, actor);
+    }
+
+    if (action === 'unlock_escalation') {
+      return await this.updatePlanCostControls(planId, {
+        escalationLock: false,
+        reason: 'Rate escalation restriction removed'
+      }, actor);
+    }
+
+    if (action === 'apply_savings_target') {
+      const discountPct = Number(payload?.discountPct || 5);
+      const existing = await this.getPlanCostControls(planId);
+      const targetSavings = round2(existing.totalPlannedCost * (discountPct / 100));
+      const newTargetCost = round2(existing.totalPlannedCost - targetSavings);
+
+      return await this.updatePlanCostControls(planId, {
+        committedSavings: round2((existing.committedSavings || 0) + targetSavings),
+        targetCost: newTargetCost,
+        reason: `Committed value engineering cost reduction target of ${discountPct}% (Savings: ${targetSavings} ${existing.currency})`
+      }, actor);
+    }
+
+    if (action === 'set_cost_stage') {
+      const newStage = String(payload?.stage || 'Budget');
+      return await this.updatePlanCostControls(planId, {
+        costStage: newStage,
+        reason: `Advanced plan cost stage to ${newStage}`
+      }, actor);
+    }
+
+    return await this.getPlanCostControls(planId);
+  }
+
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
     const tables = [
       'clients', 'projects', 'project_plans', 'project_plan_revisions',
       'project_plan_sections', 'project_plan_boq_items', 'project_plan_resources',
+      'project_plan_overhead_allocations', 'project_plan_cost_summaries', 'project_plan_cost_controls',
       'project_plan_overhead_allocations', 'project_plan_cost_summaries',
       'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
       'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',

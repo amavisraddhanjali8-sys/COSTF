@@ -308,6 +308,23 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     setRangesAndChangesResource(res);
   };
 
+  const handleOpenItemMatrix = (res: EnterpriseResource) => {
+    setActiveCompetitorMatrixItem({
+      item: {
+        id: res.id,
+        code: res.code,
+        name: res.name,
+        category: res.category,
+        unit: res.unit,
+        ourPrice: Number(res.baseRate) || 0,
+        ourCost: Number(res.operationalCharge) || 0,
+        currency: res.currency || globalCurrency || 'LKR',
+        type: 'service'
+      },
+      itemType: 'resource' as any
+    });
+  };
+
   const handleDuplicateResource = async (res: EnterpriseResource) => {
     try {
       const copy: Partial<EnterpriseResource> = {
@@ -466,7 +483,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       currency?: string;
       type?: 'product' | 'service';
     };
-    itemType?: 'product' | 'service' | 'produce' | 'revenue_item';
+    itemType?: 'product' | 'service' | 'produce' | 'revenue_item' | 'resource' | 'overhead' | 'material';
   } | null>(null);
 
   // Sync competitors when prop changes
@@ -3032,63 +3049,159 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             </div>
           )}
 
-          {/* Root Category Cards (shown when looking at All Resources in Cards mode) */}
+          {/* CATEGORY CARDS VIEW: Keep resources strictly inside their category cards (e.g. equipment items in equipment card) */}
           {resourceViewMode === 'cards' && !selectedResourceCategory && !searchQuery.trim() && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs px-1">
-                <span className="font-bold text-slate-700 dark:text-slate-300 text-sm flex items-center space-x-1.5">
-                  <FolderTree className="w-4 h-4 text-[#003049]" />
-                  <span>Resource Categories & Classification</span>
-                </span>
-                <span className="text-slate-400 font-mono text-xs">
-                  {resourceCategoriesData.length} Core Categories
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {resourceCategoriesData.map((cat, idx) => {
                   const defaultTheme = getRandomThemeIndex(idx + 3);
                   const style = getTileStyle(cat.id, defaultTheme.id);
+                  const items = enterpriseResources.filter((r) => r.type === cat.type);
+
                   return (
-                    <ModernTileCard
+                    <div
                       key={cat.id}
-                      id={cat.id}
-                      tag={`CATEGORY • ${cat.type.toUpperCase()}`}
-                      title={cat.title}
-                      brief={`${cat.count} Resources Registered • Average Base: ${formatCurrency(cat.avgRate, 'LKR')}/${cat.unit}`}
-                      actionLabel="View in FXTT Table"
-                      actionVariant="button"
-                      listViewLabel="Explore Resources"
-                      themeId={style.themeId}
-                      customGradient={style.customGradient}
-                      onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
-                      onClick={() => setSelectedResourceCategory(cat.type)}
-                      onAction={() => {
-                        setSelectedResourceCategory(cat.type);
-                        setResourceViewMode('table');
-                      }}
-                      onViewListView={() => setSelectedResourceCategory(cat.type)}
-                    />
+                      className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a] shadow-xs overflow-hidden flex flex-col transition-all hover:shadow-md"
+                    >
+                      {/* Category Header (One-word style, no wordy descriptions) */}
+                      <div
+                        className="p-3 text-white flex items-center justify-between"
+                        style={{ background: style.customGradient || defaultTheme.gradient }}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <span className="p-1.5 rounded-lg bg-black/20 text-white shrink-0">
+                            {cat.icon}
+                          </span>
+                          <div>
+                            <h3 className="font-bold text-sm tracking-tight text-white capitalize">{cat.title}</h3>
+                            <span className="text-[10px] text-white/80 font-mono">
+                              {items.length} {items.length === 1 ? 'Item' : 'Items'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedResourceCategory(cat.type);
+                              setResourceViewMode('table');
+                            }}
+                            className="px-2 py-1 rounded text-[11px] font-semibold bg-white/20 hover:bg-white/30 text-white transition-colors cursor-pointer"
+                            title="Table"
+                          >
+                            Table
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingResource({ type: cat.type } as any);
+                              setIsCreateResourceModalOpen(true);
+                            }}
+                            className="px-2 py-1 rounded text-[11px] font-semibold bg-white text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shadow-xs"
+                            title="Add"
+                          >
+                            + Add
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Items List Inside Category Card */}
+                      <div className="p-2.5 flex-1 divide-y divide-slate-100 dark:divide-slate-800/60 overflow-y-auto max-h-[340px]">
+                        {items.length === 0 ? (
+                          <div className="py-8 text-center text-slate-400">
+                            <span className="text-xs">No items</span>
+                          </div>
+                        ) : (
+                          items.map((res) => (
+                            <div
+                              key={res.id}
+                              className="py-2 px-1.5 flex items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-900/40 rounded-lg transition-colors group"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                                    {res.code}
+                                  </span>
+                                  <span
+                                    onClick={() => handleOpenItemMatrix(res)}
+                                    className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate hover:text-[#0078d4] cursor-pointer"
+                                    title={res.name}
+                                  >
+                                    {res.name}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                  {formatCurrency(res.baseRate, res.currency || 'LKR')}/{res.unit}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center space-x-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenItemMatrix(res)}
+                                  className="px-2.5 py-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-[#003049] hover:text-white text-[#003049] dark:text-sky-300 text-[11px] font-semibold border border-blue-200 dark:border-blue-900 transition-colors cursor-pointer shadow-2xs"
+                                  title="Matrix"
+                                >
+                                  Matrix
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingResource(res);
+                                    setIsCreateResourceModalOpen(true);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                                  title="Edit"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingResource(res)}
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Card Summary Footer */}
+                      <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Avg: {formatCurrency(cat.avgRate, 'LKR')}/{cat.unit}</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedResourceCategory(cat.type)}
+                          className="text-[#0078d4] hover:underline font-semibold cursor-pointer"
+                        >
+                          View
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </div>
           )}
 
-          {/* CARDS UI VIEW: ModernTileCard for Every Resource */}
-          {resourceViewMode === 'cards' && (
+          {/* FILTERED CARDS VIEW: Shown ONLY when a category is selected or search query active */}
+          {resourceViewMode === 'cards' && (selectedResourceCategory || searchQuery.trim()) && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs px-1">
                 <div className="flex items-center space-x-2">
                   <span className="font-bold capitalize text-slate-800 dark:text-slate-200 text-sm">
-                    {selectedResourceCategory ? `${selectedResourceCategory} Resources` : 'All Enterprise Resources'}
+                    {selectedResourceCategory ? `${selectedResourceCategory} Resources` : 'Search Results'}
                     {selectedResourceSubCategory ? ` > ${selectedResourceSubCategory}` : ''}
                   </span>
                   <span className="text-slate-400 font-mono text-xs">
                     ({filteredCategoryResources.length} items)
                   </span>
                 </div>
-                {(selectedResourceCategory || selectedResourceSubCategory) && (
+                {(selectedResourceCategory || selectedResourceSubCategory || searchQuery.trim()) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3106,17 +3219,16 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 {filteredCategoryResources.map((res, idx) => {
                   const defaultTheme = getRandomThemeIndex(idx + 12);
                   const style = getTileStyle(res.id, defaultTheme.id);
-                  const tierCount = res.priceRanges?.length || 4;
                   return (
                     <ModernTileCard
                       key={res.id}
                       id={res.id}
-                      tag={`RESOURCE • ${(res.type || res.category || 'LABOUR').toUpperCase()}`}
+                      tag={(res.type || res.category || 'RESOURCE').toUpperCase()}
                       title={res.name}
-                      brief={`${res.code} • ${res.category}${res.subCategory ? ` > ${res.subCategory}` : ''} • Rate: ${formatCurrency(res.baseRate, res.currency || 'LKR')}/${res.unit} • ${tierCount} Price Tiers`}
-                      actionLabel="View Benchmark Rates / FXTT Matrix"
+                      brief={`${res.code} • Rate: ${formatCurrency(res.baseRate, res.currency || 'LKR')}/${res.unit}`}
+                      actionLabel="Matrix"
                       actionVariant="button"
-                      listViewLabel="Open FXTT Price Matrix"
+                      listViewLabel="Matrix"
                       themeId={style.themeId}
                       customGradient={style.customGradient}
                       onChangeTheme={(tId, grad) => handleUpdateTileTheme(res.id, tId, grad)}
@@ -3126,9 +3238,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       }}
                       onDelete={() => setDeletingResource(res)}
                       onDuplicate={() => handleDuplicateResource(res)}
-                      onAction={() => handleOpenRangesAndChanges(res, 'ranges')}
-                      onViewListView={() => handleOpenRangesAndChanges(res, 'ranges')}
-                      onClick={() => handleOpenRangesAndChanges(res, 'ranges')}
+                      onAction={() => handleOpenItemMatrix(res)}
+                      onViewListView={() => handleOpenItemMatrix(res)}
+                      onClick={() => handleOpenItemMatrix(res)}
                     />
                   );
                 })}
@@ -3206,13 +3318,13 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             </div>
                           </td>
 
-                          {/* Resource Name: Clickable to open Price Ranges & Changes modal */}
+                          {/* Resource Name: Clickable to open FXTT Price Matrix */}
                           <td className="px-4 py-2.5">
                             <button
                               type="button"
-                              onClick={() => handleOpenRangesAndChanges(res, 'ranges')}
+                              onClick={() => handleOpenItemMatrix(res)}
                               className="text-left font-bold text-slate-900 dark:text-slate-100 hover:text-[#0078d4] dark:hover:text-sky-400 hover:underline flex items-center space-x-1.5 cursor-pointer group-hover:text-[#0078d4]"
-                              title="Click to view and edit price ranges and change history"
+                              title="Matrix"
                             >
                               <span>{res.name}</span>
                               <ExternalLink className="w-3 h-3 text-[#0078d4] opacity-40 group-hover:opacity-100 transition-opacity" />
@@ -3263,11 +3375,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                           <td className="px-3.5 py-2.5 text-center">
                             <button
                               type="button"
-                              onClick={() => handleOpenRangesAndChanges(res, 'ranges')}
+                              onClick={() => handleOpenItemMatrix(res)}
                               className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-50 hover:bg-blue-100 text-[#0078d4] border border-blue-200 dark:bg-blue-950/60 dark:text-sky-300 dark:border-blue-800 transition-colors cursor-pointer"
-                              title="Click to view and configure price ranges"
+                              title="Matrix"
                             >
-                              {tierCount} Tiers (View)
+                              Matrix
                             </button>
                           </td>
 
@@ -3287,12 +3399,12 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                             <div className="flex items-center justify-center space-x-1">
                               <button
                                 type="button"
-                                onClick={() => handleOpenRangesAndChanges(res, 'ranges')}
-                                className="px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:hover:bg-blue-900/60 text-[#0078d4] font-semibold text-[11px] flex items-center space-x-1 cursor-pointer"
-                                title="Open Price Ranges & Changes Matrix"
+                                onClick={() => handleOpenItemMatrix(res)}
+                                className="px-2.5 py-1 rounded bg-blue-50 hover:bg-[#003049] hover:text-white dark:bg-blue-950/60 text-[#003049] dark:text-sky-300 font-semibold text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                title="Matrix"
                               >
                                 <Sliders className="w-3 h-3" />
-                                <span>Ranges & Changes</span>
+                                <span>Matrix</span>
                               </button>
 
                               <button
@@ -7450,7 +7562,17 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           currentUser={currentUser}
           onClose={() => setActiveCompetitorMatrixItem(null)}
           onUpdateOurPrice={(newPrice, newCost) => {
-            showToast(`Updated our rate to $${newPrice.toFixed(2)} in database.`);
+            const itemId = activeCompetitorMatrixItem.item.id;
+            if (itemId.startsWith('res-') || activeCompetitorMatrixItem.itemType === 'resource') {
+              setEnterpriseResources((prev) =>
+                prev.map((r) =>
+                  r.id === itemId
+                    ? { ...r, baseRate: newPrice, operationalCharge: newCost ?? r.operationalCharge }
+                    : r
+                )
+              );
+            }
+            showToast(`Updated rate to ${formatCurrency(newPrice, activeCompetitorMatrixItem.item.currency || 'LKR')} in database.`);
             setActiveCompetitorMatrixItem(null);
           }}
         />

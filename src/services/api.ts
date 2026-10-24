@@ -2106,6 +2106,36 @@ export const api = {
       body: JSON.stringify({ value })
     });
     if (!res.ok) throw await parseErrorResponse(res, `Failed to update KV store for ${key}`);
+  },
+
+  // ============================================================================
+  // PROJECT PLAN COST CONTROLS API (PostgreSQL inno_cost)
+  // ============================================================================
+
+  async getPlanCostControls(planId: string): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/cost-controls`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan cost controls');
+    return await res.json();
+  },
+
+  async updatePlanCostControls(planId: string, updates: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/cost-controls`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update plan cost controls');
+    return await res.json();
+  },
+
+  async applyPlanCostControlAction(planId: string, action: string, payload?: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/cost-controls/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload })
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to apply plan cost control action');
+    return await res.json();
   }
 };
 

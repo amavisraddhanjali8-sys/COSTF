@@ -367,7 +367,14 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
                   {/* 1. Plan Number */}
                   <td className="py-2.5 px-3 font-mono font-bold text-[#0078d4]">
                     <div className="flex items-center space-x-1">
-                      <span>{plan.planNumber}</span>
+                      <button
+                        type="button"
+                        onClick={() => onViewPlanDetails(plan.id)}
+                        className="hover:underline text-[#0078d4] font-bold text-left cursor-pointer flex items-center space-x-1"
+                        title={`Open Plan ${plan.planNumber}`}
+                      >
+                        <span>{plan.planNumber}</span>
+                      </button>
                       {plan.isBaseline && (
                         <span className="text-[9px] px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-sans font-semibold">
                           B

@@ -608,6 +608,32 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
             costPrice: Number(commitForm.newCost),
             currency: activeCurr
           });
+        } else if (itemType === 'resource' || item.id.startsWith('res-')) {
+          await api.commitResourcePrice(item.id, {
+            baseRate: newPrice,
+            newRate: newPrice,
+            operationalCharge: Number(commitForm.newCost),
+            effectiveDate: today,
+            reason: commitForm.reason,
+            updatedBy: commitForm.updatedBy
+          }).catch(() => {});
+          await api.updateResource(item.id, {
+            baseRate: newPrice,
+            operationalCharge: Number(commitForm.newCost),
+            currency: activeCurr
+          }).catch(() => {});
+        } else if (itemType === 'overhead' || item.id.startsWith('ovh-')) {
+          await api.updateOverhead(item.id, {
+            amount: newPrice,
+            currency: activeCurr
+          }).catch(() => {});
+        } else if (itemType === 'material' || item.id.startsWith('mat-')) {
+          await api.commitMaterialPrice(item.id, {
+            costPerUnit: newPrice,
+            effectiveDate: today,
+            reason: commitForm.reason,
+            updatedBy: commitForm.updatedBy
+          }).catch(() => {});
         } else {
           await api.updateProduceItem(item.id, {
             retailPrice: newPrice,
@@ -858,26 +884,26 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
             )}
           </div>
 
-          {/* VIEW CHANGES (ALL ROWS) BUTTON */}
+          {/* CHANGES BUTTON */}
           <button
             type="button"
             onClick={() => setActiveAuditModal({ date: 'all', targetQuoteId: null })}
             className="flex items-center space-x-1.5 px-2.5 py-1 bg-blue-50 hover:bg-[#003049] text-[#003049] hover:text-white border border-blue-200 rounded text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
-            title="View all price revision changes, audit diffs, and reasons across all rows"
+            title="Changes"
           >
             <Eye className="w-3.5 h-3.5" />
-            <span>View Changes (All Rows)</span>
+            <span>Changes</span>
           </button>
 
-          {/* ADD COMPETITOR COLUMN BUTTON */}
+          {/* ADD COLUMN BUTTON */}
           <button
             type="button"
             onClick={() => setIsAddCompetitorModalOpen(true)}
             className="flex items-center space-x-1 px-2.5 py-1 bg-[#003049] hover:bg-[#002235] text-white rounded text-xs font-medium transition-colors cursor-pointer"
-            title="Add a new market competitor or benchmark quote column"
+            title="Add Column"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Competitor Column</span>
+            <span>+ Column</span>
           </button>
 
           {/* Close X */}
@@ -903,10 +929,10 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[11px] font-bold text-[#003049] uppercase tracking-wider">
-                      Revision Date
+                      Date
                     </div>
                     <div className="text-[10px] text-slate-500 font-normal">
-                      Full Audit Events
+                      Audit
                     </div>
                   </div>
                   <div className="flex items-center space-x-1">
@@ -1266,15 +1292,15 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
                           <span className="font-semibold text-slate-900">{timeline.date}</span>
                         </div>
 
-                        {/* BUTTON: VIEW CHANGES FOR THIS ROW */}
+                        {/* BUTTON: CHANGES FOR THIS ROW */}
                         <button
                           type="button"
                           onClick={() => setActiveAuditModal({ date: timeline.date, targetQuoteId: null })}
                           className="px-2 py-0.5 text-[10px] bg-blue-50 hover:bg-[#003049] text-[#003049] hover:text-white rounded border border-blue-200 transition-colors font-semibold flex items-center space-x-1 cursor-pointer ml-auto shrink-0 shadow-2xs"
-                          title={`View changes and reasons for ${timeline.date}`}
+                          title={`Changes on ${timeline.date}`}
                         >
                           <Eye className="w-3 h-3" />
-                          <span>View Changes</span>
+                          <span>Changes</span>
                         </button>
                       </div>
                     </td>
@@ -1380,15 +1406,11 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
         <div className="flex items-center space-x-2">
           <span className="font-mono font-medium text-slate-700">{item.code || 'PRD-001'}</span>
           <span>•</span>
-          <span>{quotes.length} Competitors Tracked</span>
+          <span>{quotes.length} Competitors</span>
           <span>•</span>
-          <span>{timelineRecords.length} Revision Events Logged</span>
+          <span>{timelineRecords.length} Revisions</span>
           <span>•</span>
-          <span className="text-emerald-700 font-medium">PostgreSQL inno_cost Active</span>
-        </div>
-
-        <div className="text-slate-400 hidden sm:block">
-          Scroll down to browse all historical price events • Click "View Changes" on any row or field to inspect full reasons and audit diffs.
+          <span className="text-emerald-700 font-medium">PostgreSQL Active</span>
         </div>
       </footer>
 

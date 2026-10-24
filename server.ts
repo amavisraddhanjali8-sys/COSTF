@@ -2861,6 +2861,49 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to delete project plan:', e);
       res.status(500).json({ error: 'Failed to delete project plan', details: e?.message });
+  });
+
+  // --- Project Plan Cost Controls API (PostgreSQL inno_cost) ---
+  const planCostControlRoutes = [
+    '/api/project-plans/:planId/cost-controls',
+    '/api/plans/:planId/cost-controls'
+  ];
+
+  app.get(planCostControlRoutes, async (req, res) => {
+    try {
+      const controls = await postgresService.getPlanCostControls(req.params.planId);
+      res.json(controls);
+    } catch (e: any) {
+      console.error('Failed to get plan cost controls:', e);
+      res.status(500).json({ error: 'Failed to fetch plan cost controls', details: e?.message });
+    }
+  });
+
+  app.put(planCostControlRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updatePlanCostControls(req.params.planId, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update plan cost controls:', e);
+      res.status(500).json({ error: 'Failed to update plan cost controls', details: e?.message });
+    }
+  });
+
+  const planCostControlActionRoutes = [
+    '/api/project-plans/:planId/cost-controls/action',
+    '/api/plans/:planId/cost-controls/action'
+  ];
+
+  app.post(planCostControlActionRoutes, async (req: any, res) => {
+    try {
+      const { action, payload } = req.body || {};
+      const actor = req.user;
+      const result = await postgresService.applyPlanCostControlAction(req.params.planId, action, payload, actor);
+      res.json(result);
+    } catch (e: any) {
+      console.error('Failed to execute plan cost control action:', e);
+      res.status(500).json({ error: 'Failed to execute cost control action', details: e?.message });
     }
   });
 
@@ -3551,7 +3594,43 @@ async function startServer() {
   });
 
   // --- Product & Revenue Services Competitor Quotes & Matrix APIs ---
-  app.get(['/api/products/:id/competitor-quotes', '/api/revenue-items/:id/competitor-quotes', '/api/produce/:id/competitor-quotes'], async (req, res) => {
+  const competitorQuotePaths = [
+    '/api/products/:id/competitor-quotes',
+    '/api/revenue-items/:id/competitor-quotes',
+    '/api/produce/:id/competitor-quotes',
+    '/api/resources/:id/competitor-quotes',
+    '/api/overheads/:id/competitor-quotes',
+    '/api/materials/:id/competitor-quotes'
+  ];
+
+  const competitorQuoteItemPaths = [
+    '/api/products/:id/competitor-quotes/:quoteId',
+    '/api/revenue-items/:id/competitor-quotes/:quoteId',
+    '/api/produce/:id/competitor-quotes/:quoteId',
+    '/api/resources/:id/competitor-quotes/:quoteId',
+    '/api/overheads/:id/competitor-quotes/:quoteId',
+    '/api/materials/:id/competitor-quotes/:quoteId'
+  ];
+
+  const competitorQuoteCommitPaths = [
+    '/api/products/:id/competitor-quotes/:quoteId/commit-price',
+    '/api/revenue-items/:id/competitor-quotes/:quoteId/commit-price',
+    '/api/produce/:id/competitor-quotes/:quoteId/commit-price',
+    '/api/resources/:id/competitor-quotes/:quoteId/commit-price',
+    '/api/overheads/:id/competitor-quotes/:quoteId/commit-price',
+    '/api/materials/:id/competitor-quotes/:quoteId/commit-price'
+  ];
+
+  const competitorHistoryPaths = [
+    '/api/products/:id/competitor-history',
+    '/api/revenue-items/:id/competitor-history',
+    '/api/produce/:id/competitor-history',
+    '/api/resources/:id/competitor-history',
+    '/api/overheads/:id/competitor-history',
+    '/api/materials/:id/competitor-history'
+  ];
+
+  app.get(competitorQuotePaths, async (req, res) => {
     try {
       const itemType = req.query.itemType ? String(req.query.itemType) : undefined;
       const quotes = await postgresService.getProductCompetitorQuotes(req.params.id, itemType);
@@ -3562,7 +3641,7 @@ async function startServer() {
     }
   });
 
-  app.post(['/api/products/:id/competitor-quotes', '/api/revenue-items/:id/competitor-quotes', '/api/produce/:id/competitor-quotes'], async (req: any, res) => {
+  app.post(competitorQuotePaths, async (req: any, res) => {
     try {
       const actor = req.user;
       const created = await postgresService.createProductCompetitorQuote(req.params.id, req.body, actor);
@@ -3573,7 +3652,7 @@ async function startServer() {
     }
   });
 
-  app.put(['/api/products/:id/competitor-quotes/:quoteId', '/api/revenue-items/:id/competitor-quotes/:quoteId', '/api/produce/:id/competitor-quotes/:quoteId'], async (req: any, res) => {
+  app.put(competitorQuoteItemPaths, async (req: any, res) => {
     try {
       const actor = req.user;
       const updated = await postgresService.updateProductCompetitorQuote(req.params.quoteId, req.body, actor);
@@ -3585,7 +3664,7 @@ async function startServer() {
     }
   });
 
-  app.post(['/api/products/:id/competitor-quotes/:quoteId/commit-price', '/api/revenue-items/:id/competitor-quotes/:quoteId/commit-price', '/api/produce/:id/competitor-quotes/:quoteId/commit-price'], async (req: any, res) => {
+  app.post(competitorQuoteCommitPaths, async (req: any, res) => {
     try {
       const actor = req.user;
       const updated = await postgresService.commitProductCompetitorPrice(req.params.id, req.params.quoteId, req.body, actor);
@@ -3596,7 +3675,7 @@ async function startServer() {
     }
   });
 
-  app.delete(['/api/products/:id/competitor-quotes/:quoteId', '/api/revenue-items/:id/competitor-quotes/:quoteId', '/api/produce/:id/competitor-quotes/:quoteId'], async (req: any, res) => {
+  app.delete(competitorQuoteItemPaths, async (req: any, res) => {
     try {
       const actor = req.user;
       const result = await postgresService.deleteProductCompetitorQuote(req.params.id, req.params.quoteId, actor);
@@ -3607,7 +3686,7 @@ async function startServer() {
     }
   });
 
-  app.get(['/api/products/:id/competitor-history', '/api/revenue-items/:id/competitor-history', '/api/produce/:id/competitor-history'], async (req, res) => {
+  app.get(competitorHistoryPaths, async (req, res) => {
     try {
       const history = await postgresService.getProductCompetitorHistory(req.params.id);
       res.json(history);
