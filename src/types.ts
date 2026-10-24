@@ -1558,6 +1558,16 @@ export interface ResourceAllocation {
   currency?: string;
 }
 
+export interface ResourcePriceRange {
+  id?: string;
+  minQty: number;
+  maxQty?: number;
+  unitRate: number;
+  discountPct?: number;
+  label?: string;
+  notes?: string;
+}
+
 export interface EnterpriseResource {
   id: string;
   code: string;
@@ -1581,6 +1591,8 @@ export interface EnterpriseResource {
   skillOrSla?: string;
   alternatives?: ResourceAlternative[];
   connectedAllocations?: ResourceAllocation[];
+  priceRanges?: ResourcePriceRange[];
+  specifications?: Record<string, any>;
   notes?: string;
   effectiveDate?: string;
   createdAt?: string;

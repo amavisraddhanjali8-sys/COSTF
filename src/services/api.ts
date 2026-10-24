@@ -211,6 +211,24 @@ export const api = {
     return await res.json();
   },
 
+  async updatePriceHistoryRecord(id: string, data: { newPrice?: number; reason?: string; effectiveDate?: string; updatedBy?: string }): Promise<any> {
+    const res = await fetch(`/api/price-history/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update price history record');
+    return await res.json();
+  },
+
+  async deletePriceHistoryRecord(id: string): Promise<any> {
+    const res = await fetch(`/api/price-history/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete price history record');
+    return await res.json();
+  },
+
   async addResourceAlternative(resourceId: string, altData: Partial<ResourceAlternative>): Promise<EnterpriseResource> {
     const res = await fetch(`/api/resources/${resourceId}/alternatives`, {
       method: 'POST',

@@ -14631,6 +14631,7 @@ export class PostgresService {
       effectiveDate: formatSqlDate(r.effective_date),
       alternatives: typeof r.alternatives === 'string' ? JSON.parse(r.alternatives || '[]') : (r.alternatives || []),
       specifications: typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {}),
+      priceRanges: (typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {}))?.priceRanges || [],
       connectedAllocations: typeof r.connected_allocations === 'string' ? JSON.parse(r.connected_allocations || '[]') : (r.connected_allocations || [])
     }));
 
@@ -14648,6 +14649,7 @@ export class PostgresService {
     const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1', [id]);
     if (!res.rows || res.rows.length === 0) return null;
     const r = res.rows[0];
+    const parsedSpecs = typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {});
     return {
       ...r,
       baseRate: Number(r.base_rate || 0),
@@ -14664,7 +14666,8 @@ export class PostgresService {
       skillOrSla: r.skill_or_sla,
       effectiveDate: formatSqlDate(r.effective_date),
       alternatives: typeof r.alternatives === 'string' ? JSON.parse(r.alternatives || '[]') : (r.alternatives || []),
-      specifications: typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {}),
+      specifications: parsedSpecs,
+      priceRanges: parsedSpecs?.priceRanges || [],
       connectedAllocations: typeof r.connected_allocations === 'string' ? JSON.parse(r.connected_allocations || '[]') : (r.connected_allocations || [])
     };
   }
@@ -14681,7 +14684,11 @@ export class PostgresService {
     const benchmarkRate = Number(data.industryBenchmarkRate ?? 0);
 
     const altsJson = JSON.stringify(data.alternatives || []);
-    const specsJson = JSON.stringify(data.specifications || {});
+    const specs = data.specifications || {};
+    if (data.priceRanges) {
+      specs.priceRanges = data.priceRanges;
+    }
+    const specsJson = JSON.stringify(specs);
     const allocsJson = JSON.stringify(data.connectedAllocations || []);
 
     await db.query(
@@ -14728,6 +14735,11 @@ export class PostgresService {
     const notes = data.notes !== undefined ? data.notes : existing.notes;
     const altsJson = data.alternatives !== undefined ? JSON.stringify(data.alternatives) : JSON.stringify(existing.alternatives);
     const allocsJson = data.connectedAllocations !== undefined ? JSON.stringify(data.connectedAllocations) : JSON.stringify(existing.connectedAllocations);
+    const specs = data.specifications !== undefined ? data.specifications : (existing.specifications || {});
+    if (data.priceRanges !== undefined) {
+      specs.priceRanges = data.priceRanges;
+    }
+    const specsJson = JSON.stringify(specs);
 
     // If price changed, record in price_history_records
     if (data.baseRate !== undefined && Number(data.baseRate) !== existing.baseRate) {
@@ -14753,12 +14765,12 @@ export class PostgresService {
         unit = $5, base_rate = $6, operational_charge = $7, charge_type = $8,
         supplier_name = $9, competitor_company = $10, competitor_rate = $11,
         industry_benchmark_rate = $12, status = $13, skill_or_sla = $14,
-        notes = $15, alternatives = $16, connected_allocations = $17, updated_at = NOW()
-       WHERE id = $18`,
+        notes = $15, alternatives = $16, connected_allocations = $17, specifications = $18, updated_at = NOW()
+       WHERE id = $19`,
       [
         name, type, category, subCategory, unit, baseRate, operationalCharge,
         chargeType, supplierName, competitorCompany, competitorRate,
-        industryBenchmarkRate, status, skillOrSla, notes, altsJson, allocsJson, id
+        industryBenchmarkRate, status, skillOrSla, notes, altsJson, allocsJson, specsJson, id
       ]
     );
 
@@ -14788,6 +14800,35 @@ export class PostgresService {
       reason: r.reason || '',
       updatedBy: r.updated_by || 'Resource Manager'
     }));
+  }
+
+  public async updatePriceHistoryRecord(historyId: string, data: any): Promise<any> {
+    const db = await this.getDb();
+    const existing = await db.query('SELECT * FROM price_history_records WHERE id = $1', [historyId]);
+    if (!existing.rows || existing.rows.length === 0) throw new Error('Price history record not found');
+    const r = existing.rows[0];
+    const newPrice = data.newPrice !== undefined ? Number(data.newPrice) : Number(r.new_price);
+    const prevPrice = Number(r.previous_price || 0);
+    const changePct = prevPrice > 0 ? calcPctChange(prevPrice, newPrice) : Number(r.change_pct || 0);
+    const reason = data.reason !== undefined ? data.reason : r.reason;
+    const effectiveDate = data.effectiveDate !== undefined ? data.effectiveDate : r.effective_date;
+    const updatedBy = data.updatedBy !== undefined ? data.updatedBy : r.updated_by;
+
+    await db.query(
+      `UPDATE price_history_records SET new_price = $1, change_pct = $2, reason = $3, effective_date = $4, updated_by = $5 WHERE id = $6`,
+      [newPrice, changePct, reason, effectiveDate, updatedBy, historyId]
+    );
+
+    return {
+      id: historyId,
+      entityId: r.entity_id,
+      previousPrice: prevPrice,
+      newPrice,
+      changePct,
+      reason,
+      effectiveDate,
+      updatedBy
+    };
   }
 
   public async deleteResource(id: string): Promise<boolean> {
