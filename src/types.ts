@@ -830,7 +830,7 @@ export interface ProjectPlanResource {
   projectId?: string;
   sectionId?: string;
   resourceId: string;
-  resourceType: 'team_member' | 'subcontractor' | 'equipment';
+  resourceType: 'team_member' | 'subcontractor' | 'equipment' | 'material';
   name: string;
   roleOrTrade: string;
   allocatedHours: number;

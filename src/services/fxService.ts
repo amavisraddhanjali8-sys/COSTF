@@ -24,7 +24,7 @@ export const SUPPORTED_CURRENCIES: { code: string; name: string; symbol: string;
   { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸', decimals: 2 },
   { code: 'EUR', name: 'Euro', symbol: '€', flag: '🇪🇺', decimals: 2 },
   { code: 'GBP', name: 'British Pound', symbol: '£', flag: '🇬🇧', decimals: 2 },
-  { code: 'LKR', name: 'Sri Lankan Rupee', symbol: 'Rs.', flag: '🇱🇰', decimals: 2 },
+  { code: 'LKR', name: 'Sri Lankan Rupee', symbol: 'LKR', flag: '🇱🇰', decimals: 2 },
   { code: 'INR', name: 'Indian Rupee', symbol: '₹', flag: '🇮🇳', decimals: 2 },
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥', flag: '🇯🇵', decimals: 0 },
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', flag: '🇦🇺', decimals: 2 },

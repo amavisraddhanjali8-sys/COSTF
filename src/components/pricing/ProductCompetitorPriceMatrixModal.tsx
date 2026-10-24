@@ -48,7 +48,7 @@ import { downloadCSV } from '../../utils/csvExport';
 import { getStoredCurrentUser, saveStoredAuditLogs, getStoredAuditLogs } from '../../data/userAndAuditData';
 
 export const CURRENCY_OPTIONS = [
-  { code: 'LKR', symbol: 'Rs.', label: 'LKR (Rs.) - Sri Lanka Rupee' },
+  { code: 'LKR', symbol: 'LKR', label: 'LKR - Sri Lanka Rupee' },
   { code: 'USD', symbol: '$', label: 'USD ($) - US Dollar' },
   { code: 'EUR', symbol: '€', label: 'EUR (€) - Euro' },
   { code: 'GBP', symbol: '£', label: 'GBP (£) - British Pound' },
@@ -63,7 +63,7 @@ export const CURRENCY_OPTIONS = [
 
 export function getCurrencySymbol(code?: string): string {
   const match = CURRENCY_OPTIONS.find((c) => c.code === (code || 'LKR'));
-  return match ? match.symbol : 'Rs.';
+  return match ? match.symbol : 'LKR';
 }
 
 export interface ProductCompetitorPriceMatrixModalProps {

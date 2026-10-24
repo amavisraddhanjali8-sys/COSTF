@@ -9038,39 +9038,57 @@ export class PostgresService {
     });
   }
 
-  public async recalculatePlanFinancials(planId: string, q?: any): Promise<void> {
+  public async recalculatePlanFinancials(planId: string, q?: any): Promise<any> {
     const queryFn = q || (async (sql: string, params?: any[]) => {
       const db = await this.getDb();
       return db.query(sql, params);
     });
-    await this.internalRecalculatePlanCostSummary(queryFn, planId);
+    return await this.internalRecalculatePlanCostSummary(queryFn, planId);
   }
 
-  private async internalRecalculatePlanCostSummary(q: (sql: string, params?: any[]) => Promise<{ rows: any[] }>, planId: string): Promise<void> {
-    const [planRes, boqRes, resRes, secRes, ovhRes] = await Promise.all([
-      q('SELECT * FROM project_plans WHERE id = $1', [planId]),
-      q('SELECT * FROM project_plan_boq_items WHERE plan_id = $1', [planId]),
-      q('SELECT * FROM project_plan_resources WHERE plan_id = $1', [planId]),
-      q('SELECT * FROM project_plan_sections WHERE plan_id = $1', [planId]),
-      q(`SELECT poa.*, oi.category FROM plan_overhead_allocations poa LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id WHERE poa.plan_id = $1`, [planId])
-    ]);
-    if (planRes.rows.length === 0) return;
+  private async internalRecalculatePlanCostSummary(q: (sql: string, params?: any[]) => Promise<{ rows: any[] }>, planId: string): Promise<any> {
+    const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+    if (!planRes.rows || planRes.rows.length === 0) return null;
     const plan = planRes.rows[0];
 
+    const boqRes = await q('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC', [planId]).catch(() => ({ rows: [] }));
+    const resRes = await q('SELECT * FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]).catch(() => ({ rows: [] }));
+    const secRes = await q('SELECT * FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [planId]).catch(() => ({ rows: [] }));
+    const ovhRes = await q(`SELECT poa.*, oi.category FROM plan_overhead_allocations poa LEFT JOIN overhead_items oi ON oi.id = poa.overhead_item_id WHERE poa.plan_id = $1`, [planId]).catch(() => ({ rows: [] }));
+    const projRes = await q('SELECT * FROM projects WHERE id = $1', [plan.project_id]).catch(() => ({ rows: [] }));
+    const proj = projRes.rows[0] || {};
+
     const boqTotalRevenue = boqRes.rows.reduce((sum: number, b: any) => sum + Number(b.total_revenue || 0), 0);
-    const plannedRevenue = boqTotalRevenue > 0 ? boqTotalRevenue : Number(plan.planned_revenue || 0);
+    const plannedRevenue = boqTotalRevenue > 0 ? boqTotalRevenue : Number(plan.planned_revenue || proj.quoted_price || 0);
 
     const calc = calculatePlanFinancials({
       planId,
       projectId: plan.project_id,
-      plannedRevenue,
-      targetMarginPct: Number(plan.target_margin_pct || 25),
-      overheadPct: Number(plan.overhead_pct || 8.5),
-      contingencyPct: Number(plan.contingency_pct || 5.0),
-      laborBurdenPct: Number(plan.labor_burden_pct || 0),
+      currency: plan.currency || proj.currency || 'LKR',
+      plannedRevenue: round2(plannedRevenue),
+      projectQuotedPrice: round2(proj.quoted_price || 0),
+      targetMarginPct: round2(plan.target_margin_pct ?? 25),
+      overheadPct: round2(plan.overhead_pct ?? 8.5),
+      contingencyPct: round2(plan.contingency_pct ?? 5.0),
+      laborBurdenPct: round2(plan.labor_burden_pct ?? 0),
       boqItems: boqRes.rows,
       sections: secRes.rows,
-      resources: resRes.rows,
+      resources: resRes.rows.map((r: any) => ({
+        id: r.id,
+        planId: r.plan_id || r.planId,
+        projectId: r.project_id || r.projectId,
+        sectionId: r.section_id || r.sectionId,
+        resourceId: r.resource_id || r.resourceId,
+        resourceType: r.resource_type || r.resourceType,
+        name: r.name,
+        roleOrTrade: r.role_or_trade || r.roleOrTrade,
+        allocatedHours: Number(r.allocated_hours ?? r.allocatedHours ?? 0),
+        hourlyRate: Number(r.hourly_rate ?? r.hourlyRate ?? 0),
+        totalCost: Number(r.total_cost ?? r.totalCost ?? 0),
+        startDate: r.start_date || r.startDate,
+        endDate: r.end_date || r.endDate,
+        notes: r.notes || ''
+      })),
       overheadAllocations: ovhRes.rows
     });
 
@@ -9124,22 +9142,28 @@ export class PostgresService {
     // Update project_plans summary cache
     await q(
       `UPDATE project_plans SET
-        planned_revenue = $1,
-        direct_cost = $2,
+        direct_cost = $1,
+        allocated_overhead = $2,
         total_planned_cost = $3,
-        gross_margin_pct = $4,
-        profit_margin_pct = $5,
+        gross_profit = $4,
+        gross_margin_pct = $5,
+        planned_profit = $6,
+        profit_margin_pct = $7,
         updated_at = NOW()
-       WHERE id = $6`,
+       WHERE id = $8`,
       [
-        calc.summary.plannedRevenue,
         calc.summary.directCost,
+        calc.summary.allocatedOverhead,
         calc.summary.totalPlannedCost,
+        calc.summary.grossProfit,
         calc.summary.grossMarginPct,
+        calc.summary.plannedProfit,
         calc.summary.profitMarginPct,
         planId
       ]
-    );
+    ).catch(() => {});
+
+    return calc.summary;
   }
 
   // --- Overhead Audit Logs (Requirement 21) ---
@@ -14907,140 +14931,6 @@ export class PostgresService {
       resource: await this.getResourceById(resourceId),
       allocatedItem: newItem
     };
-  }
-
-  public async recalculatePlanFinancials(planId: string): Promise<any> {
-    const db = await this.getDb();
-    const planRes = await db.query('SELECT * FROM project_plans WHERE id = $1', [planId]);
-    if (planRes.rows.length === 0) return null;
-    const plan = planRes.rows[0];
-
-    const [boqRes, resRes, secRes, ovhRes] = await Promise.all([
-      db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC', [planId]).catch(() => ({ rows: [] })),
-      db.query('SELECT * FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]).catch(() => ({ rows: [] })),
-      db.query('SELECT * FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [planId]).catch(() => ({ rows: [] })),
-      db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1', [planId]).catch(() => ({ rows: [] }))
-    ]);
-
-    const projRes = await db.query('SELECT * FROM projects WHERE id = $1', [plan.project_id]);
-    const proj = projRes.rows[0] || {};
-
-    const calc = calculatePlanFinancials({
-      planId,
-      projectId: plan.project_id,
-      currency: plan.currency || proj.currency || 'LKR',
-      plannedRevenue: round2(plan.planned_revenue || proj.quoted_price || 0),
-      projectQuotedPrice: round2(proj.quoted_price || 0),
-      targetMarginPct: round2(plan.target_margin_pct ?? 25),
-      overheadPct: round2(plan.overhead_pct ?? 8.5),
-      contingencyPct: round2(plan.contingency_pct ?? 5.0),
-      laborBurdenPct: round2(plan.labor_burden_pct ?? 0),
-      boqItems: boqRes.rows,
-      sections: secRes.rows,
-      resources: resRes.rows.map((r: any) => ({
-        id: r.id,
-        planId: r.plan_id,
-        projectId: r.project_id,
-        sectionId: r.section_id,
-        resourceId: r.resource_id,
-        resourceType: r.resource_type,
-        name: r.name,
-        roleOrTrade: r.role_or_trade,
-        allocatedHours: Number(r.allocated_hours || 0),
-        hourlyRate: Number(r.hourly_rate || 0),
-        totalCost: Number(r.total_cost || 0),
-        startDate: r.start_date,
-        endDate: r.end_date,
-        notes: r.notes
-      })),
-      overheadAllocations: ovhRes.rows
-    });
-
-    await db.query(
-      `INSERT INTO project_plan_cost_summaries (
-        plan_id, project_id, planned_revenue, material_cost, subcontractor_cost,
-        outsourced_cost, resource_cost, direct_cost, overhead_amount,
-        contingency_amount, labor_burden_amount, extra_overhead_amount,
-        allocated_overhead, total_planned_cost, gross_profit, gross_margin_pct,
-        planned_profit, profit_margin_pct, boq_item_count, section_count, resource_count, calculated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10, $11, $12,
-        $13, $14, $15, $16,
-        $17, $18, $19, $20, $21, NOW()
-      ) ON CONFLICT (plan_id) DO UPDATE SET
-        project_id = EXCLUDED.project_id,
-        planned_revenue = EXCLUDED.planned_revenue,
-        material_cost = EXCLUDED.material_cost,
-        subcontractor_cost = EXCLUDED.subcontractor_cost,
-        outsourced_cost = EXCLUDED.outsourced_cost,
-        resource_cost = EXCLUDED.resource_cost,
-        direct_cost = EXCLUDED.direct_cost,
-        overhead_amount = EXCLUDED.overhead_amount,
-        contingency_amount = EXCLUDED.contingency_amount,
-        labor_burden_amount = EXCLUDED.labor_burden_amount,
-        extra_overhead_amount = EXCLUDED.extra_overhead_amount,
-        allocated_overhead = EXCLUDED.allocated_overhead,
-        total_planned_cost = EXCLUDED.total_planned_cost,
-        gross_profit = EXCLUDED.gross_profit,
-        gross_margin_pct = EXCLUDED.gross_margin_pct,
-        planned_profit = EXCLUDED.planned_profit,
-        profit_margin_pct = EXCLUDED.profit_margin_pct,
-        boq_item_count = EXCLUDED.boq_item_count,
-        section_count = EXCLUDED.section_count,
-        resource_count = EXCLUDED.resource_count,
-        calculated_at = NOW()`,
-      [
-        planId,
-        plan.project_id,
-        calc.summary.plannedRevenue,
-        calc.summary.materialCost,
-        calc.summary.subcontractorCost,
-        calc.summary.outsourcedCost,
-        calc.summary.resourceCost,
-        calc.summary.directCost,
-        calc.summary.overheadAmount,
-        calc.summary.contingencyAmount,
-        calc.summary.laborBurdenAmount,
-        calc.summary.extraOverheadAmount,
-        calc.summary.allocatedOverhead,
-        calc.summary.totalPlannedCost,
-        calc.summary.grossProfit,
-        calc.summary.grossMarginPct,
-        calc.summary.plannedProfit,
-        calc.summary.profitMarginPct,
-        calc.summary.boqItemCount,
-        calc.summary.sectionCount,
-        calc.summary.resourceCount
-      ]
-    ).catch((err: any) => console.warn('[PostgreSQL] Upsert cost summary warning:', err?.message));
-
-    // Also sync the plan's top-level summary columns
-    await db.query(
-      `UPDATE project_plans SET
-        direct_cost = $1,
-        allocated_overhead = $2,
-        total_planned_cost = $3,
-        gross_profit = $4,
-        gross_margin_pct = $5,
-        planned_profit = $6,
-        profit_margin_pct = $7,
-        updated_at = NOW()
-       WHERE id = $8`,
-      [
-        calc.summary.directCost,
-        calc.summary.allocatedOverhead,
-        calc.summary.totalPlannedCost,
-        calc.summary.grossProfit,
-        calc.summary.grossMarginPct,
-        calc.summary.plannedProfit,
-        calc.summary.profitMarginPct,
-        planId
-      ]
-    ).catch(() => {});
-
-    return calc.summary;
   }
 
   public async getPlanCostSummary(planId: string): Promise<any | null> {

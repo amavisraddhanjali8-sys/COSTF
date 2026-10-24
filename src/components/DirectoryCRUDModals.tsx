@@ -515,7 +515,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   const [location, setLocation] = useState('Colombo, Sri Lanka');
   const [slaLevel, setSlaLevel] = useState('Premium 99.9%');
   const [currency, setCurrency] = useState<string>(() => getStoredCurrency());
-  const currSymbol = SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || 'Rs.';
+  const currSymbol = SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || 'LKR';
 
   // Memoized partner options for SearchablePartnerPicker
   const partnerOptions: PartnerOption[] = useMemo(() => {
@@ -1039,7 +1039,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-slate-700 font-medium mb-1">
-                    Credit Limit (LKR / Rs.)
+                    Credit Limit (LKR)
                   </label>
                   <input
                     type="number"
@@ -1965,7 +1965,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   if (!isOpen) return null;
 
   const currentCurrency = formData.currency || 'LKR';
-  const currencyInfo = SUPPORTED_CURRENCIES.find((c) => c.code === currentCurrency) || { symbol: 'Rs.', code: 'LKR', name: 'Sri Lanka Rupee' };
+  const currencyInfo = SUPPORTED_CURRENCIES.find((c) => c.code === currentCurrency) || { symbol: 'LKR', code: 'LKR', name: 'Sri Lanka Rupee' };
 
   const handleChange = (key: string, value: any) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -2083,7 +2083,7 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>
                   <label className="block text-[11px] text-slate-600 mb-1 font-normal">
-                    Quoted Price ({currentCurrency === 'LKR' ? 'LKR / Rs.' : `${currentCurrency} (${currencyInfo.symbol})`})
+                    Quoted Price ({currentCurrency === 'LKR' ? 'LKR' : `${currentCurrency} (${currencyInfo.symbol})`})
                   </label>
                   <input
                     type="number"

@@ -15,7 +15,7 @@ export interface CurrencyConfig {
 }
 
 export const SUPPORTED_CURRENCIES: CurrencyConfig[] = [
-  { code: 'LKR', symbol: 'Rs.', name: 'Sri Lanka Rupee', decimals: 2, rateToUSD: 305.0 },
+  { code: 'LKR', symbol: 'LKR', name: 'Sri Lanka Rupee', decimals: 2, rateToUSD: 305.0 },
   { code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2, rateToUSD: 1.0 },
   { code: 'EUR', symbol: '€', name: 'Euro', decimals: 2, rateToUSD: 0.92 },
   { code: 'GBP', symbol: '£', name: 'British Pound', decimals: 2, rateToUSD: 0.79 },
@@ -39,7 +39,7 @@ export function getPdfSafeSymbol(code?: string): string {
     case 'USD': return '$';
     case 'GBP': return '£';
     case 'EUR': return 'EUR';
-    case 'LKR': return 'Rs.';
+    case 'LKR': return 'LKR';
     case 'INR': return 'Rs.';
     case 'JPY': return 'JPY';
     case 'AUD': return 'A$';
@@ -172,9 +172,9 @@ export function formatLKR(
 }
 
 export const CURRENCY_CODE = 'LKR';
-export const CURRENCY_SYMBOL = 'Rs.';
+export const CURRENCY_SYMBOL = 'LKR';
 export const CURRENCY_NAME = 'Sri Lanka Rupee';
-export const CURRENCY_LOCAL_SYMBOL = 'Rs.';
+export const CURRENCY_LOCAL_SYMBOL = 'LKR';
 
 /**
  * Convert value between currencies based on live mid-market exchange rate table

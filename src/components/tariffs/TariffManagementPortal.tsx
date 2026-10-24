@@ -287,7 +287,7 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
             <div className="text-[10px] uppercase font-bold text-slate-500">Currency</div>
             <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">
-              LKR (Rs.)
+              LKR
             </div>
           </div>
         </div>

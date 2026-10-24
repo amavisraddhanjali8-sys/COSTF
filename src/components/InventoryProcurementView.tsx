@@ -778,7 +778,7 @@ export const InventoryProcurementView: React.FC<InventoryProcurementViewProps> =
     setQuantity(1);
     setNotification({
       type: 'success',
-      message: `Recorded ${transactionType} [${transactionNumber}]: ${quantity} ${unit} of ${selectedMaterial.code}. Total: Rs. ${formatLKR(totalAmount, false)}.`
+      message: `Recorded ${transactionType} [${transactionNumber}]: ${quantity} ${unit} of ${selectedMaterial.code}. Total: ${formatLKR(totalAmount, false)}.`
     });
 
     setTimeout(() => setNotification(null), 4000);

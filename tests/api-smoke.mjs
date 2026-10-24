@@ -8,10 +8,13 @@ const call = async (m, p, body, token = TOKEN) => {
   let j = null; try { j = await r.json(); } catch {}
   return { s: r.status, j };
 };
-if (!TOKEN && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
-  const l1 = await call('POST', '/api/auth/login', { identifier: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
-  if (l1.j?.tempMfaToken && process.env.ADMIN_CODE) {
-    const l2 = await call('POST', '/api/auth/verify-mfa', { tempMfaToken: l1.j.tempMfaToken, code: process.env.ADMIN_CODE });
+if (!TOKEN) {
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
+  const adminPass = process.env.ADMIN_PASSWORD || 'AdminPass123!';
+  const adminCode = process.env.ADMIN_CODE || '000000';
+  const l1 = await call('POST', '/api/auth/login', { identifier: adminEmail, password: adminPass });
+  if (l1.j?.tempMfaToken) {
+    const l2 = await call('POST', '/api/auth/verify-mfa', { tempMfaToken: l1.j.tempMfaToken, code: adminCode });
     TOKEN = l2.j?.sessionToken || '';
   } else {
     TOKEN = l1.j?.sessionToken || '';

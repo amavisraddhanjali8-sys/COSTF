@@ -426,7 +426,7 @@ export const ExportEnterpriseDataModal: React.FC<ExportEnterpriseDataModalProps>
             </span>
             <span>
               All exported pricing, tariffs, valuations, and contract figures are formatted in{' '}
-              <strong>Sri Lanka Rupees (LKR / Rs.)</strong>.
+              <strong>Sri Lanka Rupees (LKR)</strong>.
             </span>
           </div>
         </div>

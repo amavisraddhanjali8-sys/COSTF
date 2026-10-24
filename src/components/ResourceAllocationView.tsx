@@ -1359,7 +1359,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                   onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none cursor-pointer font-bold"
                 >
-                  <option value="LKR">LKR (Rs.)</option>
+                  <option value="LKR">LKR</option>
                   <option value="USD">USD ($)</option>
                   <option value="EUR">EUR (€)</option>
                   <option value="GBP">GBP (£)</option>
@@ -1881,7 +1881,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
                   onChange={(e) => setEditingResource({ ...editingResource, currency: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 focus:border-[#0078d4] focus:outline-none font-bold text-[#0078d4]"
                 >
-                  <option value="LKR">LKR (Rs.)</option>
+                  <option value="LKR">LKR</option>
                   <option value="USD">USD ($)</option>
                   <option value="EUR">EUR (€)</option>
                   <option value="GBP">GBP (£)</option>
