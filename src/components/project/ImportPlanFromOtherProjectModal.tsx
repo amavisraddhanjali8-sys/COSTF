@@ -54,40 +54,7 @@ export const ImportPlanFromOtherProjectModal: React.FC<ImportPlanFromOtherProjec
     if (sourceProject.budgetaryPlans && sourceProject.budgetaryPlans.length > 0) {
       return sourceProject.budgetaryPlans;
     }
-    // Fallback baseline plan + value scenario if none explicitly defined
-    const baselineItems = sourceProject.selectedItems || [];
-    const planBItems = baselineItems.map((item, idx) => ({
-      ...item,
-      id: `pB-${item.id}-${idx}`,
-      unitCost: Number((item.unitCost * 0.88).toFixed(2)),
-      totalCost: Number((item.quantity * item.unitCost * 0.88).toFixed(2)),
-      supplierOrProvider: `${item.supplierOrProvider} (Domestic Direct)`
-    }));
-
-    return [
-      {
-        id: 'plan-01',
-        name: 'Plan A: Certified Enterprise Sourcing (Baseline)',
-        description: 'Primary baseline using AS9100D certified mills, ISO 9001 vendors and verified subcontractors.',
-        isBaseline: true,
-        targetMarginPct: sourceProject.targetMarginPct || 35,
-        overheadPct: sourceProject.overheadPct || 8.5,
-        contingencyPct: sourceProject.contingencyPct || 5.0,
-        selectedItems: baselineItems,
-        createdAt: '2026-03-01'
-      },
-      {
-        id: 'plan-02',
-        name: 'Plan B: Value-Engineered Domestic Alternative',
-        description: 'Domestic tier-2 suppliers with expedited turnaround and direct contract pricing.',
-        isBaseline: false,
-        targetMarginPct: (sourceProject.targetMarginPct || 35) + 3.5,
-        overheadPct: 7.5,
-        contingencyPct: 4.0,
-        selectedItems: planBItems,
-        createdAt: '2026-03-05'
-      }
-    ];
+    return [];
   }, [sourceProject]);
 
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');

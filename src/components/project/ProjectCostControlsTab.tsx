@@ -112,28 +112,15 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
     if (project.budgetaryPlans && project.budgetaryPlans.length > 0) {
       return project.budgetaryPlans;
     }
-    // Fallback baseline plan
-    return [
-      {
-        id: 'plan-01',
-        name: 'Plan A: Certified Enterprise Sourcing (Baseline)',
-        description: 'Primary baseline using AS9100D certified mills, ISO 9001 vendors and verified subcontractors.',
-        isBaseline: true,
-        targetMarginPct: project.targetMarginPct || 35,
-        overheadPct: 8.5,
-        contingencyPct: 5.0,
-        selectedItems: project.selectedItems || [],
-        createdAt: '2026-03-01'
-      }
-    ];
-  }, [project.budgetaryPlans, project.selectedItems, project.targetMarginPct]);
+    return [];
+  }, [project.budgetaryPlans]);
 
-  const activePlanId = project.activePlanId || plans[0]?.id || 'plan-01';
+  const activePlanId = project.activePlanId || plans[0]?.id || null;
   const activePlan = useMemo(() => {
-    return plans.find(p => p.id === activePlanId) || plans[0];
+    return (activePlanId ? plans.find(p => p.id === activePlanId) : null) || plans[0] || null;
   }, [plans, activePlanId]);
 
-  const currentItems = activePlan.selectedItems || [];
+  const currentItems = activePlan ? (activePlan.selectedItems || []) : [];
 
   // Filtered items
   const filteredItems = useMemo(() => {
@@ -143,6 +130,22 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
 
   // Plan live metrics calculation
   const planMetrics = useMemo(() => {
+    if (!activePlan) {
+      return {
+        revenue: project.quotedPrice || 0,
+        directCost: 0,
+        overheadAmount: 0,
+        contingencyAmount: 0,
+        totalPlannedCost: 0,
+        grossProfit: 0,
+        netProfit: 0,
+        grossMarginPct: 0,
+        netMarginPct: 0,
+        variance: 0,
+        targetVariance: 0,
+        isOverBudget: false
+      };
+    }
     return calculateProjectMetrics(
       project.quotedPrice,
       activePlan.targetMarginPct || project.targetMarginPct,
@@ -480,6 +483,18 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
     }
     setIsOutModalOpen(true);
   };
+
+  if (!activePlan) {
+    return (
+      <div className="py-12 px-4 text-center bg-white dark:bg-[#0b101b] rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+        <SlidersHorizontal className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-2.5" />
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">No Budget Plan Created</p>
+        <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+          Please create a budget plan to view and manage project cost controls and line-item breakdowns.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

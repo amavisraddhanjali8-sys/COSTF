@@ -82,9 +82,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     try {
       setLoadingDeliverables(true);
       const items = await api.getProjectDeliverables(project.id);
-      if (Array.isArray(items) && items.length > 0) {
-        setDbDeliverables(items);
-      }
+      setDbDeliverables(Array.isArray(items) ? items : []);
     } catch (e) {
       console.warn('Failed to fetch deliverables from PostgreSQL:', e);
     } finally {
@@ -127,9 +125,6 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   });
 
   const activePlan = project.budgetaryPlans?.find((plan) => plan.id === project.activePlanId) || project.budgetaryPlans?.[0];
-  const planOrSelectedItems = (activePlan?.selectedItems && activePlan.selectedItems.length > 0)
-    ? activePlan.selectedItems
-    : (project.selectedItems || []);
 
   const deliverables: ProjectDeliverableItem[] = React.useMemo(() => {
     if (dbDeliverables && dbDeliverables.length > 0) {
@@ -138,36 +133,9 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
     if (project.deliverables && project.deliverables.length > 0) {
       return project.deliverables;
     }
-    if (planOrSelectedItems.length > 0) {
-      return planOrSelectedItems.map((item, idx) => {
-        const qty = item.quantity || 1;
-        const cst = item.unitCost || 0;
-        const totCst = item.totalCost || (cst * qty);
-        const billRate = item.billableRate || (cst > 0 ? Number((cst * 1.35).toFixed(2)) : 100);
-        const totRev = item.totalRevenue || Number((billRate * qty).toFixed(2));
-        const margin = totRev > 0 ? Number((((totRev - totCst) / totRev) * 100).toFixed(1)) : 35;
-        return {
-          id: item.id || `item-deliv-${idx}`,
-          code: item.itemId || `ITM-${idx + 1}`,
-          name: item.name,
-          category: item.category || 'Direct Item',
-          unit: item.unit || 'pcs',
-          quantity: qty,
-          costPrice: cst,
-          quotedPrice: billRate,
-          totalCost: totCst,
-          totalRevenue: totRev,
-          marginPct: margin,
-          type: item.type === 'material' ? 'product' : 'service',
-          isCustom: false,
-          competitorBenchmarkPrice: Number((billRate * 1.05).toFixed(2)),
-          competitorName: 'Apex Industrial Dynamics',
-          status: 'pending' as const
-        };
-      });
-    }
+    // No auto-created deliverables: items must be added through the database
     return [];
-  }, [dbDeliverables, project.deliverables, planOrSelectedItems]);
+  }, [dbDeliverables, project.deliverables]);
 
   // Deliverables financial summary
   const deliverablesSummary = React.useMemo(() => {

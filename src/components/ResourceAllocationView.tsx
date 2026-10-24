@@ -170,87 +170,10 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
     return calculatePhaseCapacityMetrics(activeProj);
   }, [activeProj]);
 
-  // Combine PostgreSQL Enterprise Resources with any Project Allocated Items
+  // Enterprise Resources loaded directly from PostgreSQL database (no auto-assigned or synthesized allocations)
   const allResources = useMemo(() => {
-    // Start with dbResources as single source of truth from PostgreSQL
-    const list: EnterpriseResource[] = [...dbResources];
-
-    // Check project selected items and ensure any item not in dbResources is represented
-    const targetProjects = (scope === 'selected' && activeProj) ? [activeProj] : projects;
-
-    targetProjects.forEach((proj) => {
-      (proj.selectedItems || []).forEach((item) => {
-        const itemType = (
-          item.type === 'labour' || item.type === 'machinery' || item.type === 'equipment' ||
-          item.type === 'tool' || item.type === 'material' || item.type === 'subcontractor' ||
-          item.type === 'outsourced'
-        ) ? (item.type as EnterpriseResourceType) : 'material';
-
-        const phaseObj = (proj.phases || []).find((p) => p.id === item.phaseId);
-        const itemSpend = typeof item.totalCost === 'number' ? item.totalCost : ((item.quantity || 1) * (item.unitCost || 0));
-
-        const existing = list.find(
-          (r) => r.id === item.itemId || r.name.toLowerCase() === item.name.toLowerCase()
-        );
-
-        const allocation: ResourceAllocation = {
-          projectId: proj.id,
-          projectCode: proj.code,
-          projectName: proj.name,
-          phaseId: item.phaseId,
-          phaseName: phaseObj ? phaseObj.name.split(':')[0] : 'General',
-          quantity: item.quantity,
-          unit: item.unit,
-          totalCost: itemSpend,
-          currency: proj.currency || 'LKR'
-        };
-
-        if (existing) {
-          if (!existing.connectedAllocations) existing.connectedAllocations = [];
-          const hasAlloc = existing.connectedAllocations.some(
-            (a) => a.projectCode === proj.code && a.phaseId === item.phaseId
-          );
-          if (!hasAlloc) {
-            existing.connectedAllocations.push(allocation);
-          }
-        } else {
-          list.push({
-            id: item.id,
-            code: `RES-${itemType.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`,
-            name: item.name,
-            type: itemType,
-            category: item.category || 'General',
-            subCategory: item.subCategory || 'Standard',
-            unit: item.unit || 'unit',
-            baseRate: item.unitCost || 0,
-            operationalCharge: 0,
-            chargeType: 'hourly',
-            currency: proj.currency || 'LKR',
-            supplierName: item.supplierOrProvider || 'Assigned Provider',
-            competitorCompany: 'Industry Standard',
-            competitorRate: Math.round((item.unitCost || 0) * 1.15),
-            industryBenchmarkRate: Math.round((item.unitCost || 0) * 1.08),
-            status: 'Available',
-            skillOrSla: itemType === 'subcontractor'
-              ? 'Certified Specialist Labor'
-              : itemType === 'labour'
-              ? 'Skilled Technical Specialist'
-              : itemType === 'machinery'
-              ? 'Heavy Precision Machinery'
-              : itemType === 'equipment'
-              ? 'Precision Certified Rig'
-              : itemType === 'tool'
-              ? 'Tungsten Carbide Tooling'
-              : 'Raw Material Supplier Stock',
-            alternatives: [],
-            connectedAllocations: [allocation]
-          });
-        }
-      });
-    });
-
-    return list;
-  }, [dbResources, projects, activeProj, scope]);
+    return dbResources;
+  }, [dbResources]);
 
   // Unique categories and subcategories for filters
   const categoriesList = useMemo(() => {

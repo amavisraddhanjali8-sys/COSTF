@@ -1219,8 +1219,8 @@ export class PostgresService {
       // Backfill normalized price_history_records from existing JSONB price_history / rate_history arrays
       await this.backfillPriceHistoryRecords();
     }
-    // Backfill normalized project_plans from existing projects if not yet present
-    await this.backfillProjectPlans();
+    // Pre-created plans removed: all project plans must be explicitly created through database
+    // await this.backfillProjectPlans();
     // Ensure all overhead and revenue tables & schemas exist
     await this.ensureOverheadAndRevenueTables();
     // Ensure procurement price history tables & schema exist (Task 5)
@@ -1722,7 +1722,9 @@ export class PostgresService {
   public async clearDummyData(): Promise<void> {
     const db = await this.getDb();
     await db.exec(`
+      DELETE FROM project_deliverables;
       DELETE FROM revenue_rate_history;
+      UPDATE enterprise_resources SET connected_allocations = '[]'::jsonb;
       DELETE FROM project_plan_cost_summaries;
       DELETE FROM plan_overhead_allocations;
       DELETE FROM project_plan_overhead_allocations;
@@ -4623,70 +4625,9 @@ export class PostgresService {
       );
     }
 
-    // Fallback 2: If still not found, check if a project exists with this ID in projects table, and auto-initialize its baseline plan
+    // Do not auto-create plans: all project plans must be created explicitly through database
     if (planRes.rows.length === 0) {
-      const prjRes = await db.query('SELECT * FROM projects WHERE id = $1 OR code = $1 LIMIT 1', [planId]);
-      if (prjRes.rows.length > 0) {
-        const prj = prjRes.rows[0];
-        const newPlanId = `plan-${prj.id}-baseline`;
-        await this.createProjectPlan({
-          id: newPlanId,
-          planNumber: `PLN-${String(prj.code || prj.id).toUpperCase().replace(/[^A-Z0-9-]/g, '')}-01`,
-          projectId: prj.id,
-          name: 'Plan A: Certified Enterprise Sourcing (Baseline)',
-          description: 'Initial project baseline plan created automatically.',
-          planType: 'Baseline',
-          status: 'Active',
-          revisionNumber: 1,
-          versionLabel: 'v1.0',
-          isBaseline: true,
-          isActive: true,
-          currency: prj.currency || 'USD',
-          plannedRevenue: Number(prj.quoted_price || 0),
-          targetMarginPct: Number(prj.target_margin_pct || 25),
-          overheadPct: Number(prj.overhead_pct || 8.5),
-          contingencyPct: Number(prj.contingency_pct || 5.0)
-        }).catch(() => {});
-
-        planRes = await db.query(
-          `SELECT
-            pp.*,
-            pp.effective_date::text AS effective_date_iso,
-            pp.approval_date::text AS approval_date_iso,
-            p.code AS project_code,
-            p.name AS project_name,
-            p.client_id AS client_id,
-            p.client_name AS client_name,
-            c.client_code AS client_code,
-            c.industry AS client_industry,
-            c.contact_person AS client_contact_person,
-            c.email AS client_email,
-            p.quoted_price AS project_quoted_price,
-            cs.planned_revenue AS summary_planned_revenue,
-            cs.material_cost,
-            cs.subcontractor_cost,
-            cs.outsourced_cost,
-            cs.resource_cost,
-            cs.direct_cost,
-            cs.overhead_amount,
-            cs.contingency_amount,
-            cs.labor_burden_amount,
-            cs.extra_overhead_amount,
-            cs.allocated_overhead,
-            cs.total_planned_cost,
-            cs.gross_profit,
-            cs.gross_margin_pct,
-            cs.planned_profit,
-            cs.profit_margin_pct,
-            cs.calculated_at
-          FROM project_plans pp
-          LEFT JOIN projects p ON p.id = pp.project_id
-          LEFT JOIN clients c ON c.id = p.client_id
-          LEFT JOIN project_plan_cost_summaries cs ON cs.plan_id = pp.id
-          WHERE pp.id = $1`,
-          [newPlanId]
-        );
-      }
+      return null;
     }
 
     if (planRes.rows.length === 0) return null;
@@ -13979,118 +13920,7 @@ export class PostgresService {
       [projectId]
     );
 
-    let deliverables = res.rows;
-
-    // If none exist in project_deliverables yet, backfill from project's JSON deliverables or BOQ items
-    if (deliverables.length === 0) {
-      try {
-        const prjRes = await db.query('SELECT deliverables, selected_items, currency FROM projects WHERE id = $1', [projectId]);
-        if (prjRes.rows.length > 0) {
-          const p = prjRes.rows[0];
-          const rawDelivs = typeof p.deliverables === 'string' ? JSON.parse(p.deliverables) : p.deliverables || [];
-
-          if (Array.isArray(rawDelivs) && rawDelivs.length > 0) {
-            for (const d of rawDelivs) {
-              const did = d.id || `deliv-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-              const costPrice = round4(d.costPrice || d.cost || 0);
-              const quotedPrice = round4(d.quotedPrice || d.price || (costPrice > 0 ? costPrice * 1.35 : 100));
-              const qty = Number(d.quantity || d.qty || 1);
-              const totCost = round2(costPrice * qty);
-              const totRev = round2(quotedPrice * qty);
-              const margin = totRev > 0 ? round2(((totRev - totCost) / totRev) * 100) : 35;
-
-              await db.query(
-                `INSERT INTO project_deliverables (
-                  id, project_id, plan_id, revenue_item_id, produce_item_id, code, name, type,
-                  category, sub_category, quantity, unit, cost_price, quoted_price, total_cost,
-                  total_revenue, margin_pct, competitor_benchmark_price, competitor_name, currency,
-                  status, lead_time_days, notes, created_at, updated_at
-                ) VALUES (
-                  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW()
-                ) ON CONFLICT (id) DO NOTHING`,
-                [
-                  did,
-                  projectId,
-                  d.planId || null,
-                  d.revenueItemId || null,
-                  d.produceItemId || null,
-                  d.code || `DELIV-${Math.floor(100 + Math.random() * 900)}`,
-                  d.name || 'Deliverable Item',
-                  d.type === 'service' ? 'service' : 'product',
-                  d.category || 'Direct Offering',
-                  d.subCategory || '',
-                  qty,
-                  d.unit || 'pcs',
-                  costPrice,
-                  quotedPrice,
-                  totCost,
-                  totRev,
-                  margin,
-                  round4(d.competitorBenchmarkPrice || (quotedPrice > 0 ? quotedPrice * 1.05 : 0)),
-                  d.competitorName || 'Apex Industrial Dynamics',
-                  d.currency || p.currency || 'USD',
-                  d.status || 'Planned',
-                  Number(d.leadTimeDays || 14),
-                  d.notes || ''
-                ]
-              );
-            }
-
-            const reRes = await db.query(
-              `SELECT * FROM project_deliverables WHERE project_id = $1 ORDER BY created_at ASC`,
-              [projectId]
-            );
-            deliverables = reRes.rows;
-          }
-        }
-      } catch (err: any) {
-        console.warn('[PostgreSQL] Optional deliverables backfill skipped:', err?.message);
-      }
-    }
-
-    // If still empty, automatically link to available master revenue items (products and services)
-    if (deliverables.length === 0) {
-      try {
-        const revItemsRes = await db.query("SELECT * FROM revenue_items ORDER BY created_at ASC LIMIT 4");
-        if (revItemsRes.rows.length > 0) {
-          for (const r of revItemsRes.rows) {
-            const did = `deliv-${projectId}-${r.code || r.id}`;
-            const costPrice = round4(r.cost_price || 0);
-            const quotedPrice = round4(r.default_rate || (costPrice > 0 ? costPrice * 1.35 : 100));
-            const qty = r.type === 'service' ? 10 : 2;
-            const totCost = round2(costPrice * qty);
-            const totRev = round2(quotedPrice * qty);
-            const margin = totRev > 0 ? round2(((totRev - totCost) / totRev) * 100) : 35;
-            const compBench = round4(quotedPrice > 0 ? quotedPrice * 1.05 : 150);
-
-            await db.query(
-              `INSERT INTO project_deliverables (
-                id, project_id, plan_id, revenue_item_id, produce_item_id, code, name, type,
-                category, sub_category, quantity, unit, cost_price, quoted_price, total_cost,
-                total_revenue, margin_pct, competitor_benchmark_price, competitor_name, currency,
-                status, lead_time_days, notes, created_at, updated_at
-              ) VALUES (
-                $1, $2, null, $3, null, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'USD', 'Planned', 14, 'Project deliverable linked to revenue catalogue', NOW(), NOW()
-              ) ON CONFLICT (id) DO NOTHING`,
-              [
-                did, projectId, r.id, r.code, r.name, r.type || 'product',
-                r.category || 'Commercial Deliverables', r.sub_category || '',
-                qty, r.unit || 'pcs', costPrice, quotedPrice, totCost, totRev, margin,
-                compBench, 'Apex Industrial Dynamics'
-              ]
-            ).catch(() => {});
-          }
-
-          const seededRes = await db.query(
-            `SELECT * FROM project_deliverables WHERE project_id = $1 ORDER BY created_at ASC`,
-            [projectId]
-          );
-          deliverables = seededRes.rows;
-        }
-      } catch (e: any) {
-        console.warn('[PostgreSQL] Revenue deliverable auto-link error:', e?.message);
-      }
-    }
+    const deliverables = res.rows;
 
     return deliverables.map((r: any) => ({
       id: r.id,
@@ -14365,18 +14195,7 @@ export class PostgresService {
               notes: 'Defense contractor standard benchmark.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Engineering & CAD',
-              quantity: 60,
-              unit: 'hr',
-              totalCost: 5700.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'Primary avionics engineer for flight control computing and telemetry.'
         },
         {
@@ -14414,18 +14233,7 @@ export class PostgresService {
               notes: 'Qualified on Titanium Grade 5 and Inconel 718.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 2',
-              quantity: 45,
-              unit: 'hr',
-              totalCost: 3510.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'Exotic metal chamber welding with argon shielding.'
         },
         {
@@ -14479,18 +14287,7 @@ export class PostgresService {
               notes: 'Heavy duty titanium hogging with extreme torque.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 2',
-              quantity: 80,
-              unit: 'hr',
-              totalCost: 11600.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'High-spec CNC center dedicated to propulsion turbine casing.'
         },
         {
@@ -14567,18 +14364,7 @@ export class PostgresService {
               notes: 'Temperature compensated scanning probe.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 3',
-              quantity: 25,
-              unit: 'hr',
-              totalCost: 2750.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'Precision inspection of aerospace dimensional compliance.'
         },
         {
@@ -14668,18 +14454,7 @@ export class PostgresService {
               notes: 'Indexable 4-edge carbide inserts.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 2',
-              quantity: 20,
-              unit: 'unit',
-              totalCost: 700.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'High-performance endmill tooling for aerospace alloys.'
         },
         {
@@ -14755,18 +14530,7 @@ export class PostgresService {
               notes: 'Direct mill stock with full trace certification.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 1',
-              quantity: 50,
-              unit: 'kg',
-              totalCost: 4830.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'Flight-certified titanium bar stock for turbine shafts.'
         },
         {
@@ -14804,18 +14568,7 @@ export class PostgresService {
               notes: 'High throughput batch runs with quick changeover.'
             }
           ]),
-          connected_allocations: JSON.stringify([
-            {
-              projectId: 'proj-01',
-              projectCode: 'PRJ-ACPT-907446',
-              projectName: 'Aerospace Propulsion Sub-Assembly',
-              phaseName: 'Phase 2',
-              quantity: 80,
-              unit: 'hr',
-              totalCost: 6800.00,
-              currency: 'USD'
-            }
-          ]),
+          connected_allocations: JSON.stringify([]),
           notes: 'Outsourced specialist milling subcontractor.'
         }
       ];
@@ -14837,6 +14590,8 @@ export class PostgresService {
           ]
         );
       }
+      // Ensure all connected allocations are cleared from any previous seeding
+      await db.query("UPDATE enterprise_resources SET connected_allocations = '[]'::jsonb WHERE connected_allocations::text LIKE '%PRJ-ACPT-907446%' OR connected_allocations::text LIKE '%proj-01%'").catch(() => {});
       console.log('[PostgreSQL] Seeded initial enterprise resources (labour, machineries, equipments, tools).');
     } catch (e: any) {
       console.warn('[PostgreSQL] Error seeding enterprise resources:', e?.message);

@@ -224,59 +224,13 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
       return project.budgetaryPlans;
     }
 
-    // Generate Default Plan A (Baseline) and Plan B (Value-Engineered)
-    const baselineItems: ProjectCostItem[] = project.selectedItems || [];
+    // No pre-created plans: all plans must be created through the database
+    return [];
+  }, [dbPlans, project.budgetaryPlans]);
 
-    const planBItems: ProjectCostItem[] = baselineItems.map((item, idx) => {
-      if (item.type === 'material') {
-        const discountedRate = Number((item.unitCost * 0.88).toFixed(2));
-        const total = item.quantity * discountedRate * (1 - (item.discountPct || 0) / 100);
-        return {
-          ...item,
-          id: `pB-${item.id}-${idx}`,
-          unitCost: discountedRate,
-          totalCost: Number(total.toFixed(2)),
-          supplierOrProvider: `${item.supplierOrProvider} (Domestic Tier-2 Contract)`
-        };
-      }
-      return {
-        ...item,
-        id: `pB-${item.id}-${idx}`
-      };
-    });
-
-    const defaultPlanA: BudgetaryPlan = {
-      id: 'plan-01',
-      name: 'Plan A: Certified Enterprise Sourcing (Baseline)',
-      description: 'Primary baseline using AS9100D certified mills, ISO 9001 vendors and verified subcontractors.',
-      isBaseline: true,
-      targetMarginPct: project.targetMarginPct || 35,
-      overheadPct: project.overheadPct || 8.5,
-      contingencyPct: project.contingencyPct || 5.0,
-      selectedItems: baselineItems,
-      createdAt: '2026-03-01',
-      themeId: 'airbus-cobalt'
-    };
-
-    const defaultPlanB: BudgetaryPlan = {
-      id: 'plan-02',
-      name: 'Plan B: Value-Engineered / Domestic Alternative',
-      description: 'Replaced overseas titanium billets with certified domestic alloy extrusions, reducing direct costs.',
-      isBaseline: false,
-      targetMarginPct: (project.targetMarginPct || 35) + 3.5,
-      overheadPct: 7.5,
-      contingencyPct: 4.0,
-      selectedItems: planBItems,
-      createdAt: '2026-03-05',
-      themeId: 'emerald-oasis'
-    };
-
-    return [defaultPlanA, defaultPlanB];
-  }, [dbPlans, project.budgetaryPlans, project.selectedItems, project.targetMarginPct, project.overheadPct, project.contingencyPct, project.quotedPrice]);
-
-  const activePlanId = project.activePlanId || plans.find(p => p.isActive)?.id || plans[0]?.id || 'plan-01';
+  const activePlanId = project.activePlanId || plans.find(p => p.isActive)?.id || plans[0]?.id || null;
   const activePlan = useMemo(() => {
-    return plans.find((p) => p.id === activePlanId) || plans[0];
+    return (activePlanId ? plans.find((p) => p.id === activePlanId) : null) || plans[0] || null;
   }, [plans, activePlanId]);
 
   // Handler to set active plan in PostgreSQL
@@ -577,11 +531,15 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
                 <span className="text-slate-400">Deadline:</span>
                 <span className="text-slate-700 dark:text-slate-300 font-medium">{project.deliveryDeadline || '2026-09-15'}</span>
               </div>
-              <span>•</span>
-              <div className="flex items-center space-x-1 bg-blue-50 dark:bg-blue-950 text-[#0078d4] dark:text-sky-300 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded text-[11px] font-semibold">
-                <Sparkles className="w-3 h-3 text-[#0078d4]" />
-                <span>{activePlan.name.split(':')[0]}</span>
-              </div>
+              {activePlan && (
+                <>
+                  <span>•</span>
+                  <div className="flex items-center space-x-1 bg-blue-50 dark:bg-blue-950 text-[#0078d4] dark:text-sky-300 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded text-[11px] font-semibold">
+                    <Sparkles className="w-3 h-3 text-[#0078d4]" />
+                    <span>{activePlan.name.split(':')[0]}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Associated Client Banner (Requirement 13) */}
@@ -773,13 +731,15 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
                 <span>Templates</span>
               </button>
 
-              <button
-                onClick={() => handleOpenSaveAsTemplate(activePlan)}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold rounded-lg transition-colors border border-amber-200 cursor-pointer shadow-2xs"
-              >
-                <BookmarkCheck className="w-3.5 h-3.5 text-amber-700" />
-                <span>Save Template</span>
-              </button>
+              {activePlan && (
+                <button
+                  onClick={() => handleOpenSaveAsTemplate(activePlan)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold rounded-lg transition-colors border border-amber-200 cursor-pointer shadow-2xs"
+                >
+                  <BookmarkCheck className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Save Template</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setIsCreatePlanModalOpen(true)}
@@ -1202,24 +1162,42 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
               </div>
 
               {/* Quick Jump to Dedicated Plan Page */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedPlanId(activePlanId);
-                  setSubTab('plan-details');
-                  onViewPlanDetails?.(activePlanId);
-                }}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-[#0078d4] dark:text-sky-300 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer shadow-2xs"
-                title="Open this plan in dedicated plan editor"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Open Full Plan</span>
-              </button>
+              {activePlanId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlanId(activePlanId);
+                    setSubTab('plan-details');
+                    onViewPlanDetails?.(activePlanId);
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-[#0078d4] dark:text-sky-300 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer shadow-2xs"
+                  title="Open this plan in dedicated plan editor"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Full Plan</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Active View: PostgreSQL Plan Cost Controls vs Item Cost Breakdown */}
-          {costControlViewMode === 'caps' ? (
+          {!activePlan ? (
+            <div className="py-12 px-4 text-center bg-white dark:bg-[#0b101b] rounded-xl border border-dashed border-slate-300 dark:border-slate-800">
+              <SlidersHorizontal className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-2.5" />
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">No Budget Plan Created Yet</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                Create a budgetary plan from the database catalog to activate financial ceilings, direct cost caps, and line-item thresholds.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsCreatePlanModalOpen(true)}
+                className="mt-3.5 px-3.5 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer inline-flex items-center space-x-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Create First Budget Plan</span>
+              </button>
+            </div>
+          ) : costControlViewMode === 'caps' ? (
             <PlanCostControlsTab
               planId={activePlan.id}
               projectId={project.id}
@@ -1248,7 +1226,7 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
         <CreateBudgetPlanModal
           isOpen={isCreatePlanModalOpen}
           onClose={() => setIsCreatePlanModalOpen(false)}
-          currentPlanItems={activePlan.selectedItems || []}
+          currentPlanItems={activePlan ? (activePlan.selectedItems || []) : []}
           onCreatePlan={handleCreateNewPlan}
         />
       )}
