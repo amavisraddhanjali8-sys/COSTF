@@ -993,7 +993,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 tag={`PROJECT • ${proj.code}`}
                 title={proj.name}
                 brief={`Client: ${proj.clientName} • Quoted: ${formatCurrency(revenue, proj.currency)} • ${marginPct.toFixed(1)}% Margin`}
-                actionLabel="OPEN PROJECT HOME"
+                actionLabel="OPEN PROJECT PLANS"
                 actionVariant="link"
                 themeId={cardTheme.themeId}
                 customGradient={cardTheme.customGradient}
@@ -1083,9 +1083,17 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           return (
             <div
               key={proj.id}
-              className={`bg-white p-3 rounded border transition-all duration-150 shadow-sm flex flex-col justify-between ${
+              onClick={() => {
+                onSelectProject(proj);
+                if (onNavigateToProjectHome) {
+                  onNavigateToProjectHome(proj);
+                } else {
+                  onViewCostAnalysis(proj);
+                }
+              }}
+              className={`bg-white p-3 rounded-xl border transition-all duration-150 shadow-sm flex flex-col justify-between cursor-pointer hover:shadow-md ${
                 isSelected
-                  ? 'border-[#003049] ring-1 ring-[#003049]/30'
+                  ? 'border-[#0078d4] ring-2 ring-[#0078d4]/30'
                   : 'border-slate-200 hover:border-slate-300'
               }`}
             >
@@ -1268,7 +1276,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <div className="mt-3 pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center space-x-1.5">
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       onSelectProject(proj);
                       if (onNavigateToProjectHome) {
                         onNavigateToProjectHome(proj);
@@ -1276,10 +1285,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         onViewCostAnalysis(proj);
                       }
                     }}
-                    className="px-2 py-0.5 text-xs font-semibold rounded bg-[#0078d4] hover:bg-[#006cbd] text-white transition-colors cursor-pointer"
-                    title="Open Project Workspace"
+                    className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#0078d4] hover:bg-[#006cbd] text-white transition-colors cursor-pointer shadow-2xs"
+                    title="Open Project Plans Summary Table"
                   >
-                    Open Hub
+                    Open Plans Table
                   </button>
 
                   <button

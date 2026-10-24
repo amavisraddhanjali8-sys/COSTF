@@ -3656,6 +3656,96 @@ export class PostgresService {
     return parseFilterPagination(rows, opts, ['entityCode', 'entityName', 'reason', 'updatedBy', 'entityType']);
   }
 
+  public async createPriceHistoryRecord(data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const id = data.id || `phr-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const prevPrice = round4(data.previousPrice || data.previousRate || data.oldPrice || 0);
+    const newPrice = round4(data.newPrice || data.newRate || data.rate || 0);
+    const changePct = prevPrice > 0 ? round2(((newPrice - prevPrice) / prevPrice) * 100) : 0;
+    const effectiveDate = (data.effectiveDate || data.date || new Date().toISOString()).slice(0, 10);
+    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || 'Authorized Auditor';
+
+    await db.query(
+      `INSERT INTO price_history_records
+        (id, entity_type, entity_id, entity_code, entity_name, previous_price, new_price, retail_price, change_pct, currency, effective_date, reason, updated_by, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        id,
+        data.entityType || data.itemType || 'material',
+        data.entityId || data.itemId || id,
+        data.entityCode || data.itemCode || '',
+        data.entityName || data.itemName || 'Price Update',
+        prevPrice,
+        newPrice,
+        newPrice,
+        changePct,
+        data.currency || 'LKR',
+        effectiveDate,
+        data.reason || 'Price update audit log',
+        updatedBy,
+        data.notes || ''
+      ]
+    );
+
+    return {
+      id,
+      entityType: data.entityType || data.itemType || 'material',
+      entityId: data.entityId || data.itemId || id,
+      entityCode: data.entityCode || data.itemCode || '',
+      entityName: data.entityName || data.itemName || 'Price Update',
+      previousPrice: prevPrice,
+      newPrice,
+      changePct,
+      currency: data.currency || 'LKR',
+      effectiveDate,
+      reason: data.reason || 'Price update audit log',
+      updatedBy
+    };
+  }
+
+  public async updatePriceHistoryRecord(id: string, data: any, actor?: any): Promise<any> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM price_history_records WHERE id = $1', [id]);
+    if (existingRes.rows.length === 0) return null;
+    const existing = existingRes.rows[0];
+
+    const prevPrice = data.previousPrice !== undefined ? round4(data.previousPrice) : round4(existing.previous_price || 0);
+    const newPrice = data.newPrice !== undefined ? round4(data.newPrice) : round4(existing.new_price || 0);
+    const changePct = prevPrice > 0 ? round2(((newPrice - prevPrice) / prevPrice) * 100) : 0;
+    const effectiveDate = data.effectiveDate ? String(data.effectiveDate).slice(0, 10) : existing.effective_date;
+    const reason = data.reason !== undefined ? data.reason : existing.reason;
+    const updatedBy = data.updatedBy || data.approvedBy || actor?.name || existing.updated_by;
+
+    await db.query(
+      `UPDATE price_history_records
+       SET previous_price = $1, new_price = $2, retail_price = $3, change_pct = $4, effective_date = $5, reason = $6, updated_by = $7
+       WHERE id = $8`,
+      [prevPrice, newPrice, newPrice, changePct, effectiveDate, reason, updatedBy, id]
+    );
+
+    return {
+      id,
+      entityType: existing.entity_type,
+      entityId: existing.entity_id,
+      entityCode: existing.entity_code,
+      entityName: existing.entity_name,
+      previousPrice: prevPrice,
+      newPrice,
+      changePct,
+      currency: existing.currency,
+      effectiveDate,
+      reason,
+      updatedBy
+    };
+  }
+
+  public async deletePriceHistoryRecord(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const res = await db.query('DELETE FROM price_history_records WHERE id = $1 RETURNING id', [id]);
+    await db.query('DELETE FROM procurement_price_history WHERE id = $1', [id]).catch(() => {});
+    return (res.rowCount || 0) > 0;
+  }
+
   // --- Projects CRUD ---
   public async getProjects(opts?: ListQueryOptions): Promise<any[]> {
     const res = await this.getProjectsPaginated(opts);

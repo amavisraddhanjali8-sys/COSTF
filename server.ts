@@ -2158,6 +2158,61 @@ async function startServer() {
     }
   });
 
+  app.post('/api/price-history', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const created = await postgresService.createPriceHistoryRecord(req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to create price history record:', e);
+      res.status(500).json({ error: 'Failed to create price history record', details: e?.message });
+    }
+  });
+
+  app.put('/api/price-history/:id', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const updated = await postgresService.updatePriceHistoryRecord(req.params.id, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Price history record not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update price history record:', e);
+      res.status(500).json({ error: 'Failed to update price history record', details: e?.message });
+    }
+  });
+
+  app.delete('/api/price-history/:id', async (req, res) => {
+    try {
+      const success = await postgresService.deletePriceHistoryRecord(req.params.id);
+      res.json({ success, message: 'Price history record deleted successfully' });
+    } catch (e: any) {
+      console.error('Failed to delete price history record:', e);
+      res.status(500).json({ error: 'Failed to delete price history record', details: e?.message });
+    }
+  });
+
+  app.put('/api/procurement-price-history/:id', async (req, res) => {
+    try {
+      const actor = (req as any).user;
+      const updated = await postgresService.updatePriceHistoryRecord(req.params.id, req.body, actor);
+      if (!updated) return res.status(404).json({ error: 'Price history record not found' });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update procurement price history:', e);
+      res.status(500).json({ error: 'Failed to update procurement price history', details: e?.message });
+    }
+  });
+
+  app.delete('/api/procurement-price-history/:id', async (req, res) => {
+    try {
+      const success = await postgresService.deletePriceHistoryRecord(req.params.id);
+      res.json({ success, message: 'Procurement price record deleted successfully' });
+    } catch (e: any) {
+      console.error('Failed to delete procurement price history:', e);
+      res.status(500).json({ error: 'Failed to delete procurement price record', details: e?.message });
+    }
+  });
+
   // --- TASK 5: Procurement Price History System API (PostgreSQL inno_cost) ---
   app.get('/api/procurement-price-history', async (req, res) => {
     try {
@@ -2861,6 +2916,7 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to delete project plan:', e);
       res.status(500).json({ error: 'Failed to delete project plan', details: e?.message });
+    }
   });
 
   // --- Project Plan Cost Controls API (PostgreSQL inno_cost) ---

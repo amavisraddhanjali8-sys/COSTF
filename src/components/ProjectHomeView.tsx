@@ -46,6 +46,7 @@ import {
 } from '../types';
 import { ProjectDashboardTab } from './project/ProjectDashboardTab';
 import { ProjectCostControlsTab } from './project/ProjectCostControlsTab';
+import { PlanCostControlsTab } from './project/PlanCostControlsTab';
 import { CreateBudgetPlanModal } from './project/CreateBudgetPlanModal';
 import { ImportPlanFromOtherProjectModal } from './project/ImportPlanFromOtherProjectModal';
 import { PlanTemplatesLibraryModal } from './project/PlanTemplatesLibraryModal';
@@ -97,6 +98,7 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
   const [subTab, setSubTab] = useState<'plans' | 'plan-details' | 'dashboard' | 'cost-controls'>(initialSubTab);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [planViewMode, setPlanViewMode] = useState<'table' | 'cards'>('table');
+  const [costControlViewMode, setCostControlViewMode] = useState<'caps' | 'breakdown'>('caps');
   const [dbPlans, setDbPlans] = useState<any[]>([]);
   const [loadingDbPlans, setLoadingDbPlans] = useState(false);
 
@@ -840,10 +842,15 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
                       onDelete={plans.length > 1 ? () => handleDeletePlan(plan.id) : undefined}
                       onClick={() => {
                         handleSelectActivePlan(plan.id);
+                        setSelectedPlanId(plan.id);
+                        setSubTab('plan-details');
+                        onViewPlanDetails?.(plan.id);
                       }}
                       onAction={() => {
                         handleSelectActivePlan(plan.id);
-                        setSubTab('cost-controls');
+                        setSelectedPlanId(plan.id);
+                        setSubTab('plan-details');
+                        onViewPlanDetails?.(plan.id);
                       }}
                       extraMeta={
                         <div className="mt-2 space-y-2 bg-black/25 backdrop-blur-xs p-2.5 rounded-xl border border-white/20 text-white text-xs">
@@ -1134,16 +1141,105 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
       {/* TAB 3: COST CONTROL PAGE (Strictly for this Project and Plan Only) */}
       {subTab === 'cost-controls' && (
         <div className="space-y-4">
-          <ProjectCostControlsTab
-            project={project}
-            allProjects={allProjects}
-            materials={materials}
-            suppliers={suppliers}
-            subcontractors={subcontractors}
-            outsourcedServices={outsourcedServices}
-            onUpdateProject={onUpdateProject}
-            onAddMaterial={onAddMaterial}
-          />
+          {/* Plan Selector & View Mode Switcher Header */}
+          <div className="bg-white dark:bg-[#0b101b] p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 font-semibold flex items-center space-x-1">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#0078d4]" />
+                <span>Plan Cost Controls for:</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                {plans.map((p) => {
+                  const isSelected = p.id === activePlanId;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectActivePlan(p.id)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                        isSelected
+                          ? 'bg-[#0078d4] text-white shadow-2xs font-bold'
+                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      <span>{p.name.split(':')[0]}</span>
+                      {isSelected && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Toggle: Budget Caps vs Item Breakdown */}
+              <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setCostControlViewMode('caps')}
+                  className={`px-3 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    costControlViewMode === 'caps'
+                      ? 'bg-white dark:bg-slate-700 text-[#0078d4] dark:text-sky-300 shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Budget Caps & Ceilings</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCostControlViewMode('breakdown')}
+                  className={`px-3 py-1 rounded-md font-semibold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    costControlViewMode === 'breakdown'
+                      ? 'bg-white dark:bg-slate-700 text-[#0078d4] dark:text-sky-300 shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>Item Cost Breakdown</span>
+                </button>
+              </div>
+
+              {/* Quick Jump to Dedicated Plan Page */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPlanId(activePlanId);
+                  setSubTab('plan-details');
+                  onViewPlanDetails?.(activePlanId);
+                }}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 text-[#0078d4] dark:text-sky-300 text-xs font-semibold rounded-lg border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer shadow-2xs"
+                title="Open this plan in dedicated plan editor"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Full Plan</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Active View: PostgreSQL Plan Cost Controls vs Item Cost Breakdown */}
+          {costControlViewMode === 'caps' ? (
+            <PlanCostControlsTab
+              planId={activePlan.id}
+              projectId={project.id}
+              planName={activePlan.name}
+              planNumber={(activePlan as any).planNumber || (activePlan as any).plan_number || activePlan.id}
+              currency={project.currency}
+              onCostControlsUpdated={fetchPlansFromPostgres}
+            />
+          ) : (
+            <ProjectCostControlsTab
+              project={project}
+              allProjects={allProjects}
+              materials={materials}
+              suppliers={suppliers}
+              subcontractors={subcontractors}
+              outsourcedServices={outsourcedServices}
+              onUpdateProject={onUpdateProject}
+              onAddMaterial={onAddMaterial}
+            />
+          )}
         </div>
       )}
 

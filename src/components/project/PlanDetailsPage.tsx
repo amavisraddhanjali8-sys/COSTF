@@ -49,6 +49,7 @@ import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHisto
 import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistoryModal';
 import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
 import { AddPlanResourceModal } from './AddPlanResourceModal';
+import { PlanCostControlsTab } from './PlanCostControlsTab';
 import { round2 } from '../../utils/decimalMath';
 import { ApplyTariffToPlanModal } from '../tariffs/ApplyTariffToPlanModal';
 import {
@@ -67,6 +68,7 @@ import {
 interface PlanDetailsPageProps {
   planId: string;
   projectId?: string;
+  initialTab?: 'boq' | 'sections' | 'resources' | 'overheads' | 'tariffs' | 'revisions' | 'cost-controls';
   onNavigateBack: () => void;
   onPlanUpdated?: () => void;
   onOpenProject?: (projectId: string) => void;
@@ -77,6 +79,7 @@ interface PlanDetailsPageProps {
 export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   planId,
   projectId,
+  initialTab = 'boq',
   onNavigateBack,
   onPlanUpdated,
   onOpenProject,
@@ -86,7 +89,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [plan, setPlan] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'boq' | 'sections' | 'resources' | 'overheads' | 'tariffs' | 'revisions'>('boq');
+  const [activeTab, setActiveTab] = useState<'boq' | 'sections' | 'resources' | 'overheads' | 'tariffs' | 'revisions' | 'cost-controls'>(initialTab);
   const [boqSearch, setBoqSearch] = useState('');
   const [boqTypeFilter, setBoqTypeFilter] = useState<string>('ALL');
 
@@ -686,6 +689,17 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         >
           <Calculator className="w-3.5 h-3.5" />
           <span>Applied Tariffs ({planTariffs.length})</span>
+        </button>
+
+        <button
+          id="tab-plan-cost-controls"
+          onClick={() => setActiveTab('cost-controls')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            activeTab === 'cost-controls' ? 'bg-[#0078d4] text-white shadow-2xs font-bold' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span>Cost Controls & Caps</span>
         </button>
 
         <button
@@ -1532,6 +1546,22 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             </table>
           </div>
         </div>
+      )}
+
+      {/* 4G. PLAN COST CONTROLS & BUDGET CEILINGS (PostgreSQL inno_cost) */}
+      {activeTab === 'cost-controls' && (
+        <PlanCostControlsTab
+          planId={plan.id}
+          projectId={plan.projectId || plan.project_id || projectId}
+          planName={plan.name}
+          planNumber={plan.planNumber || plan.plan_number}
+          currency={activeCurrency}
+          onCostControlsUpdated={async () => {
+            await loadPlan();
+            onPlanUpdated?.();
+          }}
+          showToast={showToast}
+        />
       )}
 
       {/* 5. EDIT DETAILS MODAL */}

@@ -360,16 +360,21 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
               return (
                 <tr
                   key={plan.id}
-                  className={`hover:bg-slate-50/80 dark:hover:bg-slate-900/50 transition-colors ${
+                  onClick={() => onViewPlanDetails(plan.id)}
+                  className={`hover:bg-blue-50/50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer ${
                     isActive ? 'bg-blue-50/30 dark:bg-blue-950/20' : ''
                   }`}
+                  title={`Click to open ${plan.name} (${plan.planNumber})`}
                 >
                   {/* 1. Plan Number */}
                   <td className="py-2.5 px-3 font-mono font-bold text-[#0078d4]">
                     <div className="flex items-center space-x-1">
                       <button
                         type="button"
-                        onClick={() => onViewPlanDetails(plan.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewPlanDetails(plan.id);
+                        }}
                         className="hover:underline text-[#0078d4] font-bold text-left cursor-pointer flex items-center space-x-1"
                         title={`Open Plan ${plan.planNumber}`}
                       >
@@ -386,7 +391,10 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
                   {/* 2. Plan Name */}
                   <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-slate-100 max-w-[200px] truncate">
                     <button
-                      onClick={() => onViewPlanDetails(plan.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewPlanDetails(plan.id);
+                      }}
                       className="text-left hover:underline text-[#0078d4] font-semibold truncate block cursor-pointer"
                       title={plan.name}
                     >
@@ -478,16 +486,20 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
                   </td>
 
                   {/* 13. Available Actions */}
-                  <td className="py-2.5 px-3 text-center">
+                  <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-center space-x-1">
                       {/* View Details */}
                       <button
                         type="button"
-                        onClick={() => onViewPlanDetails(plan.id)}
-                        className="p-1 text-slate-600 hover:text-[#0078d4] hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
-                        title="View Full Plan Details"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewPlanDetails(plan.id);
+                        }}
+                        className="px-2 py-1 text-xs font-semibold text-[#0078d4] bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 rounded-md transition-colors flex items-center space-x-1 cursor-pointer border border-blue-200 dark:border-blue-800"
+                        title="View Full Plan Details & Cost Controls"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Open</span>
                       </button>
 
                       {/* Activate */}

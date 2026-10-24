@@ -66,7 +66,7 @@ import {
   ClientProfile
 } from '../data/categoriesAndProfiles';
 import { api } from '../services/api';
-import { formatCurrency } from '../utils/currency';
+import { formatCurrency, getStoredCurrency } from '../utils/currency';
 import {
   Project,
   MaterialItem,
@@ -318,7 +318,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
         unit: res.unit,
         ourPrice: Number(res.baseRate) || 0,
         ourCost: Number(res.operationalCharge) || 0,
-        currency: res.currency || globalCurrency || 'LKR',
+        currency: res.currency || getStoredCurrency() || 'LKR',
         type: 'service'
       },
       itemType: 'resource' as any
@@ -3066,7 +3066,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                       {/* Category Header (One-word style, no wordy descriptions) */}
                       <div
                         className="p-3 text-white flex items-center justify-between"
-                        style={{ background: style.customGradient || defaultTheme.gradient }}
+                        style={{ background: style.customGradient || defaultTheme.gradientStyle }}
                       >
                         <div className="flex items-center space-x-2">
                           <span className="p-1.5 rounded-lg bg-black/20 text-white shrink-0">

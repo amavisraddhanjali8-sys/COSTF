@@ -610,12 +610,11 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
           });
         } else if (itemType === 'resource' || item.id.startsWith('res-')) {
           await api.commitResourcePrice(item.id, {
-            baseRate: newPrice,
             newRate: newPrice,
-            operationalCharge: Number(commitForm.newCost),
             effectiveDate: today,
             reason: commitForm.reason,
-            updatedBy: commitForm.updatedBy
+            updatedBy: commitForm.updatedBy,
+            currency: activeCurr
           }).catch(() => {});
           await api.updateResource(item.id, {
             baseRate: newPrice,
@@ -623,16 +622,23 @@ export const ProductCompetitorPriceMatrixModal: React.FC<ProductCompetitorPriceM
             currency: activeCurr
           }).catch(() => {});
         } else if (itemType === 'overhead' || item.id.startsWith('ovh-')) {
-          await api.updateOverhead(item.id, {
+          await api.updateOverheadItem(item.id, {
             amount: newPrice,
             currency: activeCurr
           }).catch(() => {});
         } else if (itemType === 'material' || item.id.startsWith('mat-')) {
-          await api.commitMaterialPrice(item.id, {
-            costPerUnit: newPrice,
-            effectiveDate: today,
-            reason: commitForm.reason,
-            updatedBy: commitForm.updatedBy
+          await api.updateMaterialPrice(
+            item.id,
+            newPrice,
+            commitForm.reason || 'Price update from competitor matrix',
+            commitForm.updatedBy,
+            undefined,
+            today
+          ).catch(() => {});
+          await api.updateMaterial(item.id, {
+            unitCost: newPrice,
+            retailPrice: newPrice,
+            currency: activeCurr
           }).catch(() => {});
         } else {
           await api.updateProduceItem(item.id, {
