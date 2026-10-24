@@ -48,6 +48,7 @@ import { RevenueItemRateHistoryModal } from '../revenue/RevenueItemRateHistoryMo
 import { ProjectCommercialHistoryModal } from '../revenue/ProjectCommercialHistoryModal';
 import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistoryModal';
 import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
+import { AddPlanResourceModal } from './AddPlanResourceModal';
 import { round2 } from '../../utils/decimalMath';
 import { ApplyTariffToPlanModal } from '../tariffs/ApplyTariffToPlanModal';
 import {
@@ -59,7 +60,8 @@ import {
   OutsourcedService,
   SubcontractorRateItem,
   Tariff,
-  PlanTariff
+  PlanTariff,
+  EnterpriseResource
 } from '../../types';
 
 interface PlanDetailsPageProps {

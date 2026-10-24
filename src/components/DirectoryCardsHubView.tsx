@@ -1520,6 +1520,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   // Filter tabs definition with simple, concise words
   const navTabs: { id: DirectoryTab; label: string; icon: React.ReactNode; count: number }[] = [
     { id: 'projects', label: 'Projects', icon: <Briefcase className="w-3.5 h-3.5" />, count: projects.length },
+    { id: 'resources', label: 'Resources', icon: <Wrench className="w-3.5 h-3.5" />, count: enterpriseResources.length },
     {
       id: 'materials-hierarchy',
       label: 'Materials',

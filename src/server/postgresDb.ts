@@ -4252,6 +4252,8 @@ export class PostgresService {
       clientContactPerson: r.client_contact_person || '',
       clientEmail: r.client_email || '',
       name: r.name,
+      planName: r.name,
+      plan_name: r.name,
       description: r.description || '',
       planType: r.plan_type || 'Baseline',
       status: r.status || 'Draft',
@@ -4259,7 +4261,7 @@ export class PostgresService {
       versionLabel: r.version_label || `v${r.revision_number || 1}.0`,
       isBaseline: Boolean(r.is_baseline),
       isActive: Boolean(r.is_active),
-      currency: r.currency || 'USD',
+      currency: r.currency || 'LKR',
       createdAt: createdAtIso.slice(0, 10),
       createdAtIso,
       updatedAt: updatedAtIso,
@@ -14905,6 +14907,315 @@ export class PostgresService {
       resource: await this.getResourceById(resourceId),
       allocatedItem: newItem
     };
+  }
+
+  public async recalculatePlanFinancials(planId: string): Promise<any> {
+    const db = await this.getDb();
+    const planRes = await db.query('SELECT * FROM project_plans WHERE id = $1', [planId]);
+    if (planRes.rows.length === 0) return null;
+    const plan = planRes.rows[0];
+
+    const [boqRes, resRes, secRes, ovhRes] = await Promise.all([
+      db.query('SELECT * FROM project_plan_boq_items WHERE plan_id = $1 ORDER BY line_order ASC', [planId]).catch(() => ({ rows: [] })),
+      db.query('SELECT * FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]).catch(() => ({ rows: [] })),
+      db.query('SELECT * FROM project_plan_sections WHERE plan_id = $1 ORDER BY sequence_order ASC', [planId]).catch(() => ({ rows: [] })),
+      db.query('SELECT * FROM project_plan_overhead_allocations WHERE plan_id = $1', [planId]).catch(() => ({ rows: [] }))
+    ]);
+
+    const projRes = await db.query('SELECT * FROM projects WHERE id = $1', [plan.project_id]);
+    const proj = projRes.rows[0] || {};
+
+    const calc = calculatePlanFinancials({
+      planId,
+      projectId: plan.project_id,
+      currency: plan.currency || proj.currency || 'LKR',
+      plannedRevenue: round2(plan.planned_revenue || proj.quoted_price || 0),
+      projectQuotedPrice: round2(proj.quoted_price || 0),
+      targetMarginPct: round2(plan.target_margin_pct ?? 25),
+      overheadPct: round2(plan.overhead_pct ?? 8.5),
+      contingencyPct: round2(plan.contingency_pct ?? 5.0),
+      laborBurdenPct: round2(plan.labor_burden_pct ?? 0),
+      boqItems: boqRes.rows,
+      sections: secRes.rows,
+      resources: resRes.rows.map((r: any) => ({
+        id: r.id,
+        planId: r.plan_id,
+        projectId: r.project_id,
+        sectionId: r.section_id,
+        resourceId: r.resource_id,
+        resourceType: r.resource_type,
+        name: r.name,
+        roleOrTrade: r.role_or_trade,
+        allocatedHours: Number(r.allocated_hours || 0),
+        hourlyRate: Number(r.hourly_rate || 0),
+        totalCost: Number(r.total_cost || 0),
+        startDate: r.start_date,
+        endDate: r.end_date,
+        notes: r.notes
+      })),
+      overheadAllocations: ovhRes.rows
+    });
+
+    await db.query(
+      `INSERT INTO project_plan_cost_summaries (
+        plan_id, project_id, planned_revenue, material_cost, subcontractor_cost,
+        outsourced_cost, resource_cost, direct_cost, overhead_amount,
+        contingency_amount, labor_burden_amount, extra_overhead_amount,
+        allocated_overhead, total_planned_cost, gross_profit, gross_margin_pct,
+        planned_profit, profit_margin_pct, boq_item_count, section_count, resource_count, calculated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12,
+        $13, $14, $15, $16,
+        $17, $18, $19, $20, $21, NOW()
+      ) ON CONFLICT (plan_id) DO UPDATE SET
+        project_id = EXCLUDED.project_id,
+        planned_revenue = EXCLUDED.planned_revenue,
+        material_cost = EXCLUDED.material_cost,
+        subcontractor_cost = EXCLUDED.subcontractor_cost,
+        outsourced_cost = EXCLUDED.outsourced_cost,
+        resource_cost = EXCLUDED.resource_cost,
+        direct_cost = EXCLUDED.direct_cost,
+        overhead_amount = EXCLUDED.overhead_amount,
+        contingency_amount = EXCLUDED.contingency_amount,
+        labor_burden_amount = EXCLUDED.labor_burden_amount,
+        extra_overhead_amount = EXCLUDED.extra_overhead_amount,
+        allocated_overhead = EXCLUDED.allocated_overhead,
+        total_planned_cost = EXCLUDED.total_planned_cost,
+        gross_profit = EXCLUDED.gross_profit,
+        gross_margin_pct = EXCLUDED.gross_margin_pct,
+        planned_profit = EXCLUDED.planned_profit,
+        profit_margin_pct = EXCLUDED.profit_margin_pct,
+        boq_item_count = EXCLUDED.boq_item_count,
+        section_count = EXCLUDED.section_count,
+        resource_count = EXCLUDED.resource_count,
+        calculated_at = NOW()`,
+      [
+        planId,
+        plan.project_id,
+        calc.summary.plannedRevenue,
+        calc.summary.materialCost,
+        calc.summary.subcontractorCost,
+        calc.summary.outsourcedCost,
+        calc.summary.resourceCost,
+        calc.summary.directCost,
+        calc.summary.overheadAmount,
+        calc.summary.contingencyAmount,
+        calc.summary.laborBurdenAmount,
+        calc.summary.extraOverheadAmount,
+        calc.summary.allocatedOverhead,
+        calc.summary.totalPlannedCost,
+        calc.summary.grossProfit,
+        calc.summary.grossMarginPct,
+        calc.summary.plannedProfit,
+        calc.summary.profitMarginPct,
+        calc.summary.boqItemCount,
+        calc.summary.sectionCount,
+        calc.summary.resourceCount
+      ]
+    ).catch((err: any) => console.warn('[PostgreSQL] Upsert cost summary warning:', err?.message));
+
+    // Also sync the plan's top-level summary columns
+    await db.query(
+      `UPDATE project_plans SET
+        direct_cost = $1,
+        allocated_overhead = $2,
+        total_planned_cost = $3,
+        gross_profit = $4,
+        gross_margin_pct = $5,
+        planned_profit = $6,
+        profit_margin_pct = $7,
+        updated_at = NOW()
+       WHERE id = $8`,
+      [
+        calc.summary.directCost,
+        calc.summary.allocatedOverhead,
+        calc.summary.totalPlannedCost,
+        calc.summary.grossProfit,
+        calc.summary.grossMarginPct,
+        calc.summary.plannedProfit,
+        calc.summary.profitMarginPct,
+        planId
+      ]
+    ).catch(() => {});
+
+    return calc.summary;
+  }
+
+  public async getPlanCostSummary(planId: string): Promise<any | null> {
+    const db = await this.getDb();
+    let res = await db.query('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]);
+    if (!res.rows || res.rows.length === 0) {
+      const summary = await this.recalculatePlanFinancials(planId);
+      if (summary) return summary;
+      res = await db.query('SELECT * FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]);
+      if (!res.rows || res.rows.length === 0) return null;
+    }
+    const r = res.rows[0];
+    return {
+      planId: r.plan_id,
+      projectId: r.project_id,
+      plannedRevenue: round2(r.planned_revenue || 0),
+      materialCost: round2(r.material_cost || 0),
+      subcontractorCost: round2(r.subcontractor_cost || 0),
+      outsourcedCost: round2(r.outsourced_cost || 0),
+      resourceCost: round2(r.resource_cost || 0),
+      directCost: round2(r.direct_cost || 0),
+      overheadAmount: round2(r.overhead_amount || 0),
+      contingencyAmount: round2(r.contingency_amount || 0),
+      laborBurdenAmount: round2(r.labor_burden_amount || 0),
+      extraOverheadAmount: round2(r.extra_overhead_amount || 0),
+      allocatedOverhead: round2(r.allocated_overhead || 0),
+      totalPlannedCost: round2(r.total_planned_cost || 0),
+      grossProfit: round2(r.gross_profit || 0),
+      grossMarginPct: round2(r.gross_margin_pct || 0),
+      plannedProfit: round2(r.planned_profit || 0),
+      profitMarginPct: round2(r.profit_margin_pct || 0),
+      boqItemCount: Number(r.boq_item_count || 0),
+      sectionCount: Number(r.section_count || 0),
+      resourceCount: Number(r.resource_count || 0),
+      calculatedAt: r.calculated_at
+    };
+  }
+
+  public async getPlanResources(planId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT * FROM project_plan_resources WHERE plan_id = $1 ORDER BY created_at ASC', [planId]);
+    return res.rows.map((r: any) => ({
+      id: r.id,
+      planId: r.plan_id,
+      projectId: r.project_id,
+      sectionId: r.section_id,
+      resourceId: r.resource_id,
+      resourceType: r.resource_type,
+      name: r.name,
+      roleOrTrade: r.role_or_trade,
+      allocatedHours: Number(r.allocated_hours || 0),
+      hourlyRate: Number(r.hourly_rate || 0),
+      totalCost: Number(r.total_cost || 0),
+      unit: r.unit || 'hr',
+      currency: r.currency || 'LKR',
+      startDate: formatSqlDate(r.start_date),
+      endDate: formatSqlDate(r.end_date),
+      notes: r.notes || '',
+      createdAt: r.created_at
+    }));
+  }
+
+  public async addResourceToPlan(planId: string, data: any, actor?: string): Promise<any> {
+    const db = await this.getDb();
+    const planRes = await db.query('SELECT * FROM project_plans WHERE id = $1', [planId]);
+    if (planRes.rows.length === 0) throw new Error(`Plan '${planId}' not found`);
+    const plan = planRes.rows[0];
+
+    const id = data.id || `ppr-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const quantity = Math.max(0, Number(data.allocatedHours ?? data.quantity ?? 1));
+    const rate = Math.max(0, Number(data.hourlyRate ?? data.unitCost ?? 0));
+    const totalCost = round2(quantity * rate);
+
+    await db.query(
+      `INSERT INTO project_plan_resources (
+        id, plan_id, project_id, section_id, resource_id, resource_type,
+        name, role_or_trade, allocated_hours, hourly_rate, total_cost,
+        unit, currency, start_date, end_date, notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::date, $15::date, $16)`,
+      [
+        id,
+        planId,
+        plan.project_id,
+        data.sectionId || null,
+        data.resourceId || `res-${Date.now()}`,
+        data.resourceType || 'labour',
+        data.name || 'Plan Resource',
+        data.roleOrTrade || data.subCategory || '',
+        quantity,
+        rate,
+        totalCost,
+        data.unit || 'hr',
+        data.currency || plan.currency || 'LKR',
+        data.startDate ? String(data.startDate).slice(0, 10) : null,
+        data.endDate ? String(data.endDate).slice(0, 10) : null,
+        data.notes || ''
+      ]
+    );
+
+    const costSummary = await this.recalculatePlanFinancials(planId);
+    return {
+      id,
+      planId,
+      projectId: plan.project_id,
+      sectionId: data.sectionId || null,
+      resourceId: data.resourceId,
+      resourceType: data.resourceType || 'labour',
+      name: data.name,
+      roleOrTrade: data.roleOrTrade || '',
+      allocatedHours: quantity,
+      hourlyRate: rate,
+      totalCost,
+      unit: data.unit || 'hr',
+      currency: data.currency || plan.currency || 'LKR',
+      costSummary
+    };
+  }
+
+  public async updatePlanResource(planId: string, resourceId: string, data: any, actor?: string): Promise<any> {
+    const db = await this.getDb();
+    const existingRes = await db.query('SELECT * FROM project_plan_resources WHERE plan_id = $1 AND id = $2', [planId, resourceId]);
+    if (existingRes.rows.length === 0) throw new Error('Plan resource not found');
+    const existing = existingRes.rows[0];
+
+    const quantity = data.allocatedHours !== undefined ? Math.max(0, Number(data.allocatedHours)) : Number(existing.allocated_hours || 0);
+    const rate = data.hourlyRate !== undefined ? Math.max(0, Number(data.hourlyRate)) : Number(existing.hourly_rate || 0);
+    const totalCost = round2(quantity * rate);
+
+    await db.query(
+      `UPDATE project_plan_resources SET
+        section_id = $1,
+        name = $2,
+        role_or_trade = $3,
+        allocated_hours = $4,
+        hourly_rate = $5,
+        total_cost = $6,
+        unit = $7,
+        currency = $8,
+        start_date = $9::date,
+        end_date = $10::date,
+        notes = $11
+       WHERE plan_id = $12 AND id = $13`,
+      [
+        data.sectionId !== undefined ? data.sectionId : existing.section_id,
+        data.name || existing.name,
+        data.roleOrTrade !== undefined ? data.roleOrTrade : existing.role_or_trade,
+        quantity,
+        rate,
+        totalCost,
+        data.unit || existing.unit || 'hr',
+        data.currency || existing.currency || 'LKR',
+        data.startDate ? String(data.startDate).slice(0, 10) : existing.start_date,
+        data.endDate ? String(data.endDate).slice(0, 10) : existing.end_date,
+        data.notes !== undefined ? data.notes : existing.notes,
+        planId,
+        resourceId
+      ]
+    );
+
+    const costSummary = await this.recalculatePlanFinancials(planId);
+    return {
+      id: resourceId,
+      planId,
+      totalCost,
+      allocatedHours: quantity,
+      hourlyRate: rate,
+      costSummary
+    };
+  }
+
+  public async deletePlanResource(planId: string, resourceId: string, actor?: string): Promise<boolean> {
+    const db = await this.getDb();
+    await db.query('DELETE FROM project_plan_resources WHERE plan_id = $1 AND id = $2', [planId, resourceId]);
+    await this.recalculatePlanFinancials(planId);
+    return true;
   }
 
   public async getDbStats(): Promise<any> {

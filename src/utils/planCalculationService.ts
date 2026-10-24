@@ -401,16 +401,21 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
       ? round2((r as any).total_cost)
       : round2(decMul(allocatedHours, hourlyRate));
 
-    const rType = r.resourceType === 'team_member' || (r as any).resource_type === 'team_member'
+    const rawRType = String(r.resourceType || (r as any).resource_type || '').toLowerCase();
+    const rType = (rawRType === 'team_member' || rawRType === 'labour' || rawRType === 'labor')
       ? 'team_member'
-      : r.resourceType === 'equipment' || (r as any).resource_type === 'equipment'
+      : (rawRType === 'equipment' || rawRType === 'machinery' || rawRType === 'tools' || rawRType === 'tool')
       ? 'equipment'
+      : (rawRType === 'material' || rawRType === 'materials')
+      ? 'material'
       : 'subcontractor';
 
     if (rType === 'team_member') {
       labourCost = round2(decAdd(labourCost, totalCost));
     } else if (rType === 'equipment') {
       otherDirectCost = round2(decAdd(otherDirectCost, totalCost));
+    } else if (rType === 'material') {
+      materialCost = round2(decAdd(materialCost, totalCost));
     } else {
       subcontractorCost = round2(decAdd(subcontractorCost, totalCost));
     }

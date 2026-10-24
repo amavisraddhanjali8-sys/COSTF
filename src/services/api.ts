@@ -233,6 +233,45 @@ export const api = {
     return await res.json();
   },
 
+  async getPlanCostSummary(planId: string): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/cost-summary`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan cost summary');
+    return await res.json();
+  },
+
+  async getPlanResources(planId: string): Promise<any[]> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/resources`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch plan resources');
+    return await res.json();
+  },
+
+  async addResourceToPlan(planId: string, data: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/resources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to add resource to plan');
+    return await res.json();
+  },
+
+  async updatePlanResource(planId: string, resourceId: string, data: any): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/resources/${encodeURIComponent(resourceId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update plan resource');
+    return await res.json();
+  },
+
+  async deletePlanResource(planId: string, resourceId: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/resources/${encodeURIComponent(resourceId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete plan resource');
+  },
+
   // --- Clients (PostgreSQL inno_cost) ---
   async getClients(params?: ListQueryParams): Promise<any[]> {
     const res = await fetch(`/api/clients?${buildQueryString(params)}`);

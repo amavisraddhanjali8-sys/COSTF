@@ -2917,6 +2917,61 @@ async function startServer() {
     }
   });
 
+  // --- Plan Resources & Cost Summary API ---
+  app.get('/api/project-plans/:id/cost-summary', async (req, res) => {
+    try {
+      const summary = await postgresService.getPlanCostSummary(req.params.id);
+      if (!summary) return res.status(404).json({ error: 'Cost summary not found' });
+      res.json(summary);
+    } catch (e: any) {
+      console.error('Failed to fetch plan cost summary:', e);
+      res.status(500).json({ error: 'Failed to fetch plan cost summary', details: e?.message });
+    }
+  });
+
+  app.get('/api/project-plans/:id/resources', async (req, res) => {
+    try {
+      const resources = await postgresService.getPlanResources(req.params.id);
+      res.json(resources);
+    } catch (e: any) {
+      console.error('Failed to fetch plan resources:', e);
+      res.status(500).json({ error: 'Failed to fetch plan resources', details: e?.message });
+    }
+  });
+
+  app.post('/api/project-plans/:id/resources', async (req: any, res) => {
+    try {
+      const actor = req.user?.name || req.body?.actor || 'Resource Manager';
+      const created = await postgresService.addResourceToPlan(req.params.id, req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      console.error('Failed to add resource to plan:', e);
+      res.status(500).json({ error: 'Failed to add resource to plan', details: e?.message });
+    }
+  });
+
+  app.put('/api/project-plans/:id/resources/:resourceId', async (req: any, res) => {
+    try {
+      const actor = req.user?.name || req.body?.actor || 'Resource Manager';
+      const updated = await postgresService.updatePlanResource(req.params.id, req.params.resourceId, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to update plan resource:', e);
+      res.status(500).json({ error: 'Failed to update plan resource', details: e?.message });
+    }
+  });
+
+  app.delete('/api/project-plans/:id/resources/:resourceId', async (req: any, res) => {
+    try {
+      const actor = req.user?.name || 'Resource Manager';
+      await postgresService.deletePlanResource(req.params.id, req.params.resourceId, actor);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete plan resource:', e);
+      res.status(500).json({ error: 'Failed to delete plan resource', details: e?.message });
+    }
+  });
+
   // ============================================================================
   // OVERHEAD COST MANAGEMENT PORTAL & ALLOCATIONS API (TASK 2)
   // ============================================================================
