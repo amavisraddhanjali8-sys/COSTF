@@ -5661,7 +5661,25 @@ export class PostgresService {
     const existing = await this.getProjectPlanById(planId);
     if (!existing) return false;
     await this.withTransaction(async (q) => {
+      // 1. Clear foreign key from projects if it points to this plan
+      await q('UPDATE projects SET active_plan_id = NULL WHERE active_plan_id = $1', [planId]);
+
+      // 2. Cascade delete all child entities associated with this plan
+      await q('DELETE FROM project_plan_cost_controls WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_resources WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_boq_items WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_sections WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_revisions WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_overhead_allocations WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM plan_overhead_allocations WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM plan_tariffs WHERE plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM revenue_rate_history WHERE project_plan_id = $1', [planId]).catch(() => {});
+      await q('DELETE FROM project_plan_cost_summaries WHERE plan_id = $1', [planId]).catch(() => {});
+
+      // 3. Delete the plan record
       await q('DELETE FROM project_plans WHERE id = $1', [planId]);
+
+      // 4. Determine next active plan
       const nextActive = await q(
         "SELECT id FROM project_plans WHERE project_id = $1 AND status != 'Archived' ORDER BY is_baseline DESC, updated_at DESC LIMIT 1",
         [existing.projectId]
@@ -5669,8 +5687,11 @@ export class PostgresService {
       const nextId = nextActive.rows[0]?.id || null;
       if (nextId) {
         await q('UPDATE project_plans SET is_active = true WHERE id = $1', [nextId]);
+        await q('UPDATE projects SET active_plan_id = $1 WHERE id = $2', [nextId, existing.projectId]);
+      } else {
+        await q('UPDATE projects SET active_plan_id = NULL WHERE id = $1', [existing.projectId]);
       }
-      await q('UPDATE projects SET active_plan_id = $1 WHERE id = $2', [nextId, existing.projectId]);
+
       await q(
         `INSERT INTO audit_logs (id, timestamp, actor_id, actor_name, actor_role, action, module, record_id, record_name, details, ip_address, status)
          VALUES ($1, $2, $3, $4, 'ADMIN', 'PLAN_DELETED', 'Projects', $5, $6, $7, '127.0.0.1', 'Success')`,
@@ -14107,41 +14128,45 @@ export class PostgresService {
   // ENTERPRISE RESOURCES PORTAL (LABOURS, MACHINERIES, EQUIPMENTS, TOOLS)
   // =========================================================================
 
-  public async seedEnterpriseResourcesIfEmpty(): Promise<void> {
+  public async cleanDummyResources(): Promise<void> {
     const db = await this.getDb();
     try {
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS enterprise_resources (
-          id TEXT PRIMARY KEY,
-          code TEXT UNIQUE NOT NULL,
-          name TEXT NOT NULL,
-          type TEXT NOT NULL,
-          category TEXT NOT NULL,
-          sub_category TEXT,
-          more_sub_category TEXT,
-          unit TEXT NOT NULL DEFAULT 'hr',
-          base_rate NUMERIC(18, 4) NOT NULL DEFAULT 0,
-          operational_charge NUMERIC(18, 4) DEFAULT 0,
-          charge_type TEXT DEFAULT 'hourly',
-          currency TEXT NOT NULL DEFAULT 'USD',
-          supplier_id TEXT,
-          supplier_name TEXT,
-          competitor_company TEXT,
-          competitor_rate NUMERIC(18, 4) DEFAULT 0,
-          industry_benchmark_rate NUMERIC(18, 4) DEFAULT 0,
-          lead_time_days INT DEFAULT 1,
-          status TEXT NOT NULL DEFAULT 'Available',
-          skill_or_sla TEXT,
-          alternatives JSONB DEFAULT '[]',
-          specifications JSONB DEFAULT '{}',
-          connected_allocations JSONB DEFAULT '[]',
-          notes TEXT DEFAULT '',
-          effective_date DATE DEFAULT CURRENT_DATE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
+      await db.query(`
+        DELETE FROM enterprise_resources 
+        WHERE id LIKE 'res-lab-%' 
+           OR id LIKE 'res-mac-%' 
+           OR id LIKE 'res-eqp-%' 
+           OR id LIKE 'res-too-%' 
+           OR code LIKE 'RES-LAB-%' 
+           OR code LIKE 'RES-MAC-%' 
+           OR code LIKE 'RES-EQP-%' 
+           OR code LIKE 'RES-TOO-%'
+           OR name IN (
+             'Senior Avionics Systems Engineer',
+             'Precision 5-Axis CNC Mill DMG Mori',
+             'Heavy Hydraulic Mobile Crane 75T',
+             'Master Aerospace Tooling Kit',
+             'Cleanroom Laser Metrology Station',
+             'Senior Mason / Lead Builder',
+             'Tower Crane Operator',
+             'Excavator Cat 320D',
+             'Scaffolding System Standard'
+           )
       `);
+      console.log('[PostgreSQL] Purged dummy resources from enterprise_resources.');
+    } catch (e: any) {
+      console.warn('[PostgreSQL] cleanDummyResources notice:', e?.message);
+    }
+  }
 
+  public async seedEnterpriseResourcesIfEmpty(): Promise<void> {
+    await this.cleanDummyResources();
+    return;
+  }
+
+  public async _legacyDummyResourceSeeding(): Promise<void> {
+    const db = await this.getDb();
+    try {
       const chk = await db.query('SELECT COUNT(*) as cnt FROM enterprise_resources');
       if (Number(chk.rows[0]?.cnt || 0) > 0) return;
 

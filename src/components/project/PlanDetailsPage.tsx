@@ -320,6 +320,19 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     }
   };
 
+  const handleDeletePlan = async () => {
+    if (!plan) return;
+    if (!window.confirm(`Are you sure you want to permanently delete plan "${plan.planNumber} (${plan.name})"? This will completely remove all its BOQ items, resources, and overhead allocations from PostgreSQL.`)) return;
+    try {
+      await api.deleteProjectPlan(plan.id);
+      showToast?.({ message: `Plan ${plan.planNumber} successfully deleted.`, type: 'info' });
+      onPlanUpdated?.();
+      onNavigateBack();
+    } catch (err: any) {
+      alert(`Could not delete plan: ${err?.message || 'Database error'}`);
+    }
+  };
+
   const handleDeleteBoqItem = async (boqItemId: string, itemName: string) => {
     if (!plan) return;
     if (!window.confirm(`Are you sure you want to remove "${itemName}" from this plan's BOQ?`)) return;
@@ -609,12 +622,22 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             {plan.status !== 'Archived' && (
               <button
                 onClick={handleArchive}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                className="flex items-center space-x-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                title="Archive this plan"
               >
-                <Archive className="w-3.5 h-3.5 text-rose-600" />
+                <Archive className="w-3.5 h-3.5 text-amber-600" />
                 <span>Archive</span>
               </button>
             )}
+
+            <button
+              onClick={handleDeletePlan}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+              title="Delete this plan permanently from PostgreSQL"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete</span>
+            </button>
           </div>
         </div>
       </div>

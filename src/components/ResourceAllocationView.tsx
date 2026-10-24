@@ -91,7 +91,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
   onUpdateProject,
   initialTypeFilter
 }) => {
-  const [scope, setScope] = useState<'selected' | 'all'>('selected');
+  const [scope, setScope] = useState<'selected' | 'all'>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   
   // Type filter: 'all' | 'labour' | 'machinery' | 'equipment' | 'tool' | 'material' | 'subcontractor'

@@ -39,6 +39,7 @@ import {
   ProduceItem
 } from '../../types';
 import { GoogleSearchPreviewModal, GoogleSearchPreviewItem } from '../GoogleSearchPreviewModal';
+import { api } from '../../services/api';
 import { SupplierRatesComparisonModal } from './SupplierRatesComparisonModal';
 import { QuickInsertSubcontractorModal } from './QuickInsertSubcontractorModal';
 import { QuickInsertOutsourcedModal } from './QuickInsertOutsourcedModal';
@@ -152,7 +153,8 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
       activePlan.overheadPct || 8.5,
       activePlan.contingencyPct || 5.0,
       currentItems,
-      project.phases || []
+      project.phases || [],
+      activePlan.resources || []
     );
   }, [project.quotedPrice, activePlan, currentItems, project.phases]);
 
@@ -171,6 +173,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
   const outTotal = currentItems
     .filter(i => i.type === 'outsourced')
     .reduce((sum, i) => sum + (i.totalCost || 0), 0);
+  const resourcesTotal = (activePlan?.resources || []).reduce((sum, r) => sum + (r.totalCost || 0), 0);
 
   // Update helper that updates active plan's items and recalculates project
   const updateActivePlanItems = (newItems: ProjectCostItem[], customQuotedPrice?: number) => {
@@ -383,23 +386,46 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
   };
 
   // Delete active plan
-  const handleDeletePlan = () => {
-    if (plans.length <= 1) return;
+  const handleDeletePlan = async () => {
+    if (!window.confirm(`Are you sure you want to delete plan "${activePlan.name}"? This action will permanently remove this plan and its allocations.`)) {
+      return;
+    }
+    try {
+      await api.deleteProjectPlan(activePlan.id);
+    } catch (err) {
+      console.warn('Backend plan deletion note:', err);
+    }
     const remaining = plans.filter(p => p.id !== activePlan.id);
-    const newActive = remaining[0];
-    const newMetrics = calculateProjectMetrics(
-      project.quotedPrice,
-      newActive.targetMarginPct,
-      newActive.overheadPct,
-      newActive.contingencyPct,
-      newActive.selectedItems,
-      project.phases || []
-    );
+    const newActive = remaining[0] || null;
+    const newMetrics = newActive
+      ? calculateProjectMetrics(
+          project.quotedPrice,
+          newActive.targetMarginPct || project.targetMarginPct,
+          newActive.overheadPct || 8.5,
+          newActive.contingencyPct || 5.0,
+          newActive.selectedItems,
+          project.phases || [],
+          newActive.resources || []
+        )
+      : {
+          revenue: project.quotedPrice || 0,
+          directCost: 0,
+          overheadAmount: 0,
+          contingencyAmount: 0,
+          totalPlannedCost: 0,
+          grossProfit: 0,
+          netProfit: 0,
+          grossMarginPct: 0,
+          netMarginPct: 0,
+          variance: 0,
+          targetVariance: 0,
+          isOverBudget: false
+        };
 
     onUpdateProject({
       ...project,
       budgetaryPlans: remaining,
-      activePlanId: newActive.id,
+      activePlanId: newActive ? newActive.id : undefined,
       analytics: newMetrics
     });
   };
@@ -577,16 +603,14 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               <span>Duplicate</span>
             </button>
 
-            {plans.length > 1 && (
-              <button
-                type="button"
-                onClick={handleDeletePlan}
-                className="flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors text-xs font-semibold cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleDeletePlan}
+              className="flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors text-xs font-semibold cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
+            </button>
 
             <button
               type="button"
@@ -604,25 +628,25 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <span className="text-[10px] text-slate-400 font-bold uppercase block">Direct Cost</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
-              ${planMetrics.totalDirectCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatCurrency(planMetrics.totalDirectCost, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <span className="text-[10px] text-slate-400 font-bold uppercase block">Overhead ({activePlan.overheadPct || 8.5}%)</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
-              ${planMetrics.overheadAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatCurrency(planMetrics.overheadAmount, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <span className="text-[10px] text-slate-400 font-bold uppercase block">Contingency ({activePlan.contingencyPct || 5.0}%)</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
-              ${planMetrics.contingencyAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatCurrency(planMetrics.contingencyAmount, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Cost</span>
             <span className="font-bold text-[#0078d4] dark:text-sky-300 font-mono text-sm mt-0.5 block">
-              ${planMetrics.totalProjectCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatCurrency(planMetrics.totalProjectCost, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
@@ -659,7 +683,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              Materials (${materialsTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+              Materials ({formatCurrency(materialsTotal, project.currency || 'LKR')})
             </button>
             <button
               type="button"
@@ -670,7 +694,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              Subcontractors (${subTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+              Subcontractors ({formatCurrency(subTotal, project.currency || 'LKR')})
             </button>
             <button
               type="button"
@@ -681,8 +705,13 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              Tariffs (${outTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+              Tariffs ({formatCurrency(outTotal, project.currency || 'LKR')})
             </button>
+            {resourcesTotal > 0 && (
+              <span className="px-2.5 py-1 rounded-md text-[11px] font-bold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800">
+                Resources ({formatCurrency(resourcesTotal, project.currency || 'LKR')})
+              </span>
+            )}
           </div>
 
           {/* Quick Insert Buttons */}
@@ -925,7 +954,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
                         ) : (
                           <div>
                             <span className="text-slate-900 dark:text-slate-100 font-bold">
-                              ${item.unitCost.toFixed(2)}
+                              {formatCurrency(item.unitCost, project.currency || 'LKR')}
                             </span>
                             {isForeign && (
                               <div className="text-[10px] text-[#0078d4] dark:text-sky-400 font-normal">
@@ -975,13 +1004,13 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
                       {/* Projected Cost (Highlighted Red if driving overrun) */}
                       <td className="py-2 px-2 text-right font-mono">
                         <span className={`font-bold ${isRedAlert ? 'text-red-600 dark:text-red-400 text-xs' : 'text-slate-800 dark:text-slate-200'}`}>
-                          ${Math.round(analysis?.itemProjectedCost || item.totalCost).toLocaleString()}
+                          {formatCurrency(Math.round(analysis?.itemProjectedCost || item.totalCost), project.currency || 'LKR')}
                         </span>
                       </td>
 
                       {/* Total Baseline Cost */}
                       <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
-                        ${item.totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        {formatCurrency(item.totalCost, project.currency || 'LKR')}
                       </td>
 
                       {/* Rates Comparison Button */}

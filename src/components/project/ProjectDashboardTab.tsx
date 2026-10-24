@@ -108,9 +108,13 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
   const netMarginPct = analytics?.netMarginPct || (revenue > 0 ? (netProfit / revenue) * 100 : 0);
   const healthScore = analytics?.healthScore ?? 85;
 
+  const activePlan = project.budgetaryPlans?.find((plan) => plan.id === project.activePlanId) || project.budgetaryPlans?.[0];
+  const resourceCost = (activePlan?.resources || []).reduce((sum, r) => sum + (r.totalCost || 0), 0);
+
   const costDistributionData = [
     { name: 'Materials', value: materialCost, color: PALETTE.navy },
     { name: 'Subcontractors', value: subcontractorCost, color: PALETTE.blue },
+    { name: 'Resources', value: resourceCost, color: '#8b5cf6' },
     { name: 'Tariffs', value: outsourcedCost, color: PALETTE.teal },
     { name: 'Overhead', value: overheadAndContingency, color: PALETTE.amber }
   ].filter(d => d.value > 0);
@@ -123,8 +127,6 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
       Variance: (phase.budget || phase.plannedCost || 0) - phase.actualCost
     };
   });
-
-  const activePlan = project.budgetaryPlans?.find((plan) => plan.id === project.activePlanId) || project.budgetaryPlans?.[0];
 
   const deliverables: ProjectDeliverableItem[] = React.useMemo(() => {
     if (dbDeliverables && dbDeliverables.length > 0) {
@@ -265,7 +267,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             <span className="text-xs font-semibold text-blue-200">Revenue</span>
             <DollarSign className="w-4 h-4 text-blue-200" />
           </div>
-          <div className="text-2xl font-bold text-white mt-2">${revenue.toLocaleString()}</div>
+          <div className="text-2xl font-bold text-white mt-2">{formatCurrency(revenue, project.currency || 'LKR')}</div>
           <div className="flex items-center space-x-1.5 text-xs text-blue-200 mt-2">
             <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
             <span>Agreed Price</span>
@@ -279,11 +281,11 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            ${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {formatCurrency(totalCost, project.currency || 'LKR')}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between font-mono">
-            <span>Direct: ${directCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-            <span>Overhead: ${overheadAndContingency.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span>Direct: {formatCurrency(directCost, project.currency || 'LKR')}</span>
+            <span>Overhead: {formatCurrency(overheadAndContingency, project.currency || 'LKR')}</span>
           </div>
         </div>
 
@@ -382,7 +384,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(val: any) => [`$${Number(val).toLocaleString()}`, 'Cost']}
+                    formatter={(val: any) => [formatCurrency(Number(val), project.currency || 'LKR'), 'Cost']}
                     contentStyle={{
                       backgroundColor: '#ffffff',
                       borderColor: '#cbd5e1',
@@ -396,33 +398,40 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
             <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
               <div className="w-2.5 h-2.5 rounded-full bg-[#003049]" />
               <div>
                 <p className="text-slate-400 text-[10px]">Materials</p>
-                <p className="font-bold text-slate-800 dark:text-slate-200">${materialCost.toLocaleString()}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(materialCost, project.currency || 'LKR')}</p>
               </div>
             </div>
             <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
               <div className="w-2.5 h-2.5 rounded-full bg-[#0078d4]" />
               <div>
                 <p className="text-slate-400 text-[10px]">Subcontractors</p>
-                <p className="font-bold text-slate-800 dark:text-slate-200">${subcontractorCost.toLocaleString()}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(subcontractorCost, project.currency || 'LKR')}</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+              <div className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+              <div>
+                <p className="text-slate-400 text-[10px]">Resources</p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(resourceCost, project.currency || 'LKR')}</p>
               </div>
             </div>
             <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
               <div className="w-2.5 h-2.5 rounded-full bg-teal-600" />
               <div>
                 <p className="text-slate-400 text-[10px]">Tariffs</p>
-                <p className="font-bold text-slate-800 dark:text-slate-200">${outsourcedCost.toLocaleString()}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(outsourcedCost, project.currency || 'LKR')}</p>
               </div>
             </div>
-            <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center space-x-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-2">
               <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
               <div>
                 <p className="text-slate-400 text-[10px]">Overheads</p>
-                <p className="font-bold text-slate-800 dark:text-slate-200">${overheadAndContingency.toLocaleString()}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{formatCurrency(overheadAndContingency, project.currency || 'LKR')}</p>
               </div>
             </div>
           </div>
@@ -445,9 +454,9 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={phaseBarData} margin={{ top: 8, right: 8, left: -15, bottom: 0 }}>
                   <XAxis dataKey="name" stroke="#64748B" fontSize={10} tickLine={false} />
-                  <YAxis stroke="#64748B" fontSize={10} tickFormatter={v => `$${v / 1000}k`} />
+                  <YAxis stroke="#64748B" fontSize={10} tickFormatter={v => formatCurrency(v, project.currency || 'LKR')} />
                   <Tooltip
-                    formatter={(val: any) => [`$${Number(val).toLocaleString()}`, '']}
+                    formatter={(val: any) => [formatCurrency(Number(val), project.currency || 'LKR'), '']}
                     contentStyle={{
                       backgroundColor: '#ffffff',
                       borderColor: '#cbd5e1',
@@ -492,7 +501,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 dark:text-slate-200">Material +5% Inflation</span>
                 <span className="text-red-500 font-bold font-mono">
-                  +${analytics.sensitivity.materialInflation5Pct.costImpact.toLocaleString()}
+                  +{formatCurrency(analytics.sensitivity.materialInflation5Pct.costImpact, project.currency || 'LKR')}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
@@ -507,7 +516,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 dark:text-slate-200">Labour +8% Wage Hike</span>
                 <span className="text-red-500 font-bold font-mono">
-                  +${analytics.sensitivity.labourRateHike8Pct.costImpact.toLocaleString()}
+                  +{formatCurrency(analytics.sensitivity.labourRateHike8Pct.costImpact, project.currency || 'LKR')}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
@@ -657,11 +666,13 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
                       <td className="py-2 px-3">
                         <div className="flex items-center gap-1.5">
                           <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                            {formatCurrency(item.competitorBenchmarkPrice || (item.quotedPrice * 1.05), item.currency || project.currency)}
+                            {item.competitorBenchmarkPrice ? formatCurrency(item.competitorBenchmarkPrice, item.currency || project.currency || 'LKR') : '-'}
                           </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 max-w-[110px] truncate" title={item.competitorName || 'Apex Dynamics'}>
-                            {item.competitorName || 'Apex Dynamics'}
-                          </span>
+                          {item.competitorName && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 max-w-[110px] truncate" title={item.competitorName}>
+                              {item.competitorName}
+                            </span>
+                          )}
                         </div>
                       </td>
 

@@ -539,12 +539,12 @@ export const ProjectPlansListTable: React.FC<ProjectPlansListTableProps> = ({
                       )}
 
                       {/* Delete */}
-                      {!isActive && !plan.isBaseline && onDeletePlan && (
+                      {onDeletePlan && (
                         <button
                           type="button"
                           onClick={() => onDeletePlan(plan.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors"
-                          title="Delete Plan"
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+                          title="Delete Plan permanently from PostgreSQL"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

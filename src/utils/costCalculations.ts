@@ -8,7 +8,8 @@ export function calculateProjectMetrics(
   overheadPct: number,
   contingencyPct: number,
   selectedItems: ProjectCostItem[],
-  phases: ProjectPhase[]
+  phases: ProjectPhase[],
+  resources: any[] = []
 ): ProjectProfitabilityMetrics {
   const { summary } = calculatePlanFinancials({
     plannedRevenue: quotedPrice,
@@ -18,7 +19,8 @@ export function calculateProjectMetrics(
     contingencyPct,
     laborBurdenPct: 0,
     boqItems: selectedItems || [],
-    sections: []
+    sections: [],
+    resources: resources || []
   });
 
   const {
@@ -48,7 +50,13 @@ export function calculateProjectMetrics(
             : calcDiscountedLine(i.quantity ?? 1, i.unitCost ?? 0, i.discountPct ?? 0).totalAmount;
         return round2(decAdd(sum, lineCost));
       }, 0);
-    const actual = phaseItemsCost > 0 ? phaseItemsCost : round2(p.actualCost || 0);
+
+    const phaseResourcesCost = (resources || [])
+      .filter((r: any) => r.phaseId === p.id)
+      .reduce((sum: number, r: any) => round2(decAdd(sum, Number(r.totalCost || 0))), 0);
+
+    const totalPhaseCalculated = round2(decAdd(phaseItemsCost, phaseResourcesCost));
+    const actual = totalPhaseCalculated > 0 ? totalPhaseCalculated : round2(p.actualCost || 0);
     totalPlannedBudget = round2(decAdd(totalPlannedBudget, planned));
     const variance = round2(decSub(planned, actual));
     const variancePct = planned > 0 ? round2(decDiv(decMul(variance, 100), planned)) : 0;

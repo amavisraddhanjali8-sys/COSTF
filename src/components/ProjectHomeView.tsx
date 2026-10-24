@@ -10,6 +10,7 @@ import {
   Layers,
   LayoutDashboard,
   SlidersHorizontal,
+  Users,
   DollarSign,
   TrendingUp,
   Percent,
@@ -53,10 +54,12 @@ import { PlanTemplatesLibraryModal } from './project/PlanTemplatesLibraryModal';
 import { SavePlanAsTemplateModal } from './project/SavePlanAsTemplateModal';
 import { PlanDetailsPage } from './project/PlanDetailsPage';
 import { ProjectPlansListTable, ProjectPlanRow } from './project/ProjectPlansListTable';
+import { ProjectResourcesTab } from './project/ProjectResourcesTab';
 import { ModernTileCard } from './ModernTileCard';
 import { calculateProjectMetrics } from '../utils/costCalculations';
 import { getRandomThemeIndex, getThemeById } from '../data/tileThemes';
 import { api } from '../services/api';
+import { formatCurrency } from '../utils/currency';
 
 export interface ProjectHomeViewProps {
   project: Project | null;
@@ -95,7 +98,7 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
   onViewPlanDetails,
   initialSubTab = 'plans'
 }) => {
-  const [subTab, setSubTab] = useState<'plans' | 'plan-details' | 'dashboard' | 'cost-controls'>(initialSubTab);
+  const [subTab, setSubTab] = useState<'plans' | 'plan-details' | 'dashboard' | 'resources' | 'cost-controls'>(initialSubTab as any);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [planViewMode, setPlanViewMode] = useState<'table' | 'cards'>('table');
   const [costControlViewMode, setCostControlViewMode] = useState<'caps' | 'breakdown'>('caps');
@@ -304,32 +307,41 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
 
   // Handler to delete a plan in PostgreSQL
   const handleDeletePlan = async (planId: string) => {
-    if (plans.length <= 1) return;
+    const targetPlanToDelete = plans.find((p) => p.id === planId);
+    const planLabel = targetPlanToDelete ? `${targetPlanToDelete.planNumber} (${targetPlanToDelete.name})` : 'this plan';
+    if (!window.confirm(`Are you sure you want to permanently delete project plan "${planLabel}"? This will delete all its BOQ items, resource allocations, and cost controls from PostgreSQL.`)) {
+      return;
+    }
+
     try {
       await api.deleteProjectPlan(planId);
       await fetchPlansFromPostgres();
-    } catch (e) {
+    } catch (e: any) {
       console.warn('PostgreSQL delete plan error:', e);
+      alert(`Could not delete plan: ${e?.message || 'Database error'}`);
+      return;
     }
 
     const updatedPlans = plans.filter((p) => p.id !== planId);
-    const newActiveId = activePlanId === planId ? updatedPlans[0].id : activePlanId;
-    const targetPlan = updatedPlans.find((p) => p.id === newActiveId) || updatedPlans[0];
+    const newActiveId = updatedPlans.length > 0
+      ? (activePlanId === planId ? updatedPlans[0].id : activePlanId)
+      : null;
+    const targetPlan = newActiveId ? (updatedPlans.find((p) => p.id === newActiveId) || updatedPlans[0]) : null;
 
-    const newMetrics = calculateProjectMetrics(
+    const newMetrics = targetPlan ? calculateProjectMetrics(
       project.quotedPrice,
       targetPlan.targetMarginPct,
       targetPlan.overheadPct,
       targetPlan.contingencyPct,
-      targetPlan.selectedItems,
+      targetPlan.selectedItems || [],
       project.phases || []
-    );
+    ) : undefined;
 
     onUpdateProject({
       ...project,
       budgetaryPlans: updatedPlans,
-      activePlanId: newActiveId,
-      analytics: newMetrics
+      activePlanId: newActiveId || undefined,
+      analytics: newMetrics || project.analytics
     });
   };
 
@@ -632,7 +644,27 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
           <span>Dashboard</span>
         </button>
 
-        {/* Tab 3: Cost Controls */}
+        {/* Tab 3: Resources (Allocated Project & Plan Resources) */}
+        <button
+          onClick={() => setSubTab('resources')}
+          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            subTab === 'resources'
+              ? 'bg-[#0078d4] text-white shadow-xs'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Resources</span>
+          {activePlan?.resources && activePlan.resources.length > 0 && (
+            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+              subTab === 'resources' ? 'bg-white/20 text-white' : 'bg-blue-100 text-[#0078d4] dark:bg-blue-950 dark:text-sky-300'
+            }`}>
+              {activePlan.resources.length}
+            </span>
+          )}
+        </button>
+
+        {/* Tab 4: Cost Controls */}
         <button
           onClick={() => setSubTab('cost-controls')}
           className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
@@ -1004,25 +1036,25 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
                           <td className="py-2.5 px-3 text-slate-500">
                             {plan.isBaseline ? 'Approved Baseline' : 'Alternative Scenario'}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-normal text-slate-900">
-                            ${(metrics?.totalDirectCost || 0).toLocaleString()}
+                          <td className="py-2.5 px-3 text-right font-mono font-normal text-slate-900 dark:text-slate-100">
+                            {formatCurrency(metrics?.totalDirectCost || 0, project.currency || 'LKR')}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-medium text-[#003049]">
+                          <td className="py-2.5 px-3 text-right font-mono font-medium text-[#0078d4] dark:text-sky-300">
                             {(metrics?.grossMarginPct || 0).toFixed(1)}%
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-normal text-slate-900">
-                            ${(metrics?.netProfit || 0).toLocaleString()}
+                          <td className="py-2.5 px-3 text-right font-mono font-normal text-slate-900 dark:text-slate-100">
+                            {formatCurrency(metrics?.netProfit || 0, project.currency || 'LKR')}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono">
                             {isBase ? (
                               <span className="text-slate-400">Baseline (0.00)</span>
                             ) : costDiff < 0 ? (
-                              <span className="text-emerald-700 font-medium">
-                                -${Math.abs(costDiff || 0).toLocaleString()} (Saves {Math.abs(((costDiff || 0) / (baselineMetrics?.totalDirectCost || 1)) * 100).toFixed(1)}%)
+                              <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                                -{formatCurrency(Math.abs(costDiff || 0), project.currency || 'LKR')} (Saves {Math.abs(((costDiff || 0) / (baselineMetrics?.totalDirectCost || 1)) * 100).toFixed(1)}%)
                               </span>
                             ) : (
-                              <span className="text-rose-700 font-medium">
-                                +${(costDiff || 0).toLocaleString()}
+                              <span className="text-rose-700 dark:text-rose-400 font-medium">
+                                +{formatCurrency(costDiff || 0, project.currency || 'LKR')}
                               </span>
                             )}
                           </td>
@@ -1084,7 +1116,7 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
             </div>
 
             <div className="text-xs text-slate-500">
-              Contract Value: <span className="font-normal text-slate-900">${Number(project.quotedPrice || 0).toLocaleString()}</span>
+              Contract Value: <span className="font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(project.quotedPrice || 0, project.currency || 'LKR')}</span>
             </div>
           </div>
 
@@ -1098,7 +1130,19 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
         </div>
       )}
 
-      {/* TAB 3: COST CONTROL PAGE (Strictly for this Project and Plan Only) */}
+      {/* TAB 3: PROJECT RESOURCES TAB */}
+      {subTab === 'resources' && (
+        <div className="space-y-4">
+          <ProjectResourcesTab
+            project={project}
+            activePlan={activePlan}
+            onPlanUpdated={fetchPlansFromPostgres}
+            onUpdateProject={onUpdateProject}
+          />
+        </div>
+      )}
+
+      {/* TAB 4: COST CONTROL PAGE (Strictly for this Project and Plan Only) */}
       {subTab === 'cost-controls' && (
         <div className="space-y-4">
           {/* Plan Selector & View Mode Switcher Header */}

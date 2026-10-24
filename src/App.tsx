@@ -724,13 +724,13 @@ export default function App() {
             api.getRevenueItemsList({ limit: 200 }).catch(() => []),
             api.getResources().catch(() => [])
           ]);
-          if (Array.isArray(ovhData) && ovhData.length > 0) {
+          if (Array.isArray(ovhData)) {
             setOverheads(ovhData);
           }
-          if (Array.isArray(revData) && revData.length > 0) {
+          if (Array.isArray(revData)) {
             setRevenueItems(revData);
           }
-          if (Array.isArray(resData) && resData.length > 0) {
+          if (Array.isArray(resData)) {
             setEnterpriseResources(resData);
           }
         } catch (fetchErr) {
