@@ -13,7 +13,8 @@ import {
   PriceHistoryRecord,
   InventoryTransaction,
   OverheadItem,
-  RevenueItem
+  RevenueItem,
+  Tariff
 } from '../types';
 
 /**
@@ -537,26 +538,28 @@ export function exportOverheadsToCSV(items: OverheadItem[]): void {
     'Code',
     'Name',
     'Category',
-    'Allocation Type',
-    'Standard Rate',
-    'Unit',
+    'Cost Type',
+    'Calculation Method',
+    'Default Rate',
+    'Unit Type',
+    'Cost Base',
     'Currency',
-    'Scope / Level',
     'Status',
-    'Notes'
+    'Description'
   ];
 
   const rows = items.map(item => [
     item.code || '',
     item.name || '',
     item.category || '',
-    item.allocationType || '',
-    item.standardRate ?? item.rate ?? 0,
-    item.unit || '',
-    item.currency || 'LKR',
-    item.scopeLevel || '',
-    item.status || 'ACTIVE',
-    item.notes || ''
+    item.costType || 'Fixed',
+    item.defaultCalculationMethod || 'fixed_amount',
+    item.defaultRate ?? 0,
+    item.unitType || '',
+    item.defaultCostBase || 'total_direct_cost',
+    item.currency || 'USD',
+    item.status || 'Active',
+    item.description || ''
   ]);
 
   downloadCSV(`Overhead_Costing_Catalogue_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
@@ -570,8 +573,8 @@ export function exportRevenueItemsToCSV(items: RevenueItem[]): void {
     'Code',
     'Name',
     'Category',
-    'Revenue Type',
-    'Base Price',
+    'Type',
+    'Default Rate',
     'Unit',
     'Currency',
     'Tax Rate (%)',
@@ -583,12 +586,12 @@ export function exportRevenueItemsToCSV(items: RevenueItem[]): void {
     item.code || '',
     item.name || '',
     item.category || '',
-    item.revenueType || '',
-    item.basePrice ?? 0,
+    item.type || 'product',
+    item.defaultRate ?? 0,
     item.unit || '',
-    item.currency || 'LKR',
-    item.taxRate ?? 0,
-    item.status || 'ACTIVE',
+    item.currency || 'USD',
+    item.taxRatePct ?? 0,
+    item.status || 'Active',
     item.description || ''
   ]);
 
@@ -598,30 +601,54 @@ export function exportRevenueItemsToCSV(items: RevenueItem[]): void {
 // ----------------------------------------------------
 // 12. TARIFF MANAGEMENT EXPORT
 // ----------------------------------------------------
-export function exportTariffsToCSV(tariffs: OutsourcedService[]): void {
+export function exportTariffsToCSV(tariffs: (Tariff | OutsourcedService)[]): void {
   const headers = [
-    'Service Code',
-    'Process / Tariff Name',
-    'Provider / Contractor',
-    'Rate',
+    'Tariff Code',
+    'Tariff / Process Name',
+    'Category',
+    'Calculation Method / Provider',
+    'Rate / Percentage',
+    'Fixed Charge',
     'Unit',
     'Currency',
-    'Turnaround (Days)',
-    'Quality Standard',
-    'Status'
+    'Applicable Base',
+    'Status',
+    'Description'
   ];
 
-  const rows = tariffs.map(t => [
-    t.serviceCode || '',
-    t.processName || '',
-    t.providerName || '',
-    t.rate ?? 0,
-    t.unit || '',
-    t.currency || 'LKR',
-    t.turnaroundDays ?? '',
-    t.qualityStandard || '',
-    t.status || 'Active'
-  ]);
+  const rows = tariffs.map(t => {
+    if ('calculationMethod' in t) {
+      const tariff = t as Tariff;
+      return [
+        tariff.code || '',
+        tariff.name || '',
+        tariff.category || '',
+        tariff.calculationMethod || '',
+        tariff.rateOrPercentage ?? 0,
+        tariff.fixedCharge ?? 0,
+        tariff.unit || '',
+        tariff.currency || 'USD',
+        tariff.applicableBase || '',
+        tariff.status || 'Active',
+        tariff.description || ''
+      ];
+    } else {
+      const srv = t as OutsourcedService;
+      return [
+        srv.code || srv.id || '',
+        srv.name || '',
+        srv.category || '',
+        srv.providerName || '',
+        srv.rate ?? 0,
+        0,
+        srv.unit || '',
+        'USD',
+        srv.baseUnitType || '',
+        srv.status || 'Active',
+        srv.slaLevel || ''
+      ];
+    }
+  });
 
   downloadCSV(`Industrial_Tariff_Schedule_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
 }

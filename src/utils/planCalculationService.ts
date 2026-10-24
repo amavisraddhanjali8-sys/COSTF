@@ -55,10 +55,12 @@ import {
   ProjectPlanCostSummary
 } from '../types';
 import { round2, round4, decAdd, decSub, decMul, decDiv, calcDiscountedLine } from './decimalMath';
+import { convertCurrency } from './currency';
 
 export interface PlanCalculationInput {
   planId?: string;
   projectId?: string;
+  currency?: string;
   plannedRevenue?: number;
   projectQuotedPrice?: number;
   targetMarginPct?: number;
@@ -281,10 +283,16 @@ export function calculatePlanFinancials(input: PlanCalculationInput): Normalized
   // 1. Process BOQ Line Items
   const normalizedBoqItems: ProjectPlanBoqItem[] = rawItems.map((it, idx) => {
     const qty = Math.max(0, round4(it.quantity ?? 1));
-    const unitCost = Math.max(0, round4(it.unitCost ?? (it as any).unit_cost ?? 0));
+    const targetCurrency = input.currency;
+    const itemCurrency = it.currency || (it as any).originalCurrency;
+    let baseUnitCost = Math.max(0, round4(it.unitCost ?? (it as any).unit_cost ?? 0));
+    if (targetCurrency && itemCurrency && targetCurrency.toUpperCase() !== itemCurrency.toUpperCase()) {
+      baseUnitCost = round4(convertCurrency(baseUnitCost, itemCurrency, targetCurrency));
+    }
+    const unitCost = baseUnitCost;
     const discountPct = Math.max(0, Math.min(100, round2(it.discountPct ?? (it as any).discount_pct ?? 0)));
     const { totalAmount } = calcDiscountedLine(qty, unitCost, discountPct);
-    const lineCost = (it as any).total_cost !== undefined && Number((it as any).total_cost) > 0
+    const lineCost = (it as any).total_cost !== undefined && Number((it as any).total_cost) > 0 && !(targetCurrency && itemCurrency && targetCurrency.toUpperCase() !== itemCurrency.toUpperCase())
       ? round2((it as any).total_cost)
       : round2(totalAmount);
 

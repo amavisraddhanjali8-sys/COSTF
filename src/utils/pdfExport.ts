@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Project } from '../types';
-import { formatCurrency, getStoredCurrency, getCurrencyInfo } from './currency';
+import { formatCurrency, getStoredCurrency, getCurrencyInfo, getPdfSafeSymbol } from './currency';
 
 export function exportProjectQuotePDF(project: Project) {
   const doc = new jsPDF({
@@ -78,7 +78,7 @@ export function exportProjectQuotePDF(project: Project) {
   doc.text('EST. GROSS MARGIN', 124, y + 7);
   doc.text('EST. NET MARGIN', 165, y + 7);
 
-  const cur = project.currency || 'USD';
+  const cur = getPdfSafeSymbol(project.currency || 'USD');
 
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
@@ -154,6 +154,18 @@ export function exportProjectQuotePDF(project: Project) {
     if (y > pageHeight - 35) {
       doc.addPage();
       y = 15;
+      doc.setFillColor(19, 34, 56);
+      doc.rect(14, y, pageWidth - 28, 7, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Item / Service Description (cont.)', 16, y + 4.8);
+      doc.text('Type', 80, y + 4.8);
+      doc.text('Supplier / Contractor', 105, y + 4.8);
+      doc.text('Qty / Unit', 145, y + 4.8);
+      doc.text(`Unit (${cur})`, 165, y + 4.8);
+      doc.text(`Total (${cur})`, 183, y + 4.8);
+      y += 7;
     }
 
     doc.setFillColor(i % 2 === 0 ? 255 : 248, i % 2 === 0 ? 255 : 250, i % 2 === 0 ? 255 : 252);
@@ -627,7 +639,7 @@ export function exportMasterExecutiveReportPDF(
   }
   const activeCurr = optionsOrCompany?.currency || getStoredCurrency() || 'USD';
   const currInfo = getCurrencyInfo(activeCurr);
-  const symbol = currInfo.symbol;
+  const symbol = getPdfSafeSymbol(activeCurr);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();

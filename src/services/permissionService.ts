@@ -332,6 +332,10 @@ class PermissionService {
     return { ...this.permissions };
   }
 
+  public getAllRoles(): RolePermissionConfig[] {
+    return Object.values(this.permissions);
+  }
+
   public getRoleConfig(role?: UserRole): RolePermissionConfig {
     if (!role || !this.permissions[role]) {
       return this.permissions.VIEWER;

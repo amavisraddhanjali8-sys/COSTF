@@ -187,7 +187,25 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const selectedProject = projects.find(p => p.id === selectedProjectId) || projects[0] || null;
-  const activeCurrency = selectedProject?.currency || companyDetails?.currency || 'USD';
+  const [globalCurrency, setGlobalCurrency] = useState<string>(() => {
+    try {
+      return localStorage.getItem('fxtt_active_currency') || 'USD';
+    } catch {
+      return 'USD';
+    }
+  });
+
+  useEffect(() => {
+    const handleCurrency = (e: any) => {
+      if (e.detail?.currency) {
+        setGlobalCurrency(e.detail.currency);
+      }
+    };
+    window.addEventListener('fxtt-currency-changed', handleCurrency);
+    return () => window.removeEventListener('fxtt-currency-changed', handleCurrency);
+  }, []);
+
+  const activeCurrency = selectedProject?.currency || globalCurrency || companyDetails?.currency || 'USD';
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [produceItems, setProduceItems] = useState<ProduceItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -1912,7 +1930,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && permissionService.hasTabAccess(currentUser?.role, 'settings') && (
           <SettingsView
             currentUser={currentUser}
             companyDetails={companyDetails}
@@ -1936,7 +1954,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'audit-log' && (
+        {activeTab === 'audit-log' && permissionService.hasTabAccess(currentUser?.role, 'audit-log') && (
           <AuditLogView
             currentUser={currentUser}
             auditLogs={auditLogs}

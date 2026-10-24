@@ -15,10 +15,10 @@ export interface CurrencyConfig {
 }
 
 export const SUPPORTED_CURRENCIES: CurrencyConfig[] = [
+  { code: 'LKR', symbol: 'Rs.', name: 'Sri Lanka Rupee', decimals: 2, rateToUSD: 305.0 },
   { code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2, rateToUSD: 1.0 },
   { code: 'EUR', symbol: '€', name: 'Euro', decimals: 2, rateToUSD: 0.92 },
   { code: 'GBP', symbol: '£', name: 'British Pound', decimals: 2, rateToUSD: 0.79 },
-  { code: 'LKR', symbol: 'Rs.', name: 'Sri Lanka Rupee', decimals: 2, rateToUSD: 305.0 },
   { code: 'INR', symbol: '₹', name: 'Indian Rupee', decimals: 2, rateToUSD: 86.5 },
   { code: 'JPY', symbol: '¥', name: 'Japanese Yen', decimals: 0, rateToUSD: 154.0 },
   { code: 'AUD', symbol: 'A$', name: 'Australian Dollar', decimals: 2, rateToUSD: 1.54 },
@@ -29,6 +29,27 @@ export const SUPPORTED_CURRENCIES: CurrencyConfig[] = [
 ];
 
 export const DEFAULT_CURRENCY_CODE = 'LKR';
+
+/**
+ * Get an ASCII / WinAnsi-safe currency symbol or code for jsPDF rendering
+ */
+export function getPdfSafeSymbol(code?: string): string {
+  const curr = getCurrencyInfo(code);
+  switch (curr.code) {
+    case 'USD': return '$';
+    case 'GBP': return '£';
+    case 'EUR': return 'EUR';
+    case 'LKR': return 'Rs.';
+    case 'INR': return 'Rs.';
+    case 'JPY': return 'JPY';
+    case 'AUD': return 'A$';
+    case 'CAD': return 'C$';
+    case 'SGD': return 'S$';
+    case 'AED': return 'AED';
+    case 'CNY': return 'CNY';
+    default: return curr.code;
+  }
+}
 
 /**
  * Get active selected currency code from storage

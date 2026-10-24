@@ -515,7 +515,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   const [location, setLocation] = useState('Colombo, Sri Lanka');
   const [slaLevel, setSlaLevel] = useState('Premium 99.9%');
   const [currency, setCurrency] = useState<string>(() => getStoredCurrency());
-  const currSymbol = SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || '$';
+  const currSymbol = SUPPORTED_CURRENCIES.find((c) => c.code === currency)?.symbol || 'Rs.';
 
   // Memoized partner options for SearchablePartnerPicker
   const partnerOptions: PartnerOption[] = useMemo(() => {
@@ -1956,10 +1956,16 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
   const [formData, setFormData] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    setFormData({ ...initialData });
+    setFormData({
+      currency: initialData?.currency || 'LKR',
+      ...initialData
+    });
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
+
+  const currentCurrency = formData.currency || 'LKR';
+  const currencyInfo = SUPPORTED_CURRENCIES.find((c) => c.code === currentCurrency) || { symbol: 'Rs.', code: 'LKR', name: 'Sri Lanka Rupee' };
 
   const handleChange = (key: string, value: any) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -2016,8 +2022,8 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                 </div>
               </div>
 
-              {/* Client Name & Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Client Name, Status & Currency Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-slate-600 mb-1 font-normal">Client Organization</label>
                   <input
@@ -2045,6 +2051,20 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                     <option value="Completed">Completed</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1 font-normal">Currency Selection *</label>
+                  <select
+                    value={formData.currency || 'LKR'}
+                    onChange={(e) => handleChange('currency', e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#003049]"
+                  >
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} ({c.symbol}) - {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Target Product / Deliverable */}
@@ -2062,13 +2082,15 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
               {/* Financials: Quoted Price, Target Margin %, Overhead %, Contingency % */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div>
-                  <label className="block text-[11px] text-slate-600 mb-1 font-normal">Quoted Price ($)</label>
+                  <label className="block text-[11px] text-slate-600 mb-1 font-normal">
+                    Quoted Price ({currentCurrency === 'LKR' ? 'LKR / Rs.' : `${currentCurrency} (${currencyInfo.symbol})`})
+                  </label>
                   <input
                     type="number"
                     step="any"
                     value={formData.quotedPrice ?? 0}
                     onChange={(e) => handleChange('quotedPrice', Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-[#003049]"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#003049]"
                   />
                 </div>
                 <div>
@@ -2322,12 +2344,12 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
                   <div>
                     <label className="block text-xs text-slate-600 mb-1 font-normal">
                       {formData.quotedPrice !== undefined
-                        ? 'Quoted Price ($)'
+                        ? `Quoted Price (${currencyInfo.symbol})`
                         : formData.totalQuotedValue !== undefined
-                        ? 'Total Quoted Value ($)'
+                        ? `Total Quoted Value (${currencyInfo.symbol})`
                         : formData.baseRate !== undefined
-                        ? 'Base Hourly Rate ($)'
-                        : 'Unit / Retail Rate ($)'}
+                        ? `Base Hourly Rate (${currencyInfo.symbol})`
+                        : `Unit / Retail Rate (${currencyInfo.symbol})`}
                     </label>
                     <input
                       type="number"

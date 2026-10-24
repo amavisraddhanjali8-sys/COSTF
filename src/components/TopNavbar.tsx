@@ -932,46 +932,24 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             </button>
           )}
 
-          {/* Logged in User Capsule */}
+          {/* Logged in User Capsule - Only the circle and one word */}
           <div className="flex items-center space-x-2 pl-2 sm:pl-3 border-l border-slate-200 dark:border-slate-800">
-            <div className="flex items-center space-x-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2 sm:px-2.5 py-1 shadow-2xs">
+            <div className="flex items-center space-x-2 px-2 py-1 rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-2xs">
               {currentUser.avatarUrl ? (
                 <img
                   src={currentUser.avatarUrl}
                   alt={currentUser.name}
-                  className="w-6 h-6 rounded-full object-cover border border-slate-200 dark:border-slate-700"
+                  className="w-7 h-7 rounded-full object-cover border border-slate-200 dark:border-slate-700 shadow-2xs"
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-slate-800 text-white flex items-center justify-center text-[10px] font-bold">
-                  {currentUser.name
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .slice(0, 2)
-                    .toUpperCase()}
+                <div className="w-7 h-7 rounded-full bg-[#003049] dark:bg-sky-600 text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                  {currentUser.name ? currentUser.name[0].toUpperCase() : 'A'}
                 </div>
               )}
-
-              <div className="text-left hidden sm:block">
-                <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 leading-none">
-                  {currentUser.name}
-                </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 flex items-center gap-1.5">
-                  <span>{currentUser.employeeId}</span>
-                  <span className="text-slate-300 dark:text-slate-600">•</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    {permissionService.getRoleConfig(currentUser.role).label}
-                  </span>
-                </div>
-              </div>
-
-              <div className="ml-1">
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${permissionService.getRoleConfig(currentUser.role).badgeBg}`}>
-                  <Shield className="w-3 h-3" />
-                  <span className="hidden md:inline">{permissionService.getRoleConfig(currentUser.role).badgeText}</span>
-                </span>
-              </div>
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-100 pr-1">
+                {currentUser.name.split(' ')[0] || 'Admin'}
+              </span>
             </div>
 
             {/* Logout / Switch User Button */}

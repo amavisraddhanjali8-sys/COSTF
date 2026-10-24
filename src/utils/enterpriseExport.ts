@@ -27,7 +27,8 @@ export function escapeCSV(val: any): string {
  * Triggers browser download of a CSV file
  */
 export function triggerDownload(content: string, filename: string, mimeType = 'text/csv;charset=utf-8;') {
-  const blob = new Blob([content], { type: mimeType });
+  const safeContent = content.startsWith('\uFEFF') ? content : '\uFEFF' + content;
+  const blob = new Blob([safeContent], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);

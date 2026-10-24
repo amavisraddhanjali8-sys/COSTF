@@ -1984,8 +1984,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       const valA = a[sortField];
       const valB = b[sortField];
       if (valA === undefined || valB === undefined) return 0;
-      if (typeof valA === 'number' && typeof valB === 'number') {
-        return sortAsc ? valA - valB : valB - valA;
+      const numA = Number(valA);
+      const numB = Number(valB);
+      if (!isNaN(numA) && !isNaN(numB) && (sortField === 'rate' || sortField === 'retailPrice' || typeof valA === 'number')) {
+        return sortAsc ? numA - numB : numB - numA;
       }
       return sortAsc
         ? String(valA).localeCompare(String(valB))

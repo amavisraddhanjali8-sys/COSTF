@@ -991,8 +991,10 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       let valA = a.item[sortField];
       let valB = b.item[sortField];
 
-      if (typeof valA === 'number' && typeof valB === 'number') {
-        return sortAsc ? valA - valB : valB - valA;
+      const numA = Number(valA);
+      const numB = Number(valB);
+      if (!isNaN(numA) && !isNaN(numB) && (sortField === 'rate' || sortField === 'retailPrice' || sortField === 'inStock' || sortField === 'leadTimeDays' || typeof valA === 'number')) {
+        return sortAsc ? numA - numB : numB - numA;
       }
 
       const strA = String(valA || '').toLowerCase();

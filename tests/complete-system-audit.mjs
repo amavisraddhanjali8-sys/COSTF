@@ -97,6 +97,21 @@ async function runAudit() {
   assert('Project created with foreign key linkage to Client', projRes.status < 300 && projRes.json?.clientId === clientId);
   const projectId = projRes.json.id;
 
+  // Verify Primary Currency is LKR and currency selection updates are persisted in PostgreSQL
+  const lkrProjRes = await request('POST', '/api/projects', {
+    code: `PRJ-LKR-TEST-${Date.now()}`,
+    name: 'Primary LKR Test Project',
+    clientId: clientId,
+    clientName: 'Audit Sovereign Industrial Corp',
+    quotedPrice: 1250000
+  }, adminToken);
+  assert('Project created without currency defaults to primary LKR in PostgreSQL', lkrProjRes.status < 300 && lkrProjRes.json?.currency === 'LKR');
+
+  const updateCurrRes = await request('PUT', `/api/projects/${projectId}`, {
+    currency: 'LKR'
+  }, adminToken);
+  assert('Project currency selection updated to LKR and persisted in PostgreSQL', updateCurrRes.status < 300 && updateCurrRes.json?.currency === 'LKR');
+
   // --------------------------------------------------------------------------
   // MODULE 3 & 4: Project Plans and Plan Revisions
   // --------------------------------------------------------------------------

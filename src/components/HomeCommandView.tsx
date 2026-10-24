@@ -36,7 +36,9 @@ import {
   Layers,
   ArrowUpRight,
   ShieldAlert,
-  ArrowDownLeft
+  ArrowDownLeft,
+  Clock,
+  Download
 } from 'lucide-react';
 import {
   Project,
@@ -59,6 +61,8 @@ import { CameraBarcodeScanner } from './CameraBarcodeScanner';
 import { HomeTelemetryCards, FXTTOpenPayload } from './HomeTelemetryCards';
 import { FXTTCardItemsListView } from './FXTTCardItemsListView';
 import { api } from '../services/api';
+import { permissionService } from '../services/permissionService';
+import { bizStore } from '../services/bizStore';
 import {
   exportAllPriceHistoriesToCSV,
   exportSubcontractorsToCSV,
@@ -156,8 +160,10 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   };
 
   useEffect(() => {
-    fetchPostgresStatus();
-  }, []);
+    if (currentUser?.role === 'ADMIN') {
+      fetchPostgresStatus();
+    }
+  }, [currentUser?.role]);
 
   // Modals
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
@@ -237,27 +243,90 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   const [newProdCategory, setNewProdCategory] = useState('Precision Sub-Assemblies');
   const [newProdPrice, setNewProdPrice] = useState(48500);
 
-  // Dynamic Calendar State (October 15, 2026 local system time)
-  const [calYear, setCalYear] = useState<number>(2026);
-  const [calMonth, setCalMonth] = useState<number>(9); // 0-based: 9 = October
-  const [selectedDay, setSelectedDay] = useState<number>(15);
+  // Auto-updating Live Clock and Calendar Engine
+  const [liveClock, setLiveClock] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveClock(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const todayYear = liveClock.getFullYear();
+  const todayMonth = liveClock.getMonth();
+  const todayDay = liveClock.getDate();
+
+  // Dynamic Calendar State initialized to genuine real-time current date
+  const [calYear, setCalYear] = useState<number>(() => new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState<number>(() => new Date().getMonth()); // 0-based
+  const [selectedDay, setSelectedDay] = useState<number>(() => new Date().getDate());
   const [isCalendarListView, setIsCalendarListView] = useState(false);
   const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
-  const [calendarSourceFilter, setCalendarSourceFilter] = useState<'all' | 'milestones' | 'events'>('all');
+  const [calendarSourceFilter, setCalendarSourceFilter] = useState<'all' | 'milestones' | 'phases' | 'deliverables' | 'events'>('all');
 
   // New Event Form State
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventTime, setNewEventTime] = useState('10:00 AM');
-  const [newEventCategory, setNewEventCategory] = useState<'Audit' | 'Review' | 'Phase' | 'Stock' | 'Tariff'>('Audit');
+  const [newEventCategory, setNewEventCategory] = useState<'Audit' | 'Review' | 'Phase' | 'Stock' | 'Tariff' | 'Milestone' | 'Deadline' | 'Deliverable'>('Audit');
   const [newEventLocation, setNewEventLocation] = useState('Room 101');
+  const [newEventYear, setNewEventYear] = useState<number>(() => new Date().getFullYear());
+  const [newEventMonth, setNewEventMonth] = useState<number>(() => new Date().getMonth());
+  const [newEventDay, setNewEventDay] = useState<number>(() => new Date().getDate());
+  const [newEventProjectId, setNewEventProjectId] = useState<string>('');
 
-  // Interactive Calendar Events List
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([
-    { id: 'ev-01', year: 2026, month: 9, day: 2, time: '10:00 AM', title: 'Tariff Audit', location: 'Audit Room 1', category: 'Tariff', badgeColor: 'bg-emerald-500' },
-    { id: 'ev-02', year: 2026, month: 9, day: 8, time: '09:30 AM', title: 'Margin Review', location: 'Boardroom', category: 'Review', badgeColor: 'bg-blue-600' },
-    { id: 'ev-03', year: 2026, month: 9, day: 14, time: '02:00 PM', title: 'Phase Signoff', location: 'Operations Center', category: 'Phase', badgeColor: 'bg-amber-500' },
-    { id: 'ev-04', year: 2026, month: 9, day: 22, time: '11:00 AM', title: 'Stock Audit', location: 'Central Bay', category: 'Stock', badgeColor: 'bg-teal-600' }
-  ]);
+  const CALENDAR_STORAGE_KEY = 'fxtt_calendar_events_store';
+
+  // Seed default company events around active year/month
+  const getDefaultEvents = (yr: number, mo: number): CalendarEvent[] => [
+    { id: 'ev-01', year: yr, month: mo, day: Math.min(2, 28), time: '10:00 AM', title: 'Tariff Schedule Audit', location: 'Audit Bay 1', category: 'Tariff', badgeColor: 'bg-emerald-500' },
+    { id: 'ev-02', year: yr, month: mo, day: Math.min(8, 28), time: '09:30 AM', title: 'Financial Margin Review', location: 'Boardroom', category: 'Review', badgeColor: 'bg-blue-600' },
+    { id: 'ev-03', year: yr, month: mo, day: Math.min(14, 28), time: '02:00 PM', title: 'Phase Signoff & Cost Gate', location: 'Operations Center', category: 'Phase', badgeColor: 'bg-amber-500' },
+    { id: 'ev-04', year: yr, month: mo, day: Math.min(22, 28), time: '11:00 AM', title: 'Cycle Inventory Audit', location: 'Central Logistics Hub', category: 'Stock', badgeColor: 'bg-teal-600' }
+  ];
+
+  // Interactive Calendar Events List loaded from persistent storage
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => {
+    try {
+      const stored = bizStore.getItem('fxtt_calendar_events_store');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // fallback
+    }
+    const d = new Date();
+    return getDefaultEvents(d.getFullYear(), d.getMonth());
+  });
+
+  // Automatically listen for calendar updates broadcast across tabs and views
+  useEffect(() => {
+    const handleSync = () => {
+      try {
+        const stored = bizStore.getItem('fxtt_calendar_events_store');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setCalendarEvents(parsed);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('fxtt-calendar-updated', handleSync);
+    return () => window.removeEventListener('fxtt-calendar-updated', handleSync);
+  }, []);
+
+  const saveCalendarEvents = (updated: CalendarEvent[]) => {
+    setCalendarEvents(updated);
+    try {
+      bizStore.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(updated));
+      window.dispatchEvent(new CustomEvent('fxtt-calendar-updated'));
+    } catch {
+      // ignore
+    }
+  };
 
   // Database live counts
   const projectList = projects || [];
@@ -443,27 +512,27 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       badgeColor: 'bg-emerald-600',
       action: () => setIsScannerModalOpen(true)
     },
-    {
+    ...(currentUser?.role === 'ADMIN' ? [{
       id: 'ql-database',
       word: 'Database',
       icon: <Database className="w-4 h-4 text-white" />,
       badgeColor: 'bg-indigo-600',
       action: () => setCreationPortalType('postgres')
-    },
-    {
+    }] : []),
+    ...(permissionService.hasTabAccess(currentUser?.role, 'audit-log') ? [{
       id: 'ql-audits',
       word: 'Audit',
       icon: <ShieldCheck className="w-4 h-4 text-white" />,
       badgeColor: 'bg-[#0078d4]',
       action: () => onNavigateTab('audit-log')
-    },
-    {
+    }] : []),
+    ...(permissionService.hasTabAccess(currentUser?.role, 'settings') ? [{
       id: 'ql-settings',
       word: 'Settings',
       icon: <Sliders className="w-4 h-4 text-white" />,
       badgeColor: 'bg-[#003049]',
       action: () => onNavigateTab('settings')
-    }
+    }] : [])
   ];
 
   // System Modules List for Quick Launcher
@@ -511,13 +580,14 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   };
 
   const handleJumpToToday = () => {
-    setCalYear(2026);
-    setCalMonth(9);
-    setSelectedDay(15);
-    showToast('Jumped to Today: October 15, 2026');
+    const d = new Date();
+    setCalYear(d.getFullYear());
+    setCalMonth(d.getMonth());
+    setSelectedDay(d.getDate());
+    showToast(`Jumped to Today: ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`);
   };
 
-  // Dynamically derive project milestones across all active projects
+  // Dynamically derive project milestones across all active projects and records
   const projectMilestoneEvents = useMemo(() => {
     const list: Array<{
       id: string;
@@ -527,10 +597,10 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       time: string;
       title: string;
       location: string;
-      category: 'Deadline' | 'Phase' | 'Deliverable';
+      category: 'Deadline' | 'Phase' | 'Deliverable' | 'Milestone' | 'Tariff' | 'Review' | 'Stock' | 'Audit';
       badgeColor: string;
       isProjectMilestone: boolean;
-      project: Project;
+      project?: Project;
       phaseName?: string;
       budget?: number;
       dateStr: string;
@@ -561,8 +631,56 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
         }
       }
 
-      // 2. Key Phase Completion Dates
+      // 2. Project Kickoff / Start Date
+      if (proj.startDate) {
+        const parts = proj.startDate.split('-');
+        if (parts.length >= 3) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10) - 1;
+          const d = parseInt(parts[2], 10);
+          list.push({
+            id: `pme-start-${proj.id}`,
+            year: y,
+            month: m,
+            day: d,
+            time: '09:00 AM',
+            title: `${proj.code} Kickoff`,
+            location: `Status: ${proj.status || 'Active'}`,
+            category: 'Milestone',
+            badgeColor: 'bg-emerald-500',
+            isProjectMilestone: true,
+            project: proj,
+            dateStr: proj.startDate
+          });
+        }
+      }
+
+      // 3. Key Phase Kickoff & Completion Dates
       (proj.phases || []).forEach((ph) => {
+        if (ph.startDate && ph.startDate !== proj.startDate) {
+          const parts = ph.startDate.split('-');
+          if (parts.length >= 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const d = parseInt(parts[2], 10);
+            list.push({
+              id: `pme-phase-start-${ph.id}`,
+              year: y,
+              month: m,
+              day: d,
+              time: '09:00 AM',
+              title: `${proj.code} ${ph.name} (Start)`,
+              location: `Phase: ${ph.name}`,
+              category: 'Phase',
+              badgeColor: 'bg-sky-500',
+              isProjectMilestone: true,
+              project: proj,
+              phaseName: ph.name,
+              budget: Number(ph.budget) || 0,
+              dateStr: ph.startDate
+            });
+          }
+        }
         if (ph.endDate) {
           const parts = ph.endDate.split('-');
           if (parts.length >= 3) {
@@ -575,8 +693,8 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               month: m,
               day: d,
               time: '4:00 PM',
-              title: `${proj.code} ${ph.name}`,
-              location: `Phase Status: ${ph.status}`,
+              title: `${proj.code} ${ph.name} (End)`,
+              location: `Status: ${ph.status}`,
               category: 'Phase',
               badgeColor: 'bg-[#0078d4]',
               isProjectMilestone: true,
@@ -588,15 +706,101 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           }
         }
       });
+
+      // 4. Project Milestones
+      (proj.milestones || []).forEach((ms) => {
+        if (ms.date) {
+          const parts = ms.date.split('-');
+          if (parts.length >= 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const d = parseInt(parts[2], 10);
+            list.push({
+              id: `pme-ms-${ms.id}`,
+              year: y,
+              month: m,
+              day: d,
+              time: '11:00 AM',
+              title: `${proj.code} ${ms.title}`,
+              location: `Status: ${ms.status}`,
+              category: 'Milestone',
+              badgeColor: 'bg-amber-500',
+              isProjectMilestone: true,
+              project: proj,
+              budget: ms.budget,
+              dateStr: ms.date
+            });
+          }
+        }
+      });
+
+      // 5. Deliverables fulfillment
+      (proj.deliverables || []).forEach((deliv) => {
+        const targetDate = proj.deliveryDeadline;
+        if (targetDate) {
+          const parts = targetDate.split('-');
+          if (parts.length >= 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const d = parseInt(parts[2], 10);
+            list.push({
+              id: `pme-deliv-${deliv.id}`,
+              year: y,
+              month: m,
+              day: d,
+              time: '2:00 PM',
+              title: `${proj.code} Deliverable: ${deliv.name}`,
+              location: `Quantity: ${deliv.quantity} ${deliv.unit}`,
+              category: 'Deliverable',
+              badgeColor: 'bg-purple-600',
+              isProjectMilestone: true,
+              project: proj,
+              budget: deliv.totalRevenue || deliv.quotedPrice || 0,
+              dateStr: targetDate
+            });
+          }
+        }
+      });
+    });
+
+    // 6. Tariffs / Outsourced Schedule
+    tariffList.forEach((srv) => {
+      if (srv.effectiveDate) {
+        const parts = srv.effectiveDate.split('-');
+        if (parts.length >= 3) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10) - 1;
+          const d = parseInt(parts[2], 10);
+          list.push({
+            id: `pme-tariff-${srv.id}`,
+            year: y,
+            month: m,
+            day: d,
+            time: '10:00 AM',
+            title: `Tariff Renewal: ${srv.name}`,
+            location: `Provider: ${srv.providerName || 'Specialist'}`,
+            category: 'Tariff',
+            badgeColor: 'bg-emerald-500',
+            isProjectMilestone: false,
+            dateStr: srv.effectiveDate
+          });
+        }
+      }
     });
 
     return list;
-  }, [projectList]);
+  }, [projectList, tariffList]);
 
   // Unified items (Company events + Project Milestones)
   const allDisplayEvents = useMemo(() => {
     if (calendarSourceFilter === 'milestones') {
-      return projectMilestoneEvents;
+      return projectMilestoneEvents.filter(e => e.category === 'Milestone' || e.category === 'Deadline');
+    }
+    if (calendarSourceFilter === 'phases') {
+      return projectMilestoneEvents.filter(e => e.category === 'Phase');
+    }
+    if (calendarSourceFilter === 'deliverables') {
+      return projectMilestoneEvents.filter(e => e.category === 'Deliverable');
     }
     if (calendarSourceFilter === 'events') {
       return calendarEvents.map(e => ({
@@ -622,6 +826,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       hasEvent: boolean;
       hasDeadline: boolean;
       hasPhase: boolean;
+      hasDeliverable: boolean;
       eventCount: number;
     }> = [];
     const daysInCurrentMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -636,6 +841,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
         hasEvent: false,
         hasDeadline: false,
         hasPhase: false,
+        hasDeliverable: false,
         eventCount: 0
       });
     }
@@ -647,12 +853,14 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
       );
       const hasDeadline = itemsOnDay.some(i => i.category === 'Deadline');
       const hasPhase = itemsOnDay.some(i => i.category === 'Phase');
+      const hasDeliverable = itemsOnDay.some(i => i.category === 'Deliverable');
       cells.push({
         day: d,
         isCurrentMonth: true,
         hasEvent: itemsOnDay.length > 0,
         hasDeadline,
         hasPhase,
+        hasDeliverable,
         eventCount: itemsOnDay.length
       });
     }
@@ -667,6 +875,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
         hasEvent: false,
         hasDeadline: false,
         hasPhase: false,
+        hasDeliverable: false,
         eventCount: 0
       });
     }
@@ -678,19 +887,84 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
     (e) => e.year === calYear && e.month === calMonth && e.day === selectedDay
   );
 
+  const handleExportCalendarICS = () => {
+    const eventsToExport = allDisplayEvents.filter(
+      (e) => e.year === calYear && e.month === calMonth
+    );
+    const targetList = eventsToExport.length > 0 ? eventsToExport : allDisplayEvents;
+    if (targetList.length === 0) {
+      showToast('No events to export for this view.');
+      return;
+    }
+
+    const escapeICS = (str: string) => (str || '').replace(/[,;\\]/g, '\\$&').replace(/\n/g, '\\n');
+    const formatICSDate = (y: number, m: number, d: number) => {
+      return `${y}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+    };
+
+    const lines: string[] = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//COSTF System//Dynamic Calendar Exporter//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      `X-WR-CALNAME:Cost & Planning Calendar - ${new Date(calYear, calMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`,
+      'X-WR-TIMEZONE:UTC'
+    ];
+
+    targetList.forEach((ev) => {
+      const dt = formatICSDate(ev.year, ev.month, ev.day);
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:fxtt-cal-${ev.id}-${dt}@costplanning.system`);
+      lines.push(`DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`);
+      lines.push(`DTSTART;VALUE=DATE:${dt}`);
+      lines.push(`SUMMARY:${escapeICS(`[${ev.category.toUpperCase()}] ${ev.title}`)}`);
+      lines.push(`DESCRIPTION:${escapeICS(`${ev.title}\\nTime: ${ev.time}\\nLocation: ${ev.location}`)}`);
+      lines.push(`LOCATION:${escapeICS(ev.location)}`);
+      lines.push(`CATEGORIES:${ev.category.toUpperCase()}`);
+      lines.push('STATUS:CONFIRMED');
+      lines.push('END:VEVENT');
+    });
+
+    lines.push('END:VCALENDAR');
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `calendar_${calYear}_${String(calMonth + 1).padStart(2, '0')}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 300);
+
+    showToast(`Exported ${targetList.length} calendar events to .ICS format`);
+  };
+
   const handleAddEventSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEventTitle.trim()) return;
 
+    const targetYr = newEventYear || calYear;
+    const targetMo = newEventMonth !== undefined ? newEventMonth : calMonth;
+    const targetDy = newEventDay || selectedDay;
+
+    const matchedProject = newEventProjectId ? projectList.find(p => p.id === newEventProjectId) : undefined;
+
     const newEv: CalendarEvent = {
       id: `ev-${Date.now()}`,
-      year: calYear,
-      month: calMonth,
-      day: selectedDay,
+      year: targetYr,
+      month: targetMo,
+      day: targetDy,
       time: newEventTime.trim() || '10:00 AM',
       title: newEventTitle.trim(),
       location: newEventLocation.trim() || 'Room 101',
       category: newEventCategory,
+      projectId: matchedProject?.id,
+      projectCode: matchedProject?.code,
+      projectName: matchedProject?.name,
       badgeColor:
         newEventCategory === 'Tariff'
           ? 'bg-emerald-500'
@@ -700,18 +974,28 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           ? 'bg-amber-500'
           : newEventCategory === 'Stock'
           ? 'bg-teal-600'
-          : 'bg-purple-600'
+          : newEventCategory === 'Deadline'
+          ? 'bg-rose-500'
+          : newEventCategory === 'Deliverable'
+          ? 'bg-purple-600'
+          : 'bg-indigo-600'
     };
 
-    setCalendarEvents((prev) => [newEv, ...prev]);
+    const updated = [newEv, ...calendarEvents];
+    saveCalendarEvents(updated);
     setIsAddEventModalOpen(false);
     setNewEventTitle('');
+    // Align view to the newly added event
+    setCalYear(targetYr);
+    setCalMonth(targetMo);
+    setSelectedDay(targetDy);
     showToast(`Event added: ${newEv.title}`);
   };
 
   const handleDeleteEvent = (id: string) => {
-    setCalendarEvents((prev) => prev.filter((e) => e.id !== id));
-    showToast('Event removed.');
+    const updated = calendarEvents.filter((e) => e.id !== id);
+    saveCalendarEvents(updated);
+    showToast('Event removed from calendar.');
   };
 
   return (
@@ -869,9 +1153,9 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           <div>
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
               <div className="flex items-center space-x-2">
-                <Bell className="w-4 h-4 text-[#0078d4]" />
+                <Sparkles className="w-4 h-4 text-[#0078d4]" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Alerts &amp; Actions
+                  Quick Actions
                 </h3>
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
@@ -1051,46 +1335,6 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   <Calendar className="w-3.5 h-3.5 text-[#0078d4]" />
                   <span>Event</span>
                 </button>
-              </div>
-            </div>
-
-            {/* Alerts List (Simple Words Only, No Descriptions) */}
-            <div>
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                <span>Alerts</span>
-                <span className="text-[10px] text-slate-400 font-normal">Real-Time</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {newsAndAlerts.map((item) => {
-                  let badgeCol = 'bg-blue-100 dark:bg-blue-950 text-[#0078d4] dark:text-sky-300';
-                  let metricCol = 'text-emerald-600 dark:text-emerald-400';
-                  if (item.severity === 'critical') {
-                    badgeCol = 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300';
-                    metricCol = 'text-rose-600 dark:text-rose-400';
-                  } else if (item.severity === 'warning') {
-                    badgeCol = 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300';
-                    metricCol = 'text-amber-600 dark:text-amber-400';
-                  }
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => setSelectedAlert(item)}
-                      className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 hover:border-blue-400 flex items-center justify-between cursor-pointer transition-colors"
-                    >
-                      <div className="min-w-0 pr-2">
-                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${badgeCol}`}>
-                          {item.tag}
-                        </span>
-                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 mt-1 truncate">
-                          {item.title}
-                        </div>
-                      </div>
-                      <span className={`text-xs font-mono font-bold shrink-0 ${metricCol}`}>
-                        {item.metric}
-                      </span>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </div>
@@ -1282,11 +1526,21 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
         {/* ===================== RIGHT: CALENDAR ===================== */}
         <div className="lg:col-span-5 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 p-4 shadow-2xs space-y-3">
           <div className="flex flex-wrap items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 gap-2">
-            <div>
+            <div className="flex items-center space-x-2">
               <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 tracking-tight flex items-center gap-1.5">
                 <Calendar className="w-4 h-4 text-[#0078d4]" />
                 <span>Calendar</span>
               </h3>
+              <div
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-[10px] text-emerald-700 dark:text-emerald-300 font-mono font-semibold"
+                title="Live system clock (auto-updating)"
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                </span>
+                <span>{liveClock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              </div>
             </div>
 
             <div className="flex items-center space-x-1 text-xs">
@@ -1294,9 +1548,9 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                 type="button"
                 onClick={handleJumpToToday}
                 className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer"
-                title="Jump to Today (Oct 15)"
+                title={`Jump to Today (${todayDay})`}
               >
-                Today
+                Today ({todayDay})
               </button>
               <button
                 type="button"
@@ -1319,6 +1573,27 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               </button>
               <button
                 type="button"
+                onClick={handleExportCalendarICS}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-500 hover:text-[#0078d4] dark:hover:text-sky-400 cursor-pointer"
+                title="Export .ICS for Outlook & Google Calendar"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setNewEventYear(calYear);
+                  setNewEventMonth(calMonth);
+                  setNewEventDay(selectedDay);
+                  setIsAddEventModalOpen(true);
+                }}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-500 hover:text-[#0078d4] dark:hover:text-sky-400 cursor-pointer"
+                title="Add Event"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsCalendarListView(!isCalendarListView)}
                 className={`p-1 rounded cursor-pointer ${
                   isCalendarListView ? 'bg-blue-100 text-[#0078d4]' : 'hover:bg-slate-100 text-slate-500'
@@ -1331,35 +1606,57 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           </div>
 
           {/* Filter Pills for Calendar Scope */}
-          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-lg text-xs">
+          <div className="flex items-center space-x-1 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-lg text-xs overflow-x-auto">
             <button
               type="button"
               onClick={() => setCalendarSourceFilter('all')}
-              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] ${
+              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] whitespace-nowrap ${
                 calendarSourceFilter === 'all'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              All Items ({calendarEvents.length + projectMilestoneEvents.length})
+              All ({calendarEvents.length + projectMilestoneEvents.length})
             </button>
             <button
               type="button"
               onClick={() => setCalendarSourceFilter('milestones')}
-              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] ${
+              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] whitespace-nowrap ${
                 calendarSourceFilter === 'milestones'
                   ? 'bg-white dark:bg-slate-900 text-[#0078d4] dark:text-sky-400 shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              Milestones ({projectMilestoneEvents.length})
+              Milestones ({projectMilestoneEvents.filter(e => e.category === 'Milestone' || e.category === 'Deadline').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setCalendarSourceFilter('phases')}
+              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] whitespace-nowrap ${
+                calendarSourceFilter === 'phases'
+                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Phases ({projectMilestoneEvents.filter(e => e.category === 'Phase').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setCalendarSourceFilter('deliverables')}
+              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] whitespace-nowrap ${
+                calendarSourceFilter === 'deliverables'
+                  ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Deliverables ({projectMilestoneEvents.filter(e => e.category === 'Deliverable').length})
             </button>
             <button
               type="button"
               onClick={() => setCalendarSourceFilter('events')}
-              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] ${
+              className={`flex-1 py-1 px-2 rounded-md font-semibold text-center transition-colors cursor-pointer text-[11px] whitespace-nowrap ${
                 calendarSourceFilter === 'events'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
@@ -1382,7 +1679,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               <div className="grid grid-cols-7 gap-1 pt-1.5 text-center">
                 {calendarCells.map((cell, idx) => {
                   const isSelected = cell.isCurrentMonth && cell.day === selectedDay;
-                  const isToday = calYear === 2026 && calMonth === 9 && cell.day === 15 && cell.isCurrentMonth;
+                  const isToday = calYear === todayYear && calMonth === todayMonth && cell.day === todayDay && cell.isCurrentMonth;
 
                   return (
                     <button
@@ -1397,7 +1694,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                           : isSelected
                           ? 'bg-[#0078d4] text-white font-bold shadow-xs'
                           : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      } ${isToday && !isSelected ? 'ring-1 ring-amber-400 dark:ring-amber-500' : ''}`}
+                      } ${isToday && !isSelected ? 'ring-2 ring-amber-400 dark:ring-amber-500 font-bold' : ''}`}
                     >
                       <span className="leading-none">{cell.day}</span>
                       {cell.hasEvent && (
@@ -1406,8 +1703,15 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                             <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-rose-500'}`} />
                           ) : cell.hasPhase ? (
                             <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-[#0078d4]'}`} />
+                          ) : cell.hasDeliverable ? (
+                            <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-purple-500'}`} />
                           ) : (
                             <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-emerald-500'}`} />
+                          )}
+                          {cell.eventCount > 1 && (
+                            <span className={`text-[8px] leading-none font-bold ${isSelected ? 'text-white' : 'text-slate-400'}`}>
+                              +{cell.eventCount - 1}
+                            </span>
                           )}
                         </div>
                       )}
@@ -1439,6 +1743,8 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                           ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200'
                           : ev.category === 'Phase'
                           ? 'bg-blue-100 text-[#0078d4] dark:bg-blue-950 dark:text-sky-200'
+                          : ev.category === 'Deliverable'
+                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200'
                           : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
                       }`}>
                         {ev.category}
@@ -1473,11 +1779,16 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
           <div className="p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-800 dark:text-slate-200">
-                Agenda: Day {selectedDay} ({selectedDayEvents.length} items)
+                Agenda: {new Date(calYear, calMonth, selectedDay).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ({selectedDayEvents.length} {selectedDayEvents.length === 1 ? 'item' : 'items'})
               </span>
               <button
                 type="button"
-                onClick={() => setIsAddEventModalOpen(true)}
+                onClick={() => {
+                  setNewEventYear(calYear);
+                  setNewEventMonth(calMonth);
+                  setNewEventDay(selectedDay);
+                  setIsAddEventModalOpen(true);
+                }}
                 className="text-[11px] font-semibold text-[#0078d4] hover:underline flex items-center space-x-1 cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
@@ -3036,7 +3347,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
               <div className="flex items-center space-x-2">
                 <Calendar className="w-5 h-5 text-[#0078d4]" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Add Event • Day {selectedDay}
+                  Add Event • {new Date(newEventYear, newEventMonth, newEventDay).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </h3>
               </div>
               <button
@@ -3058,9 +3369,51 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   required
                   value={newEventTitle}
                   onChange={(e) => setNewEventTitle(e.target.value)}
-                  placeholder="Event Name"
+                  placeholder="e.g. Quality Gate Signoff"
                   className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
+              </div>
+
+              {/* Date pickers */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Year:
+                  </label>
+                  <input
+                    type="number"
+                    value={newEventYear}
+                    onChange={(e) => setNewEventYear(parseInt(e.target.value, 10) || calYear)}
+                    className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Month:
+                  </label>
+                  <select
+                    value={newEventMonth}
+                    onChange={(e) => setNewEventMonth(parseInt(e.target.value, 10))}
+                    className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                  >
+                    {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, idx) => (
+                      <option key={idx} value={idx}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                    Day:
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={newEventDay}
+                    onChange={(e) => setNewEventDay(parseInt(e.target.value, 10) || selectedDay)}
+                    className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 font-mono"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -3078,7 +3431,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                    Type:
+                    Category:
                   </label>
                   <select
                     value={newEventCategory}
@@ -3090,19 +3443,38 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                     <option value="Phase">Phase</option>
                     <option value="Stock">Stock</option>
                     <option value="Tariff">Tariff</option>
+                    <option value="Milestone">Milestone</option>
+                    <option value="Deadline">Deadline</option>
+                    <option value="Deliverable">Deliverable</option>
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                  Location:
+                  Associated Project (Optional):
+                </label>
+                <select
+                  value={newEventProjectId}
+                  onChange={(e) => setNewEventProjectId(e.target.value)}
+                  className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                >
+                  <option value="">-- General Company Event --</option>
+                  {projectList.map((p) => (
+                    <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
+                  Location / Meeting Link:
                 </label>
                 <input
                   type="text"
                   value={newEventLocation}
                   onChange={(e) => setNewEventLocation(e.target.value)}
-                  placeholder="Room / Bay"
+                  placeholder="Room 101 / Operations Bay"
                   className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -3119,7 +3491,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                   type="submit"
                   className="px-4 py-1.5 rounded-lg bg-[#0078d4] text-white font-bold cursor-pointer"
                 >
-                  Save
+                  Save Event
                 </button>
               </div>
             </form>

@@ -1502,6 +1502,13 @@ export const api = {
     return await res.json();
   },
 
+  async createPlanBoqItem(
+    planId: string,
+    data: any
+  ): Promise<{ boqItem: ProjectPlanBoqItem; historyRecord?: RevenueRateHistoryRecord }> {
+    return this.addRevenueItemToPlan(planId, data);
+  },
+
   async updatePlanBoqItem(
     planId: string,
     boqItemId: string,

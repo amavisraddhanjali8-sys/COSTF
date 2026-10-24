@@ -501,11 +501,14 @@ export interface ProjectCostItem {
   itemId?: string;
   name: string;
   category?: string;
+  subCategory?: string;
+  itemClassification?: string;
   supplierOrProvider: string;
   supplierId?: string;
   quantity: number;
   unit: string;
   unitCost: number;
+  unitPrice?: number;
   discountPct?: number;
   totalCost: number;
   notes?: string;

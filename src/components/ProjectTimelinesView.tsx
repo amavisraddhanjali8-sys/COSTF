@@ -76,14 +76,39 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   // View Toggle: Calendar View vs Phase Breakdown Cards vs Split
   const [viewMode, setViewMode] = useState<'calendar' | 'cards' | 'split'>('calendar');
 
-  // Calendar Date Navigation (Default to today: Oct 2026 or project start)
-  const defaultYear = 2026;
-  const defaultMonth = 9; // October (0-indexed)
-  const defaultDay = 15;
+  // Auto-updating dynamic clock and calendar state
+  const [liveNow, setLiveNow] = useState<Date>(() => new Date());
+  React.useEffect(() => {
+    const timer = setInterval(() => setLiveNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const [calYear, setCalYear] = useState<number>(defaultYear);
-  const [calMonth, setCalMonth] = useState<number>(defaultMonth);
-  const [selectedDay, setSelectedDay] = useState<number>(defaultDay);
+  const todayYear = liveNow.getFullYear();
+  const todayMonth = liveNow.getMonth();
+  const todayDay = liveNow.getDate();
+
+  // Calendar Date Navigation
+  const [calYear, setCalYear] = useState<number>(() => {
+    if (currentProject?.startDate) {
+      const parts = currentProject.startDate.split('-');
+      if (parts.length >= 3) return parseInt(parts[0], 10);
+    }
+    return new Date().getFullYear();
+  });
+  const [calMonth, setCalMonth] = useState<number>(() => {
+    if (currentProject?.startDate) {
+      const parts = currentProject.startDate.split('-');
+      if (parts.length >= 3) return parseInt(parts[1], 10) - 1;
+    }
+    return new Date().getMonth();
+  });
+  const [selectedDay, setSelectedDay] = useState<number>(() => {
+    if (currentProject?.startDate) {
+      const parts = currentProject.startDate.split('-');
+      if (parts.length >= 3) return parseInt(parts[2], 10);
+    }
+    return new Date().getDate();
+  });
 
   // Phase modal states
   const [isAddingPhase, setIsAddingPhase] = useState(false);
@@ -309,9 +334,10 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
   };
 
   const handleJumpToToday = () => {
-    setCalYear(defaultYear);
-    setCalMonth(defaultMonth);
-    setSelectedDay(defaultDay);
+    const d = new Date();
+    setCalYear(d.getFullYear());
+    setCalMonth(d.getMonth());
+    setSelectedDay(d.getDate());
   };
 
   const handleJumpToDeadline = () => {
@@ -1036,9 +1062,21 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 min-w-[140px] text-center">
-                  {monthName}
-                </h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 min-w-[130px] text-center">
+                    {monthName}
+                  </h3>
+                  <div
+                    className="hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-[10px] text-emerald-700 dark:text-emerald-300 font-mono font-semibold"
+                    title="Live system clock (auto-updating)"
+                  >
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                    </span>
+                    <span>{liveNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={handleNextMonth}
@@ -1055,8 +1093,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
                   type="button"
                   onClick={handleJumpToToday}
                   className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+                  title={`Jump to Today (${todayDay})`}
                 >
-                  Today
+                  Today ({todayDay})
                 </button>
                 <button
                   type="button"
@@ -1114,7 +1153,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
             <div className="grid grid-cols-7 gap-1.5 pt-1 text-center">
               {calendarCells.map((cell, idx) => {
                 const isSelected = cell.isCurrentMonth && cell.day === selectedDay;
-                const isToday = calYear === defaultYear && calMonth === defaultMonth && cell.day === defaultDay && cell.isCurrentMonth;
+                const isToday = calYear === todayYear && calMonth === todayMonth && cell.day === todayDay && cell.isCurrentMonth;
                 const hasMilestones = cell.milestones.length > 0;
                 const hasDeadline = cell.milestones.some(m => m.type === 'project_deadline');
                 const hasPhaseEnd = cell.milestones.some(m => m.type === 'phase_end');
