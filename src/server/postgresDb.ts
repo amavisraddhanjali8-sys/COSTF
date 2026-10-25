@@ -1365,7 +1365,7 @@ export class PostgresService {
           id TEXT PRIMARY KEY,
           plan_id TEXT NOT NULL REFERENCES project_plans(id) ON DELETE CASCADE,
           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          overhead_item_id TEXT REFERENCES overhead_items(id) ON DELETE RESTRICT,
+          overhead_item_id TEXT REFERENCES overhead_items(id) ON DELETE CASCADE,
           allocation_method TEXT NOT NULL DEFAULT 'fixed_amount',
           allocation_base TEXT NOT NULL DEFAULT 'total_direct_cost',
           base_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
@@ -1378,6 +1378,14 @@ export class PostgresService {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        DO $$
+        BEGIN
+          ALTER TABLE plan_overhead_allocations DROP CONSTRAINT IF EXISTS plan_overhead_allocations_overhead_item_id_fkey;
+          ALTER TABLE plan_overhead_allocations ADD CONSTRAINT plan_overhead_allocations_overhead_item_id_fkey FOREIGN KEY (overhead_item_id) REFERENCES overhead_items(id) ON DELETE CASCADE;
+        EXCEPTION WHEN OTHERS THEN
+          NULL;
+        END $$;
 
         CREATE TABLE IF NOT EXISTS overhead_audit_logs (
           id TEXT PRIMARY KEY,
@@ -8522,12 +8530,13 @@ export class PostgresService {
     const targetCode = existing?.code || cleanId;
 
     // 1. Clean up allocations in project plans and project_plan_overhead_allocations
-    await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2 OR overhead_item_code = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM project_plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
 
-    // 2. Cascade delete barcodes and price history
+    // 2. Cascade delete barcodes, price history, and any matching category items
     await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead_item', 'overhead']).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead', 'overhead_item']).catch(() => {});
+    await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'overhead', 'overheads']).catch(() => {});
 
     // 3. Delete from overhead_items by id or code
     await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
@@ -14177,38 +14186,12 @@ export class PostgresService {
   // =========================================================================
 
   public async cleanDummyResources(): Promise<void> {
-    const db = await this.getDb();
-    try {
-      await db.query(`
-        DELETE FROM enterprise_resources 
-        WHERE id LIKE 'res-lab-%' 
-           OR id LIKE 'res-mac-%' 
-           OR id LIKE 'res-eqp-%' 
-           OR id LIKE 'res-too-%' 
-           OR code LIKE 'RES-LAB-%' 
-           OR code LIKE 'RES-MAC-%' 
-           OR code LIKE 'RES-EQP-%' 
-           OR code LIKE 'RES-TOO-%'
-           OR name IN (
-             'Senior Avionics Systems Engineer',
-             'Precision 5-Axis CNC Mill DMG Mori',
-             'Heavy Hydraulic Mobile Crane 75T',
-             'Master Aerospace Tooling Kit',
-             'Cleanroom Laser Metrology Station',
-             'Senior Mason / Lead Builder',
-             'Tower Crane Operator',
-             'Excavator Cat 320D',
-             'Scaffolding System Standard'
-           )
-      `);
-      console.log('[PostgreSQL] Purged dummy resources from enterprise_resources.');
-    } catch (e: any) {
-      console.warn('[PostgreSQL] cleanDummyResources notice:', e?.message);
-    }
+    // Intentionally non-destructive to prevent wiping user created resources (codes RES-LAB-, RES-MAC-, etc.)
+    return;
   }
 
   public async seedEnterpriseResourcesIfEmpty(): Promise<void> {
-    await this.cleanDummyResources();
+    // Protected against data deletion
     return;
   }
 
@@ -14673,7 +14656,6 @@ export class PostgresService {
 
   public async getResourcesPaginated(opts?: ListQueryOptions): Promise<PaginatedResult<any>> {
     const db = await this.getDb();
-    await this.ensureEnterpriseResourcesSchema();
     const rowsRes = await db.query('SELECT * FROM enterprise_resources ORDER BY type ASC, name ASC');
     const records = (rowsRes.rows || []).map((r: any) => ({
       ...r,
@@ -14708,7 +14690,6 @@ export class PostgresService {
     if (!id) return null;
     const clean = String(id).trim();
     const db = await this.getDb();
-    await this.ensureEnterpriseResourcesSchema();
     const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1 OR code = $1 OR LOWER(code) = LOWER($1)', [clean]);
     if (!res.rows || res.rows.length === 0) return null;
     const r = res.rows[0];
@@ -14737,7 +14718,6 @@ export class PostgresService {
 
   public async createResource(data: any): Promise<any> {
     const db = await this.getDb();
-    await this.ensureEnterpriseResourcesSchema();
     const id = data.id || `res-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
     const prefix = data.type ? String(data.type).slice(0, 3).toUpperCase() : 'RES';
     const code = data.code || `RES-${prefix}-${Math.floor(100 + Math.random() * 900)}`;
@@ -14870,7 +14850,6 @@ export class PostgresService {
 
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await this.ensureEnterpriseResourcesSchema();
     const cleanId = String(id || '').trim();
     if (!cleanId) return true;
 
@@ -14879,9 +14858,10 @@ export class PostgresService {
     const targetCode = existing?.code || cleanId;
 
     await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1 OR resource_id = $2', [targetId, targetCode]).catch(() => {});
-    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3)', ['resource', targetId, targetCode]).catch(() => {});
-    await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3 OR entity_code = $3)', ['resource', targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
     await db.query('DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'resource', 'resources']).catch(() => {});
     await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
     return true;
   }
@@ -14944,7 +14924,6 @@ export class PostgresService {
     planId?: string
   ): Promise<any> {
     const db = await this.getDb();
-    await this.ensureEnterpriseResourcesSchema();
     const resource = await this.getResourceById(resourceId);
     if (!resource) throw new Error('Resource not found');
 

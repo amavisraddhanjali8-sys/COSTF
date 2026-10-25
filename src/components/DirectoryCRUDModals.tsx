@@ -453,6 +453,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     if (p === 'outsourced-categories' || p === 'outsourced' || p === 'service-providers') return 'outsourced';
     if (p === 'products-hierarchy' || p === 'product' || p === 'produce') return 'produce';
     if (p === 'revenue' || p === 'revenue-portal' || p === 'revenue-streams') return 'revenue';
+    if (p === 'overheads' || p === 'overhead' || p === 'overheads-hierarchy' || p === 'overhead-portal') return 'overhead';
+    if (p === 'resources' || p === 'resource' || p === 'enterprise-resources' || p === 'resource-allocation') return 'resource';
     if (p === 'projects' || p === 'project') return 'project';
     if (p === 'clients' || p === 'client') return 'client';
     return p;

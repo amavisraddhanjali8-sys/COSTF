@@ -1616,7 +1616,7 @@ async function startServer() {
 
   // --- Enterprise Resources API (PostgreSQL inno_cost) ---
   // Labours and charges, machineries, equipments, tools, materials, subcontractors
-  app.get('/api/resources', async (req, res) => {
+  app.get(['/api/resources', '/api/enterprise-resources'], async (req, res) => {
     try {
       const opts = extractListOptions(req.query);
       const result = await postgresService.getResourcesPaginated(opts);
@@ -1627,7 +1627,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/resources/:id/price-history', async (req, res) => {
+  app.get(['/api/resources/:id/price-history', '/api/enterprise-resources/:id/price-history'], async (req, res) => {
     try {
       const history = await postgresService.getResourcePriceHistory(req.params.id);
       res.json(history);
@@ -1637,7 +1637,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/resources/:id/commit-price', async (req: any, res) => {
+  app.post(['/api/resources/:id/commit-price', '/api/enterprise-resources/:id/commit-price'], async (req: any, res) => {
     try {
       const actor = req.user;
       const updated = await postgresService.updateResource(req.params.id, {
@@ -1654,8 +1654,7 @@ async function startServer() {
     }
   });
 
-
-  app.get('/api/resources/:id', async (req, res) => {
+  app.get(['/api/resources/:id', '/api/enterprise-resources/:id'], async (req, res) => {
     try {
       const resource = await postgresService.getResourceById(req.params.id);
       if (!resource) return res.status(404).json({ error: 'Resource not found' });
@@ -1666,7 +1665,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/resources', async (req, res) => {
+  app.post(['/api/resources', '/api/enterprise-resources'], async (req, res) => {
     try {
       if (!req.body?.name) {
         return res.status(400).json({ error: 'Resource name is required' });
@@ -1679,7 +1678,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/resources/:id', async (req, res) => {
+  app.put(['/api/resources/:id', '/api/enterprise-resources/:id'], async (req, res) => {
     try {
       const updated = await postgresService.updateResource(req.params.id, req.body);
       res.json(updated);
@@ -1689,7 +1688,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/resources/:id', async (req, res) => {
+  app.delete(['/api/resources/:id', '/api/enterprise-resources/:id'], async (req, res) => {
     try {
       await postgresService.deleteResource(req.params.id);
       res.json({ success: true, message: 'Resource deleted' });
@@ -3049,7 +3048,7 @@ async function startServer() {
   });
 
   // --- Centralized Overhead Items Catalogue ---
-  app.get('/api/overhead-items', async (req, res) => {
+  app.get(['/api/overhead-items', '/api/overheads'], async (req, res) => {
     try {
       const opts = extractListOptions(req.query);
       const result = await postgresService.getOverheadItemsPaginated(opts);
@@ -3060,7 +3059,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/overhead-items/:id', async (req, res) => {
+  app.get(['/api/overhead-items/:id', '/api/overheads/:id'], async (req, res) => {
     try {
       const item = await postgresService.getOverheadItemById(req.params.id);
       if (!item) {
@@ -3073,7 +3072,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/overhead-items', async (req: any, res) => {
+  app.post(['/api/overhead-items', '/api/overheads'], async (req: any, res) => {
     try {
       const actor = req.user;
       const created = await postgresService.createOverheadItem(req.body, {
@@ -3089,7 +3088,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/overhead-items/:id', async (req: any, res) => {
+  app.put(['/api/overhead-items/:id', '/api/overheads/:id'], async (req: any, res) => {
     try {
       const actor = req.user;
       const updated = await postgresService.updateOverheadItem(req.params.id, req.body, {
@@ -3106,7 +3105,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/overhead-items/:id', async (req: any, res) => {
+  app.delete(['/api/overhead-items/:id', '/api/overheads/:id'], async (req: any, res) => {
     try {
       const actor = req.user;
       const ok = await postgresService.deleteOverheadItem(req.params.id, {

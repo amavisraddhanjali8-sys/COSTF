@@ -374,19 +374,29 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   }, [enterpriseResourcesProp]);
 
   useEffect(() => {
-    const refreshResources = () => {
+    const refreshResources = (e?: any) => {
+      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
+      if (deletedId) {
+        setEnterpriseResources((prev) => prev.filter((r) => r.id !== deletedId && r.code !== deletedId));
+      }
       api.getResources()
         .then((res) => {
-          if (Array.isArray(res)) setEnterpriseResources(res);
+          if (Array.isArray(res)) {
+            setEnterpriseResources(deletedId ? res.filter((r) => r.id !== deletedId && r.code !== deletedId) : res);
+          }
         })
         .catch((err) => console.warn('Could not load enterprise resources in Directory Hub:', err));
     };
 
-    const refreshOverheads = () => {
+    const refreshOverheads = (e?: any) => {
+      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
+      if (deletedId) {
+        setOverheadItems((prev) => prev.filter((o) => o.id !== deletedId && o.code !== deletedId));
+      }
       api.getOverheadItems({ limit: 200 })
         .then((res) => {
           const list = Array.isArray(res) ? res : (res as any)?.data || [];
-          setOverheadItems(list);
+          setOverheadItems(deletedId ? list.filter((o: any) => o.id !== deletedId && o.code !== deletedId) : list);
         })
         .catch((err) => console.warn('Could not reload overhead items in Directory Hub:', err));
     };
@@ -419,7 +429,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const handleResourceDeleted = (id: string) => {
     setEnterpriseResources((prev) => prev.filter((r) => r.id !== id && r.code !== id));
     if (onDeleteResource) onDeleteResource(id);
-    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
+    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id, deletedId: id, action: 'delete' } }));
   };
 
   const handleResourcePriceUpdated = (updated: EnterpriseResource) => {
@@ -938,7 +948,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           setOverheadItems((prev) =>
             prev.filter((o) => o.id !== targetId && o.code !== targetCode && o.id !== targetCode && o.code !== targetId)
           );
-          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+            detail: { id: targetId, code: targetCode, deletedId: targetId, action: 'delete' }
+          }));
           showToast(`Overhead item "${targetName}" (${targetCode}) permanently deleted.`);
         } catch (err: any) {
           console.error('Failed to delete overhead item:', err);
@@ -1534,14 +1546,18 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
           api.deleteOverheadItem(targetId).catch(console.error);
           setOverheadItems((prev) => prev.filter((o) => o.id !== targetId && o.code !== targetId));
-          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId } }));
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+            detail: { id: targetId, deletedId: targetId, action: 'delete' }
+          }));
           showToast(`Overhead item "${title}" deleted successfully.`);
         } else if (entityType === 'Resource' || entityType === 'Enterprise Resource' || portalTab === 'resources' || enterpriseResources.some((r) => r.id === id || r.code === id)) {
           const targetId = id;
           if (onDeleteResource) onDeleteResource(targetId);
           api.deleteResource(targetId).catch(console.error);
           setEnterpriseResources((prev) => prev.filter((r) => r.id !== targetId && r.code !== targetId));
-          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: targetId } }));
+          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', {
+            detail: { id: targetId, deletedId: targetId, action: 'delete' }
+          }));
           showToast(`Resource "${title}" deleted successfully.`);
         } else if (portalTab === 'service-providers' || (portalTab as string) === 'outsourced' || outsourcedServices.some((o) => o.id === id)) {
           if (onDeleteOutsourcedService) onDeleteOutsourcedService(id);

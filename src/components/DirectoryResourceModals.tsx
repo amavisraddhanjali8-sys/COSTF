@@ -506,6 +506,9 @@ export const DeleteResourceConfirmModal: React.FC<DeleteResourceConfirmModalProp
     setIsDeleting(true);
     try {
       await api.deleteResource(resource.id);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', {
+        detail: { id: resource.id, code: resource.code, deletedId: resource.id, action: 'delete' }
+      }));
       showToast(`Resource "${resource.name}" [${resource.code}] deleted from PostgreSQL`);
       if (onDeleted) {
         onDeleted(resource.id);
