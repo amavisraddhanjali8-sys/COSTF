@@ -144,6 +144,10 @@ interface FXTTCardItemsListViewProps {
   onAddRevenueItem?: (item: Partial<RevenueItem>) => void;
   onUpdateRevenueItem?: (id: string, item: Partial<RevenueItem>) => void;
   onDeleteRevenueItem?: (id: string) => void;
+  enterpriseResources?: any[];
+  onAddResource?: (item: any) => void;
+  onUpdateResource?: (id: string, item: any) => void;
+  onDeleteResource?: (id: string) => void;
   onAddToProject?: (item: any, projectId: string) => void;
   onSelectProject?: (project: Project) => void;
   onNavigateToCostAnalysis?: (project: Project) => void;
@@ -193,6 +197,10 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
   onAddRevenueItem,
   onUpdateRevenueItem,
   onDeleteRevenueItem,
+  enterpriseResources = [],
+  onAddResource,
+  onUpdateResource,
+  onDeleteResource,
   onSelectProject,
   onNavigateToCostAnalysis,
   onAddProject,
@@ -361,6 +369,11 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     } else if (row.itemType === 'overhead' || cardType === 'overhead') {
       onDeleteOverheadItem?.(row.id);
       api.deleteOverheadItem(row.id).catch(console.error);
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code } }));
+    } else if ((row.itemType as any) === 'resource' || (cardType as any) === 'resource') {
+      onDeleteResource?.(row.id);
+      api.deleteResource(row.id).catch(console.error);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code } }));
     } else if (row.itemType === 'revenue' || cardType === 'revenue') {
       onDeleteRevenueItem?.(row.id);
       api.deleteRevenueItem(row.id).catch(console.error);
@@ -396,6 +409,11 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else if (row.itemType === 'overhead' || cardType === 'overhead') {
           onDeleteOverheadItem?.(row.id);
           api.deleteOverheadItem(row.id).catch(console.error);
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code } }));
+        } else if ((row.itemType as any) === 'resource' || (cardType as any) === 'resource') {
+          onDeleteResource?.(row.id);
+          api.deleteResource(row.id).catch(console.error);
+          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code } }));
         } else if (row.itemType === 'revenue' || cardType === 'revenue') {
           onDeleteRevenueItem?.(row.id);
           api.deleteRevenueItem(row.id).catch(console.error);

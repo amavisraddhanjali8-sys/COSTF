@@ -260,23 +260,23 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
   // Synchronize when props update
   useEffect(() => {
-    if (overheadsProp && overheadsProp.length > 0) {
+    if (overheadsProp) {
       setOverheadItems(overheadsProp);
     }
   }, [overheadsProp]);
 
   useEffect(() => {
-    if (revenueItemsProp && revenueItemsProp.length > 0) {
+    if (revenueItemsProp) {
       setRevenueItems(revenueItemsProp);
     }
   }, [revenueItemsProp]);
 
   // Load overhead & revenue items from database APIs to keep Directory strictly connected
   useEffect(() => {
-    api.getOverheadItems({ limit: 100 })
+    api.getOverheadItems({ limit: 200 })
       .then((res) => {
         const list = Array.isArray(res) ? res : (res as any)?.data || [];
-        if (list.length > 0) setOverheadItems(list);
+        setOverheadItems(list);
       })
       .catch((err) => console.warn('Could not load overhead items in directory:', err));
 
@@ -1400,6 +1400,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           api.deleteCategory(id).catch(console.error);
           api.deleteRevenueCategory(id).catch(() => {});
           api.deleteRevenueSubcategory(id).catch(() => {});
+          api.deleteOverheadCategory(id).catch(() => {});
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
 
           // Recursively collect all descendant child category IDs
           const childIds = new Set<string>();
@@ -8246,13 +8248,29 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           setEditingOverheadItem(null);
         }}
         onDelete={async (id) => {
-          await handleDeleteOverheadItemDirect(editingOverheadItem || { id, name: 'Item', code: '' });
+          const target = editingOverheadItem || { id, name: 'Item', code: '' };
+          const targetId = target.id || target.code || id;
+          const targetCode = target.code || targetId;
+          try {
+            await api.deleteOverheadItem(targetId);
+            if (targetCode && targetCode !== targetId) {
+              await api.deleteOverheadItem(targetCode).catch(() => {});
+            }
+            if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
+            setOverheadItems((prev) => prev.filter((o) => o.id !== targetId && o.code !== targetCode));
+            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
+            showToast(`Overhead item "${target.name}" permanently deleted.`);
+          } catch (err: any) {
+            console.error('Failed to delete overhead item:', err);
+            showToast(err?.message || 'Failed to delete overhead item');
+          }
           setIsEditOverheadModalOpen(false);
           setEditingOverheadItem(null);
         }}
         onSave={(updated) => {
           setOverheadItems((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
           if (onUpdateOverheadItem) onUpdateOverheadItem(updated.id, updated);
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: updated.id, overhead: updated } }));
           showToast(`Overhead item "${updated.name}" updated in database.`);
           setIsEditOverheadModalOpen(false);
           setEditingOverheadItem(null);
@@ -8433,6 +8451,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           produceItems={produceItems}
           overheads={overheadItems}
           revenueItems={revenueItems}
+          enterpriseResources={enterpriseResources}
           onClose={() => setActiveFXTTCard(null)}
           onUpdatePrice={(id, price, reason) => {
             if (activeFXTTCard?.cardType === 'product_category' && onUpdateProduceItem) {
@@ -8481,6 +8500,18 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           onDeleteRevenueItem={(id) => {
             setRevenueItems((prev) => prev.filter((r) => r.id !== id));
             onDeleteRevenueItem?.(id);
+          }}
+          onAddResource={(item) => {
+            setEnterpriseResources((prev) => [item, ...prev]);
+            onAddResource?.(item);
+          }}
+          onUpdateResource={(id, item) => {
+            setEnterpriseResources((prev) => prev.map((r) => (r.id === id ? { ...r, ...item } : r)));
+            onUpdateResource?.(id, item);
+          }}
+          onDeleteResource={(id) => {
+            setEnterpriseResources((prev) => prev.filter((r) => r.id !== id));
+            onDeleteResource?.(id);
           }}
           onSelectProject={(p) => {
             onSelectProject(p);

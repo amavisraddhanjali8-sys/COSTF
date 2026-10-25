@@ -3040,8 +3040,7 @@ async function startServer() {
   app.delete('/api/overhead-categories/:id', async (req, res) => {
     try {
       const ok = await postgresService.deleteOverheadCategory(req.params.id);
-      if (!ok) return res.status(404).json({ error: 'Category not found' });
-      res.json({ success: true });
+      res.json({ success: true, deleted: ok });
     } catch (e: any) {
       if (e?.status) return res.status(e.status).json({ error: e.message });
       console.error('Failed to delete overhead category:', e);
@@ -3115,8 +3114,7 @@ async function startServer() {
         name: actor?.name,
         role: actor?.role
       });
-      if (!ok) return res.status(404).json({ error: 'Overhead item not found' });
-      res.json({ success: true });
+      res.json({ success: true, deleted: ok });
     } catch (e: any) {
       if (e?.status) return res.status(e.status).json({ error: e.message, linkedPlansCount: e?.linkedPlansCount });
       console.error('Failed to delete overhead item:', e);

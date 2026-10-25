@@ -141,6 +141,13 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>([]);
   const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>([]);
+  const [confirmModalState, setConfirmModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const handleApplyPriceSnapshotToPlan = async (record: ProcurementPriceRecord) => {
     if (!plan) return;
@@ -264,21 +271,29 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     }
   };
 
-  const handleRemovePlanTariff = async (tariffScheduleId: string, name: string) => {
+  const handleRemovePlanTariff = (tariffScheduleId: string, name: string) => {
     if (!plan) return;
-    if (!window.confirm(`Are you sure you want to remove tariff schedule "${name}" from this plan?`)) return;
-    setDeletingPlanTariffId(tariffScheduleId);
-    try {
-      await api.removePlanTariff(plan.id, tariffScheduleId);
-      showToast?.({ message: `Removed tariff "${name}" from plan.`, type: 'info' });
-      const refreshed = await api.getPlanTariffs(plan.id);
-      setPlanTariffs(refreshed || []);
-      onPlanUpdated?.();
-    } catch (err: any) {
-      showToast?.({ message: err?.message || 'Failed to remove plan tariff', type: 'error' });
-    } finally {
-      setDeletingPlanTariffId(null);
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Remove Tariff Schedule',
+      message: `Are you sure you want to remove tariff schedule "${name}" from this plan?`,
+      confirmLabel: 'Remove Tariff',
+      onConfirm: async () => {
+        setConfirmModalState(null);
+        setDeletingPlanTariffId(tariffScheduleId);
+        try {
+          await api.removePlanTariff(plan.id, tariffScheduleId);
+          showToast?.({ message: `Removed tariff "${name}" from plan.`, type: 'info' });
+          const refreshed = await api.getPlanTariffs(plan.id);
+          setPlanTariffs(refreshed || []);
+          onPlanUpdated?.();
+        } catch (err: any) {
+          showToast?.({ message: err?.message || 'Failed to remove plan tariff', type: 'error' });
+        } finally {
+          setDeletingPlanTariffId(null);
+        }
+      }
+    });
   };
 
   useEffect(() => {
@@ -307,46 +322,70 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     }
   };
 
-  const handleArchive = async () => {
+  const handleArchive = () => {
     if (!plan) return;
-    if (!window.confirm(`Are you sure you want to archive plan ${plan.planNumber} (${plan.name})?`)) return;
-    try {
-      await api.archiveProjectPlan(plan.id, undefined, 'Archived by user from plan details portal');
-      showToast?.({ message: `Plan ${plan.planNumber} archived in PostgreSQL.`, type: 'info' });
-      await loadPlan();
-      onPlanUpdated?.();
-    } catch (err: any) {
-      showToast?.({ message: err?.message || 'Failed to archive plan', type: 'error' });
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Archive Plan',
+      message: `Are you sure you want to archive plan ${plan.planNumber} (${plan.name})?`,
+      confirmLabel: 'Archive Plan',
+      onConfirm: async () => {
+        setConfirmModalState(null);
+        try {
+          await api.archiveProjectPlan(plan.id, undefined, 'Archived by user from plan details portal');
+          showToast?.({ message: `Plan ${plan.planNumber} archived in PostgreSQL.`, type: 'info' });
+          await loadPlan();
+          onPlanUpdated?.();
+        } catch (err: any) {
+          showToast?.({ message: err?.message || 'Failed to archive plan', type: 'error' });
+        }
+      }
+    });
   };
 
-  const handleDeletePlan = async () => {
+  const handleDeletePlan = () => {
     if (!plan) return;
-    if (!window.confirm(`Are you sure you want to permanently delete plan "${plan.planNumber} (${plan.name})"? This will completely remove all its BOQ items, resources, and overhead allocations from PostgreSQL.`)) return;
-    try {
-      await api.deleteProjectPlan(plan.id);
-      showToast?.({ message: `Plan ${plan.planNumber} successfully deleted.`, type: 'info' });
-      onPlanUpdated?.();
-      onNavigateBack();
-    } catch (err: any) {
-      alert(`Could not delete plan: ${err?.message || 'Database error'}`);
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Delete Project Plan',
+      message: `Are you sure you want to permanently delete plan "${plan.planNumber} (${plan.name})"? This will completely remove all its BOQ items, resources, and overhead allocations from PostgreSQL.`,
+      confirmLabel: 'Delete Plan',
+      onConfirm: async () => {
+        setConfirmModalState(null);
+        try {
+          await api.deleteProjectPlan(plan.id);
+          showToast?.({ message: `Plan ${plan.planNumber} successfully deleted.`, type: 'info' });
+          onPlanUpdated?.();
+          onNavigateBack();
+        } catch (err: any) {
+          showToast?.({ message: `Could not delete plan: ${err?.message || 'Database error'}`, type: 'error' });
+        }
+      }
+    });
   };
 
-  const handleDeleteBoqItem = async (boqItemId: string, itemName: string) => {
+  const handleDeleteBoqItem = (boqItemId: string, itemName: string) => {
     if (!plan) return;
-    if (!window.confirm(`Are you sure you want to remove "${itemName}" from this plan's BOQ?`)) return;
-    setDeletingBoqItemId(boqItemId);
-    try {
-      await api.deletePlanBoqItem(plan.id, boqItemId);
-      showToast?.({ message: `Removed "${itemName}" from plan BOQ.`, type: 'info' });
-      await loadPlan();
-      onPlanUpdated?.();
-    } catch (err: any) {
-      showToast?.({ message: err?.message || 'Failed to remove BOQ item', type: 'error' });
-    } finally {
-      setDeletingBoqItemId(null);
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Remove BOQ Item',
+      message: `Are you sure you want to remove "${itemName}" from this plan's BOQ?`,
+      confirmLabel: 'Remove Item',
+      onConfirm: async () => {
+        setConfirmModalState(null);
+        setDeletingBoqItemId(boqItemId);
+        try {
+          await api.deletePlanBoqItem(plan.id, boqItemId);
+          showToast?.({ message: `Removed "${itemName}" from plan BOQ.`, type: 'info' });
+          await loadPlan();
+          onPlanUpdated?.();
+        } catch (err: any) {
+          showToast?.({ message: err?.message || 'Failed to remove BOQ item', type: 'error' });
+        } finally {
+          setDeletingBoqItemId(null);
+        }
+      }
+    });
   };
 
   const handleDuplicate = async () => {
@@ -376,20 +415,28 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     }
   };
 
-  const handleDeleteAllocation = async (allocationId: string, itemName: string) => {
+  const handleDeleteAllocation = (allocationId: string, itemName: string) => {
     if (!plan) return;
-    if (!window.confirm(`Are you sure you want to remove overhead allocation '${itemName}' from this plan?`)) return;
-    setDeletingAllocationId(allocationId);
-    try {
-      await api.deletePlanOverheadAllocation(plan.id, allocationId);
-      await loadPlan();
-      onPlanUpdated?.();
-      showToast?.({ message: `Overhead allocation '${itemName}' removed.`, type: 'info' });
-    } catch (err: any) {
-      showToast?.({ message: err?.message || 'Failed to remove overhead allocation', type: 'error' });
-    } finally {
-      setDeletingAllocationId(null);
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Remove Overhead Allocation',
+      message: `Are you sure you want to remove overhead allocation '${itemName}' from this plan?`,
+      confirmLabel: 'Remove Allocation',
+      onConfirm: async () => {
+        setConfirmModalState(null);
+        setDeletingAllocationId(allocationId);
+        try {
+          await api.deletePlanOverheadAllocation(plan.id, allocationId);
+          await loadPlan();
+          onPlanUpdated?.();
+          showToast?.({ message: `Overhead allocation '${itemName}' removed.`, type: 'info' });
+        } catch (err: any) {
+          showToast?.({ message: err?.message || 'Failed to remove overhead allocation', type: 'error' });
+        } finally {
+          setDeletingAllocationId(null);
+        }
+      }
+    });
   };
 
   const handleSaveMetadata = async () => {
@@ -1987,6 +2034,43 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         enterpriseResources={enterpriseResources}
         currency={activeCurrency}
       />
+
+      {/* In-App Confirmation Modal */}
+      {confirmModalState?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">{confirmModalState.title}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">PostgreSQL database operation</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              {confirmModalState.message}
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setConfirmModalState(null)}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmModalState.onConfirm}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{confirmModalState.confirmLabel || 'Confirm Delete'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

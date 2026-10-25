@@ -8328,7 +8328,7 @@ export class PostgresService {
       [name, data?.code || '']
     );
     if (existingCheck.rows.length > 0) {
-      if (data?.reuseIfExisting) {
+      if (data?.reuseIfExisting || (data?.id && existingCheck.rows[0].id === data.id)) {
         return await this.getOverheadItemById(existingCheck.rows[0].id);
       }
       throw Object.assign(
@@ -8515,7 +8515,7 @@ export class PostgresService {
   public async deleteOverheadItem(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
     const db = await this.getDb();
     const cleanId = String(id || '').trim();
-    if (!cleanId) return false;
+    if (!cleanId) return true;
 
     const existing = await this.getOverheadItemById(cleanId);
     const targetId = existing?.id || cleanId;
@@ -8526,11 +8526,11 @@ export class PostgresService {
     await db.query('DELETE FROM project_plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
 
     // 2. Cascade delete barcodes and price history
-    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND entity_type = $3', [targetId, targetCode, 'overhead_item']).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead_item', 'overhead']).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead', 'overhead_item']).catch(() => {});
 
     // 3. Delete from overhead_items by id or code
-    const delRes = await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+    await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
 
     if (existing) {
       await this.createOverheadAuditLog({
@@ -8546,7 +8546,7 @@ export class PostgresService {
       }).catch(() => {});
     }
 
-    return (delRes.rowCount ?? 0) > 0 || !!existing;
+    return true;
   }
 
   // --- Plan Overhead Allocations (Requirement 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20) ---
@@ -14872,7 +14872,7 @@ export class PostgresService {
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
     const cleanId = String(id || '').trim();
-    if (!cleanId) return false;
+    if (!cleanId) return true;
 
     const existing = await this.getResourceById(cleanId);
     const targetId = existing?.id || cleanId;
@@ -14881,8 +14881,9 @@ export class PostgresService {
     await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1 OR resource_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3)', ['resource', targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3 OR entity_code = $3)', ['resource', targetId, targetCode]).catch(() => {});
-    const res = await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
-    return (res.rowCount ?? 0) > 0 || !!existing;
+    await db.query('DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+    return true;
   }
 
   public async addResourceAlternative(resourceId: string, altData: any): Promise<any> {

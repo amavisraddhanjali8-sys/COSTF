@@ -998,16 +998,25 @@ export default function App() {
   // Overhead Cost Item Handlers (All Portals Connected)
   const handleAddOverheadItem = async (itemData: Partial<OverheadItem>) => {
     try {
-      const created = await api.createOverheadItem(itemData);
-      const finalItem = created && created.id ? created : ({ ...itemData, id: `ovh-${Date.now()}` } as OverheadItem);
-      setOverheads(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id)]);
+      let finalItem: OverheadItem;
+      if (itemData.id && (itemData as any).createdAt) {
+        finalItem = itemData as OverheadItem;
+      } else {
+        const created = await api.createOverheadItem(itemData);
+        finalItem = created && created.id ? created : ({ ...itemData, id: itemData.id || `ovh-${Date.now()}` } as OverheadItem);
+      }
+      setOverheads(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id && o.code !== finalItem.code)]);
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: finalItem.id, overhead: finalItem } }));
       logAuditEvent('OVERHEAD_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created overhead item ${finalItem.name} (${finalItem.category}).`);
       showToast(`Overhead cost item "${finalItem.name}" registered across all portals.`);
+      return finalItem;
     } catch (e: any) {
       console.warn('Overhead create API error:', e);
-      const fallbackItem = { ...itemData, id: `ovh-${Date.now()}` } as OverheadItem;
-      setOverheads(prev => [fallbackItem, ...prev.filter(o => o.id !== fallbackItem.id)]);
+      const fallbackItem = { ...itemData, id: itemData.id || `ovh-${Date.now()}` } as OverheadItem;
+      setOverheads(prev => [fallbackItem, ...prev.filter(o => o.id !== fallbackItem.id && o.code !== fallbackItem.code)]);
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: fallbackItem.id } }));
       showToast(`Overhead cost item "${fallbackItem.name}" saved to database.`);
+      return fallbackItem;
     }
   };
 
@@ -1015,10 +1024,13 @@ export default function App() {
     try {
       const saved = await api.updateOverheadItem(id, updatedFields);
       const finalItem = saved && saved.id ? saved : ({ ...updatedFields, id } as OverheadItem);
-      setOverheads(prev => prev.map(o => o.id === id ? { ...o, ...finalItem } : o));
+      setOverheads(prev => prev.map(o => (o.id === id || o.code === id) ? { ...o, ...finalItem } : o));
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id, overhead: finalItem } }));
       showToast('Overhead item updated across all portals.');
+      return finalItem;
     } catch (e) {
       console.warn('Overhead update error:', e);
+      setOverheads(prev => prev.map(o => (o.id === id || o.code === id) ? { ...o, ...updatedFields } : o));
     }
   };
 
@@ -1032,6 +1044,44 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
     logAuditEvent('OVERHEAD_DELETED', 'Catalog', id, 'Overhead Item', `Deleted overhead record ${id}.`);
     showToast('Overhead record deleted from PostgreSQL database.');
+  };
+
+  const handleAddResource = async (resourceData: Partial<EnterpriseResource>) => {
+    try {
+      let finalResource: EnterpriseResource;
+      if (resourceData.id && (resourceData as any).code && !resourceData.id.startsWith('temp-')) {
+        finalResource = resourceData as EnterpriseResource;
+      } else {
+        const created = await api.createResource(resourceData);
+        finalResource = created && created.id ? created : ({ ...resourceData, id: resourceData.id || `res-${Date.now()}` } as EnterpriseResource);
+      }
+      setEnterpriseResources(prev => [finalResource, ...prev.filter(r => r.id !== finalResource.id && r.code !== finalResource.code)]);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: finalResource.id, resource: finalResource } }));
+      logAuditEvent('RESOURCE_CREATED', 'Catalog', finalResource.id, finalResource.name, `Created resource ${finalResource.name} (${finalResource.type}).`);
+      showToast(`Enterprise resource "${finalResource.name}" registered across all portals.`);
+      return finalResource;
+    } catch (e: any) {
+      console.warn('Resource create API error:', e);
+      const fallback = { ...resourceData, id: resourceData.id || `res-${Date.now()}` } as EnterpriseResource;
+      setEnterpriseResources(prev => [fallback, ...prev.filter(r => r.id !== fallback.id && r.code !== fallback.code)]);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: fallback.id } }));
+      showToast(`Resource "${fallback.name}" saved to database.`);
+      return fallback;
+    }
+  };
+
+  const handleUpdateResource = async (id: string, updatedFields: Partial<EnterpriseResource>) => {
+    try {
+      const updated = await api.updateResource(id, updatedFields);
+      const finalRes = updated && updated.id ? updated : ({ ...updatedFields, id } as EnterpriseResource);
+      setEnterpriseResources(prev => prev.map(r => (r.id === id || r.code === id) ? { ...r, ...finalRes } : r));
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id, resource: finalRes } }));
+      showToast('Enterprise resource updated across all portals.');
+      return finalRes;
+    } catch (e) {
+      console.warn('Resource update error:', e);
+      setEnterpriseResources(prev => prev.map(r => (r.id === id || r.code === id) ? { ...r, ...updatedFields } : r));
+    }
   };
 
   const handleDeleteResource = async (id: string) => {
@@ -1472,6 +1522,8 @@ export default function App() {
             onUpdateRevenueItem={handleUpdateRevenueItem}
             onDeleteRevenueItem={handleDeleteRevenueItem}
             enterpriseResources={enterpriseResources}
+            onAddResource={handleAddResource}
+            onUpdateResource={handleUpdateResource}
             onDeleteResource={handleDeleteResource}
           />
         )}
@@ -1503,6 +1555,7 @@ export default function App() {
             onAddSubcontractor={handleAddSubcontractor}
             onAddOverheadItem={handleAddOverheadItem}
             onAddRevenueItem={handleAddRevenueItem}
+            onAddResource={handleAddResource}
             onDeleteResource={handleDeleteResource}
             onEditRecord={(rawType, item) => {
               if (rawType === 'material') {
@@ -1518,9 +1571,7 @@ export default function App() {
               } else if (rawType === 'revenue') {
                 handleUpdateRevenueItem(item.id, item);
               } else if (rawType === 'resource') {
-                api.updateResource(item.id, item).then(() => {
-                  window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: item.id } }));
-                }).catch(console.error);
+                handleUpdateResource(item.id, item);
               }
               logAuditEvent('CATALOG_EDIT', 'Catalog', item.id, rawType, `Edited ${item.code || item.name} in master data grid`);
             }}
@@ -1634,6 +1685,10 @@ export default function App() {
               onUpdateProject={handleUpdateProject}
               onNavigateToSubcontractors={() => setActiveTab('subcontractors')}
               onNavigateToOutsourced={() => setActiveTab('outsourced')}
+              enterpriseResources={enterpriseResources}
+              onAddResource={handleAddResource}
+              onUpdateResource={handleUpdateResource}
+              onDeleteResource={handleDeleteResource}
             />
           )
         )}
@@ -2076,6 +2131,8 @@ export default function App() {
             }}
             showToast={showToast}
             onAddOverheadItem={handleAddOverheadItem}
+            onUpdateOverheadItem={handleUpdateOverheadItem}
+            onDeleteOverheadItem={handleDeleteOverheadItem}
           />
         )}
 

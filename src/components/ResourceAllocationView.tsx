@@ -74,6 +74,10 @@ interface ResourceAllocationViewProps {
   onNavigateToOutsourced: () => void;
   onUpdateProject?: (updatedProject: Project) => void;
   initialTypeFilter?: string;
+  enterpriseResources?: EnterpriseResource[];
+  onAddResource?: (res: Partial<EnterpriseResource>) => void;
+  onUpdateResource?: (id: string, res: Partial<EnterpriseResource>) => void;
+  onDeleteResource?: (id: string) => void;
 }
 
 export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
@@ -89,7 +93,11 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
   onNavigateToSubcontractors,
   onNavigateToOutsourced,
   onUpdateProject,
-  initialTypeFilter
+  initialTypeFilter,
+  enterpriseResources: enterpriseResourcesProp,
+  onAddResource,
+  onUpdateResource,
+  onDeleteResource
 }) => {
   const [scope, setScope] = useState<'selected' | 'all'>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
@@ -129,6 +137,12 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
       window.removeEventListener('fxtt-resources-changed', fetchResources);
     };
   }, []);
+
+  useEffect(() => {
+    if (enterpriseResourcesProp) {
+      setDbResources(enterpriseResourcesProp);
+    }
+  }, [enterpriseResourcesProp]);
 
   // Listen for navigation events with filters from HomeCommandView or Project cards
   useEffect(() => {
@@ -348,6 +362,8 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
         currency: formData.currency || activeProj?.currency || 'LKR'
       });
       setDbResources((prev) => [created, ...prev.filter((r) => r.id !== created.id)]);
+      if (onAddResource) onAddResource(created);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: created.id, resource: created } }));
       setIsCreateModalOpen(false);
       setSaveSuccess(`Resource "${created.name}" saved to PostgreSQL database.`);
       setTimeout(() => setSaveSuccess(null), 3500);
@@ -361,6 +377,8 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
     try {
       const updated = await api.updateResource(editingResource.id, editingResource);
       setDbResources((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      if (onUpdateResource) onUpdateResource(editingResource.id, updated);
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: updated.id, resource: updated } }));
       setEditingResource(null);
       setSaveSuccess(`Resource "${updated.name}" updated in PostgreSQL database.`);
       setTimeout(() => setSaveSuccess(null), 3500);
@@ -378,6 +396,7 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
       if (resourceToDelete.code && resourceToDelete.code !== targetId) {
         await api.deleteResource(resourceToDelete.code).catch(() => {});
       }
+      if (onDeleteResource) onDeleteResource(targetId);
       setDbResources((prev) => prev.filter((r) => r.id !== targetId && r.code !== targetCode));
       window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: targetId, code: targetCode } }));
       setSaveSuccess(`Resource "${resourceToDelete.name}" deleted from database.`);
