@@ -351,50 +351,6 @@ export function buildDefaultCategories(): CategoryNode[] {
       themeId: 'indigo-night',
       metaBadge: 'SUB-CATEGORY',
       actionText: 'VIEW ITEMS'
-    },
-    {
-      id: 'rev-serv-cat-01',
-      name: 'Engineering & Design Consultancy',
-      type: 'category',
-      group: 'service',
-      brief: 'Structural PE engineering calculations, FEA analysis, and CAD detailing',
-      themeId: 'napa-purple',
-      metaBadge: 'SERVICE ROOT',
-      actionText: 'EXPLORE SUB-CATEGORIES'
-    },
-    {
-      id: 'rev-serv-sub-01-01',
-      name: 'FEA Stress Analysis & Simulation',
-      type: 'sub_category',
-      group: 'service',
-      parentId: 'rev-serv-cat-01',
-      parentName: 'Engineering & Design Consultancy',
-      brief: 'Non-linear finite element structural simulation',
-      themeId: 'napa-purple',
-      metaBadge: 'SUB-CATEGORY',
-      actionText: 'VIEW ITEMS'
-    },
-    {
-      id: 'rev-serv-cat-02',
-      name: 'Site Installation & Commissioning',
-      type: 'category',
-      group: 'service',
-      brief: 'Turnkey on-site mechanical erection, electrical wiring, and performance testing',
-      themeId: 'crimson-horizon',
-      metaBadge: 'SERVICE ROOT',
-      actionText: 'EXPLORE SUB-CATEGORIES'
-    },
-    {
-      id: 'rev-serv-sub-02-01',
-      name: 'On-Site Machine Calibration & Commissioning',
-      type: 'sub_category',
-      group: 'service',
-      parentId: 'rev-serv-cat-02',
-      parentName: 'Site Installation & Commissioning',
-      brief: 'Laser alignment, hydraulic pressure testing, and pilot handover',
-      themeId: 'crimson-horizon',
-      metaBadge: 'SUB-CATEGORY',
-      actionText: 'VIEW ITEMS'
     }
   ];
 }

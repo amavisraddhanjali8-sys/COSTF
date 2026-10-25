@@ -954,8 +954,17 @@ export default function App() {
   };
 
   const handleDeleteProduceItem = async (id: string) => {
-    await api.deleteProduceItem(id);
-    setProduceItems(prev => prev.filter(p => p.id !== id));
+    try {
+      await api.deleteProduceItem(id);
+    } catch (e) {
+      console.warn('Produce delete error:', e);
+    }
+    try {
+      await api.deleteRevenueItem(id);
+    } catch (e) {}
+    const stripped = id.replace(/^rev-/, '');
+    setProduceItems(prev => prev.filter(p => p.id !== id && p.id !== stripped));
+    setRevenueItems(prev => prev.filter(r => r.id !== id && r.id !== `rev-${stripped}` && r.id !== stripped));
     logAuditEvent('PRODUCT_DELETED', 'Catalog', id, 'Produce Item', `Deleted product assembly ${id} from catalog.`);
     showToast('Product assembly deleted from catalog.');
   };
@@ -1032,7 +1041,12 @@ export default function App() {
     } catch (e) {
       console.warn('Revenue delete error:', e);
     }
-    setRevenueItems(prev => prev.filter(r => r.id !== id));
+    try {
+      await api.deleteProduceItem(id);
+    } catch (e) {}
+    const stripped = id.replace(/^rev-/, '');
+    setRevenueItems(prev => prev.filter(r => r.id !== id && r.id !== stripped && r.id !== `rev-${stripped}`));
+    setProduceItems(prev => prev.filter(p => p.id !== id && p.id !== stripped));
     logAuditEvent('REVENUE_DELETED', 'Catalog', id, 'Revenue Item', `Deleted revenue catalogue item ${id}.`);
     showToast('Revenue deliverable deleted.');
   };

@@ -390,14 +390,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
             </div>
             <div>
               <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
-                <span>Overhead Cost Management</span>
+                <span>Overheads</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-mono font-semibold">
                   {overheadCatNodes.length} Categories • {items.length} Items
                 </span>
               </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Indirect expenses, administrative facilities, SG&A burdens, and real-time margin absorption
-              </p>
             </div>
           </div>
 
@@ -413,7 +410,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               className="px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
-              <span>New Overhead Item</span>
+              <span>Add</span>
             </button>
 
             <button
@@ -427,10 +424,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
               className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer"
             >
               <FolderPlus className="w-3.5 h-3.5 text-amber-700" />
-              <span>+ Category</span>
+              <span>Category</span>
             </button>
 
-            {/* View switcher: Cards View | Catalogue Table | Audit */}
+            {/* View switcher: Cards | Table | Ledger | Audit */}
             <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
               <button
                 type="button"
@@ -442,7 +439,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 }`}
               >
                 <LayoutGrid className="w-3.5 h-3.5 text-amber-500" />
-                <span>Cards View ({overheadCatNodes.length})</span>
+                <span>Cards</span>
               </button>
               <button
                 type="button"
@@ -454,7 +451,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 }`}
               >
                 <ListFilter className="w-3.5 h-3.5 text-blue-500" />
-                <span>Catalogue Table ({items.length})</span>
+                <span>Table</span>
               </button>
               <button
                 type="button"
@@ -467,7 +464,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 title="View full interactive FXTT Data Grid with Price Changes and Rate Revision Logs"
               >
                 <Table className="w-3.5 h-3.5 text-emerald-500" />
-                <span>FXTT Table View ({items.length})</span>
+                <span>Ledger</span>
               </button>
               <button
                 type="button"
@@ -479,7 +476,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 }`}
               >
                 <History className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Audit ({auditLogs.length})</span>
+                <span>Audit</span>
               </button>
             </div>
           </div>
@@ -502,7 +499,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                   !selectedCatId ? 'font-bold text-[#003049] dark:text-white' : ''
                 }`}
               >
-                All Overhead Categories (Level 1)
+                Categories
               </button>
 
               {selectedCatId && (
@@ -515,7 +512,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       !selectedSubCatId ? 'font-bold text-[#003049] dark:text-white' : ''
                     }`}
                   >
-                    {selectedCatNode?.name || 'Selected Category'} (Sub-Categories)
+                    {selectedCatNode?.name || 'Category'}
                   </button>
                 </>
               )}
@@ -524,7 +521,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 <>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
                   <span className="font-bold text-[#003049] dark:text-amber-400">
-                    {selectedSubCatNode?.name || 'Overhead Items'}
+                    {selectedSubCatNode?.name || 'Items'}
                   </span>
                 </>
               )}
@@ -543,7 +540,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                   className="px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>+ Sub-Category</span>
+                  <span>Sub</span>
                 </button>
               )}
 
@@ -558,7 +555,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                 className="px-2.5 py-1 text-xs bg-[#003049] hover:bg-[#002235] text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
-                <span>Add Item</span>
+                <span>Add</span>
               </button>
             </div>
           </div>
@@ -567,11 +564,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
           {!selectedCatId && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Select any overhead cost category to inspect sub-accounts and individual tariff items:
-                </p>
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Categories
+                </span>
                 <span className="text-xs font-mono text-slate-400">
-                  {overheadCatNodes.length} categories active
+                  {overheadCatNodes.length} categories
                 </span>
               </div>
 
@@ -587,10 +584,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     <ModernTileCard
                       key={cat.id}
                       id={cat.id}
-                      tag="OVERHEAD CATEGORY"
+                      tag="CATEGORY"
                       title={cat.name}
-                      brief={cat.brief || `${matchingItems.length} allocated cost lines`}
-                      actionLabel="EXPLORE SUB-CATEGORIES"
+                      brief={cat.brief || `${matchingItems.length} items`}
+                      actionLabel="Explore"
                       actionVariant="button"
                       themeId={style.themeId}
                       customGradient={style.customGradient}
@@ -673,11 +670,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     className="text-xs text-[#003049] dark:text-sky-400 hover:underline flex items-center space-x-1 cursor-pointer font-semibold"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to All Categories</span>
+                    <span>Categories</span>
                   </button>
                   <span className="text-xs text-slate-400">•</span>
                   <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
-                    Sub-categories for {selectedCatNode?.name}
+                    {selectedCatNode?.name}
                   </span>
                 </div>
                 <button
@@ -686,7 +683,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                   className="px-2.5 py-1 text-xs bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>+ Create Sub-Category</span>
+                  <span>Sub</span>
                 </button>
               </div>
 
@@ -703,10 +700,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     <ModernTileCard
                       key={subCat.id}
                       id={subCat.id}
-                      tag="OVERHEAD SUB-CATEGORY"
+                      tag="SUB-CATEGORY"
                       title={subCat.name}
-                      brief={subCat.brief || `${matchingItems.length} cost items`}
-                      actionLabel="VIEW ITEMS"
+                      brief={subCat.brief || `${matchingItems.length} items`}
+                      actionLabel="Explore"
                       actionVariant="button"
                       themeId={style.themeId}
                       customGradient={style.customGradient}
@@ -723,9 +720,8 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       extraMeta={
                         <div className="flex items-center justify-between text-[11px] text-white/90 pt-1">
                           <span className="bg-black/25 px-2 py-0.5 rounded text-[10px] font-mono">
-                            {matchingItems.length} Overhead Items
+                            {matchingItems.length} Items
                           </span>
-                          <span className="text-[10px] text-white/80">Click to view items</span>
                         </div>
                       }
                     />
@@ -735,13 +731,13 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
 
               {overheadSubCatNodes.length === 0 && (
                 <div className="text-center py-12 bg-white dark:bg-[#0b101b] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <p className="text-xs text-slate-500">No sub-categories yet under this category.</p>
+                  <p className="text-xs text-slate-500">No sub-categories</p>
                   <button
                     type="button"
                     onClick={() => setIsCreateSubCatModalOpen(true)}
                     className="mt-2 px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-lg"
                   >
-                    + Add Sub-Category
+                    Sub
                   </button>
                 </div>
               )}
@@ -759,11 +755,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                     className="text-xs text-[#003049] dark:text-sky-400 hover:underline flex items-center space-x-1 cursor-pointer font-semibold"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Sub-Categories</span>
+                    <span>Back</span>
                   </button>
                   <span className="text-xs text-slate-400">•</span>
                   <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    {selectedSubCatNode?.name} Items
+                    {selectedSubCatNode?.name}
                   </span>
                 </div>
 
@@ -778,7 +774,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                   className="px-2.5 py-1 text-xs bg-[#003049] text-white rounded-lg font-semibold flex items-center space-x-1 cursor-pointer"
                 >
                   <Plus className="w-3 h-3 text-[#fdf0d5]" />
-                  <span>+ Add Item to this Sub-Category</span>
+                  <span>Add</span>
                 </button>
               </div>
 
@@ -797,10 +793,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                       <ModernTileCard
                         key={item.id}
                         id={item.id}
-                        tag={item.costType?.replace(/_/g, ' ').toUpperCase() || 'OVERHEAD ITEM'}
+                        tag={item.costType ? item.costType.replace(/_/g, ' ').toUpperCase() : 'TARIFF'}
                         title={item.name}
-                        brief={`Code: ${item.code} • Method: ${item.defaultCalculationMethod?.replace(/_/g, ' ')}`}
-                        actionLabel="EDIT DETAILS"
+                        brief={`Code: ${item.code}`}
+                        actionLabel="Edit"
                         actionVariant="button"
                         themeId={style.themeId}
                         customGradient={style.customGradient}
@@ -821,7 +817,7 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                             <div className="flex items-center justify-between text-[11px] text-white/95">
                               <span className="font-mono font-bold bg-black/30 px-2 py-0.5 rounded text-[11px]">
                                 {item.defaultCalculationMethod === 'percentage_of_direct'
-                                  ? `${item.defaultRate}% of direct`
+                                  ? `${item.defaultRate}%`
                                   : formatCurrency(item.defaultRate, activeCurrency)}
                               </span>
                               <span className="bg-emerald-500/80 text-white px-1.5 py-0.2 rounded text-[10px] font-bold">
@@ -836,10 +832,10 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                                   handleOpenOverheadPriceAudit(item);
                                 }}
                                 className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-semibold px-2 py-0.5 rounded cursor-pointer flex items-center space-x-1 transition-colors"
-                                title="View price changes and revision history in FXTT table"
+                                title="Audit"
                               >
                                 <History className="w-3 h-3 text-[#fdf0d5]" />
-                                <span>FXTT Changes</span>
+                                <span>Audit</span>
                               </button>
                               <span className="text-[10px] text-white/70 font-mono">
                                 {item.code}

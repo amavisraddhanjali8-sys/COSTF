@@ -239,6 +239,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   const [outsourcedViewMode, setOutsourcedViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [productViewMode, setProductViewMode] = useState<'hierarchy' | 'fxtt_grid' | 'items_table'>('hierarchy');
   const [productCategoryFilter, setProductCategoryFilter] = useState<string>('all');
+  const [revenueViewMode, setRevenueViewMode] = useState<'cards' | 'items_table'>('cards');
+  const [serviceViewMode, setServiceViewMode] = useState<'hierarchy' | 'cards'>('hierarchy');
   const [isCommandsMenuOpen, setIsCommandsMenuOpen] = useState(false);
 
   // Overhead Cost view & drilldown states
@@ -507,6 +509,7 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   // Dedicated states for Revenue Portal all-records view
   const [revenueTableTypeFilter, setRevenueTableTypeFilter] = useState<'all' | 'product' | 'service'>('all');
   const [revenueTableCategoryFilter, setRevenueTableCategoryFilter] = useState<string>('all');
+  const [deletedRevenueItemIds, setDeletedRevenueItemIds] = useState<Set<string>>(new Set());
 
   // Combined Authoritative List of All Revenue Portal Records (Products & Services)
   const combinedAllRevenueRecords = useMemo(() => {
@@ -515,8 +518,19 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
     // 1. All revenue items from database
     revenueItems.forEach((r) => {
-      const baseCodeKey = (r.code || r.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
+      const strippedId = (r.id || '').replace(/^rev-/, '');
+      const prefixedId = `rev-${strippedId}`;
       const nameKey = (r.name || '').trim().toLowerCase();
+      if (
+        deletedRevenueItemIds.has(r.id) ||
+        deletedRevenueItemIds.has(strippedId) ||
+        deletedRevenueItemIds.has(prefixedId) ||
+        deletedRevenueItemIds.has(nameKey)
+      ) {
+        return;
+      }
+
+      const baseCodeKey = (r.code || r.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
       if (!map.has(baseCodeKey) && !seenNames.has(nameKey)) {
         map.set(baseCodeKey, {
           id: r.id,
@@ -530,7 +544,12 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           retailPrice: Number(r.defaultRate) || 0,
           taxTreatment: r.taxTreatment || 'Standard (0%)',
           status: r.status || 'Active',
-          source: 'Revenue Catalogue'
+          source: 'Revenue Catalogue',
+          themeId: r.themeId || (r.type === 'service' ? 'napa-purple' : 'pacific-sky'),
+          customGradient: r.customGradient,
+          description: r.description || '',
+          barcode: r.barcode || `BC-${r.code || r.id}`,
+          currency: r.currency || getStoredCurrency() || 'LKR'
         });
         seenNames.add(nameKey);
       }
@@ -538,8 +557,19 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
 
     // 2. Also ensure produceItems are represented without duplicating base codes or names
     produceItems.forEach((p) => {
-      const baseCodeKey = (p.code || p.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
+      const strippedId = (p.id || '').replace(/^rev-/, '');
+      const prefixedId = `rev-${strippedId}`;
       const nameKey = (p.name || '').trim().toLowerCase();
+      if (
+        deletedRevenueItemIds.has(p.id) ||
+        deletedRevenueItemIds.has(strippedId) ||
+        deletedRevenueItemIds.has(prefixedId) ||
+        deletedRevenueItemIds.has(nameKey)
+      ) {
+        return;
+      }
+
+      const baseCodeKey = (p.code || p.id || '').replace(/-\d{3}$/, '').trim().toLowerCase();
       if (!map.has(baseCodeKey) && !seenNames.has(nameKey)) {
         map.set(baseCodeKey, {
           id: p.id,
@@ -553,14 +583,19 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           retailPrice: Number(p.retailPrice) || 0,
           taxTreatment: 'Standard (0%)',
           status: p.status || 'Active',
-          source: 'Manufactured Product'
+          source: 'Manufactured Product',
+          themeId: p.themeId || 'airbus-cobalt',
+          customGradient: p.customGradient,
+          description: p.specifications || '',
+          barcode: p.barcode || `BC-${p.code || p.id}`,
+          currency: (p as any).currency || getStoredCurrency() || 'LKR'
         });
         seenNames.add(nameKey);
       }
     });
 
     return Array.from(map.values());
-  }, [revenueItems, produceItems]);
+  }, [revenueItems, produceItems, deletedRevenueItemIds]);
 
   // Dedicated states for Outsourced Services sub-portal
   const [outsourcedTableCategoryFilter, setOutsourcedTableCategoryFilter] = useState<string>('all');
@@ -1241,6 +1276,25 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       onUpdateMaterial(id, updatedData);
     } else if (itemType === 'produce' && onUpdateProduceItem) {
       onUpdateProduceItem(id, updatedData);
+    } else if (itemType === 'revenue') {
+      const revUpdate: any = {
+        name: updatedData.name || updatedData.title,
+        code: updatedData.code,
+        category: updatedData.category,
+        subCategory: updatedData.subCategory,
+        unit: updatedData.unit,
+        defaultRate: Number(updatedData.retailPrice ?? updatedData.defaultRate ?? updatedData.price ?? 0),
+        costPrice: Number(updatedData.costPrice ?? 0),
+        themeId: updatedData.themeId,
+        customGradient: updatedData.customGradient
+      };
+      if (onUpdateRevenueItem) {
+        onUpdateRevenueItem(id, revUpdate);
+      } else {
+        api.updateRevenueItem(id, revUpdate).catch(console.error);
+      }
+      setRevenueItems((prev) => prev.map((r) => (r.id === id ? { ...r, ...revUpdate } : r)));
+      showToast(`Revenue deliverable "${revUpdate.name}" updated in database.`);
     } else if ((itemType === 'service-provider' || itemType === 'outsourced' || itemType === 'service') && onUpdateOutsourcedService) {
       onUpdateOutsourcedService(id, updatedData);
     } else if (itemType === 'supplier' && onUpdateSupplier) {
@@ -1271,15 +1325,26 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       title,
       entityType,
       onConfirm: () => {
+        const isRevenueCategory =
+          entityType.toLowerCase().includes('revenue category') ||
+          entityType.toLowerCase().includes('customer service scope') ||
+          entityType.toLowerCase().includes('customer service tariff') ||
+          (portalTab === 'revenue-streams' && (entityType.toLowerCase().includes('category') || entityType.toLowerCase().includes('scope') || entityType.toLowerCase().includes('tariff')));
+
         const isCategory =
           (entityType.toLowerCase().includes('category') ||
             entityType.toLowerCase().includes('spec') ||
             entityType.toLowerCase().includes('specialty') ||
+            isRevenueCategory ||
             categories.some((c) => c.id === id)) &&
-          !outsourcedServices.some((o) => o.id === id);
+          !outsourcedServices.some((o) => o.id === id) &&
+          entityType !== 'Revenue Deliverable' &&
+          entityType !== 'Product Deliverable';
 
         if (isCategory) {
           api.deleteCategory(id).catch(console.error);
+          api.deleteRevenueCategory(id).catch(() => {});
+          api.deleteRevenueSubcategory(id).catch(() => {});
 
           // Recursively collect all descendant child category IDs
           const childIds = new Set<string>();
@@ -1364,8 +1429,49 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           showToast(`Supplier "${title}" deleted.`);
         } else if (portalTab === 'materials-hierarchy' || materials.some((m) => m.id === id)) {
           if (onDeleteMaterial) onDeleteMaterial(id);
-        } else if (portalTab === 'revenue-streams' || (portalTab as string) === 'produce' || produceItems.some((p) => p.id === id)) {
-          if (onDeleteProduceItem) onDeleteProduceItem(id);
+        } else if (
+          entityType === 'Revenue Deliverable' ||
+          entityType === 'Product Deliverable' ||
+          portalTab === 'revenue-streams' ||
+          (portalTab as string) === 'produce' ||
+          produceItems.some((p) => p.id === id) ||
+          revenueItems.some((r) => r.id === id)
+        ) {
+          const targetId = id;
+          const strippedId = id.startsWith('rev-') ? id.slice(4) : id;
+          const prefixedId = `rev-${strippedId}`;
+
+          // Immediately track deleted ID in local Set for zero-flicker instant UI removal
+          setDeletedRevenueItemIds((prev) => {
+            const next = new Set(prev);
+            next.add(targetId);
+            next.add(strippedId);
+            next.add(prefixedId);
+            if (title) next.add(title.toLowerCase().trim());
+            return next;
+          });
+
+          if (onDeleteRevenueItem) onDeleteRevenueItem(targetId);
+          if (onDeleteProduceItem) onDeleteProduceItem(targetId);
+          if (onDeleteProduceItem && strippedId !== targetId) onDeleteProduceItem(strippedId);
+
+          api.deleteRevenueItem(targetId).catch(() => {});
+          api.deleteRevenueItem(strippedId).catch(() => {});
+          api.deleteRevenueItem(prefixedId).catch(() => {});
+          api.deleteProduce(targetId).catch(() => {});
+          api.deleteProduce(strippedId).catch(() => {});
+
+          setRevenueItems((prev) =>
+            prev.filter(
+              (r) =>
+                r.id !== targetId &&
+                r.id !== strippedId &&
+                r.id !== prefixedId &&
+                r.code !== targetId &&
+                (r.name || '').toLowerCase().trim() !== (title || '').toLowerCase().trim()
+            )
+          );
+          showToast(`Revenue deliverable "${title}" deleted successfully.`);
         } else if (portalTab === 'service-providers' || (portalTab as string) === 'outsourced' || outsourcedServices.some((o) => o.id === id)) {
           if (onDeleteOutsourcedService) onDeleteOutsourcedService(id);
         } else if (portalTab === 'subcontractors' || subcontractors.some((s) => s.id === id)) {
@@ -1441,6 +1547,35 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           ...match,
           subcontractorName: `${match.subcontractorName} (Copy)`
         });
+      }
+    } else if (itemType === 'revenue') {
+      const match = revenueItems.find((r) => r.id === id);
+      if (match) {
+        const copyPayload = {
+          ...match,
+          id: undefined,
+          code: `${match.code || 'REV'}-CPY-${Math.floor(Math.random() * 900 + 100)}`,
+          name: `${match.name} (Copy)`
+        };
+        api.createRevenueItem(copyPayload).then((created) => {
+          setRevenueItems((prev) => [created, ...prev]);
+          if (onAddRevenueItem) onAddRevenueItem(created);
+          showToast(`Revenue deliverable duplicated.`);
+        }).catch(console.error);
+      }
+    } else if (itemType === 'produce') {
+      const match = produceItems.find((p) => p.id === id);
+      if (match) {
+        const copyPayload = {
+          ...match,
+          id: undefined,
+          code: `${match.code || 'PRD'}-CPY-${Math.floor(Math.random() * 900 + 100)}`,
+          name: `${match.name} (Copy)`
+        };
+        api.createProduce(copyPayload).then((created) => {
+          if (onAddProduceItem) onAddProduceItem(created);
+          showToast(`Product deliverable duplicated.`);
+        }).catch(console.error);
       }
     } else if (itemType === 'custom-tile') {
       const match = customTiles.find((t) => t.id === id);
@@ -5215,303 +5350,467 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       {(activeTab === 'revenue-streams' || activeTab === 'products-hierarchy' || activeTab === 'services-hierarchy') && (
         <>
           {/* SUB-PORTAL: ALL REVENUE RECORDS (PRODUCTS & SERVICES) */}
-          {revenueSubTab === 'all_records' && (
-            <div className="space-y-4">
-              {/* Telemetry Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Deliverables</div>
-                  <div className="text-xl font-bold text-[#003049] dark:text-sky-400 mt-1">{combinedAllRevenueRecords.length}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Commercial catalog items</div>
-                </div>
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Manufactured Products</div>
-                  <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
-                    {combinedAllRevenueRecords.filter(r => r.type === 'product').length}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Physical deliverables</div>
-                </div>
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Customer Services</div>
-                  <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-                    {combinedAllRevenueRecords.filter(r => r.type === 'service').length}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Billable scopes & tariffs</div>
-                </div>
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
-                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Avg Margin Spread</div>
-                  <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">
-                    {(() => {
-                      const validMargins = combinedAllRevenueRecords
-                        .filter(r => r.retailPrice > 0 && r.costPrice > 0)
-                        .map(r => ((r.retailPrice - r.costPrice) / r.retailPrice) * 100);
-                      if (validMargins.length === 0) return '35.0%';
-                      const avg = validMargins.reduce((a, b) => a + b, 0) / validMargins.length;
-                      return `${avg.toFixed(1)}%`;
-                    })()}
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Profit margin benchmark</div>
-                </div>
-              </div>
+          {revenueSubTab === 'all_records' && (() => {
+            const activeCurr = getStoredCurrency() || 'LKR';
+            const filteredRevenueRecords = combinedAllRevenueRecords.filter((item) => {
+              if (revenueTableTypeFilter !== 'all' && item.type !== revenueTableTypeFilter) return false;
+              if (revenueTableCategoryFilter !== 'all' && item.category !== revenueTableCategoryFilter) return false;
+              if (!searchQuery) return true;
+              const q = searchQuery.toLowerCase();
+              return (
+                item.name?.toLowerCase().includes(q) ||
+                item.code?.toLowerCase().includes(q) ||
+                item.category?.toLowerCase().includes(q) ||
+                item.subCategory?.toLowerCase().includes(q)
+              );
+            });
 
-              {/* Controls bar: Type filter, Category filter, and Action buttons */}
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center space-x-2 flex-wrap">
-                  <span className="text-xs font-semibold text-slate-500">Filter Type:</span>
-                  <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
+            return (
+              <div className="space-y-4">
+                {/* Telemetry Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Deliverables</div>
+                    <div className="text-xl font-bold text-[#003049] dark:text-sky-400 mt-1">{combinedAllRevenueRecords.length}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Commercial catalog items</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Manufactured Products</div>
+                    <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                      {combinedAllRevenueRecords.filter(r => r.type === 'product').length}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Physical deliverables</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Customer Services</div>
+                    <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                      {combinedAllRevenueRecords.filter(r => r.type === 'service').length}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Billable scopes & tariffs</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Avg Margin Spread</div>
+                    <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">
+                      {(() => {
+                        const validMargins = combinedAllRevenueRecords
+                          .filter(r => r.retailPrice > 0 && r.costPrice > 0)
+                          .map(r => ((r.retailPrice - r.costPrice) / r.retailPrice) * 100);
+                        if (validMargins.length === 0) return '35.0%';
+                        const avg = validMargins.reduce((a, b) => a + b, 0) / validMargins.length;
+                        return `${avg.toFixed(1)}%`;
+                      })()}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">Profit margin benchmark</div>
+                  </div>
+                </div>
+
+                {/* Controls bar: Type filter, Category filter, View Mode Switcher, and Action buttons */}
+                <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2 flex-wrap">
+                    <span className="text-xs font-semibold text-slate-500">Filter Type:</span>
+                    <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setRevenueTableTypeFilter('all')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                          revenueTableTypeFilter === 'all'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        All ({combinedAllRevenueRecords.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRevenueTableTypeFilter('product')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                          revenueTableTypeFilter === 'product'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Products ({combinedAllRevenueRecords.filter(r => r.type === 'product').length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRevenueTableTypeFilter('service')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                          revenueTableTypeFilter === 'service'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Services ({combinedAllRevenueRecords.filter(r => r.type === 'service').length})
+                      </button>
+                    </div>
+
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+
+                    <select
+                      value={revenueTableCategoryFilter}
+                      onChange={(e) => setRevenueTableCategoryFilter(e.target.value)}
+                      className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
+                    >
+                      <option value="all">All Categories</option>
+                      {Array.from(new Set(combinedAllRevenueRecords.map((r) => r.category).filter(Boolean))).map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+
+                    {/* View Mode Switcher: Cards vs Table vs FXTT Grid */}
+                    <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+                      <button
+                        type="button"
+                        id="view-mode-revenue-cards"
+                        onClick={() => setRevenueViewMode('cards')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          revenueViewMode === 'cards'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white font-semibold shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>Cards View</span>
+                      </button>
+                      <button
+                        type="button"
+                        id="view-mode-revenue-table"
+                        onClick={() => setRevenueViewMode('items_table')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          revenueViewMode === 'items_table'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white font-semibold shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <ListFilter className="w-3.5 h-3.5" />
+                        <span>Table View</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
                     <button
                       type="button"
-                      onClick={() => setRevenueTableTypeFilter('all')}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                        revenueTableTypeFilter === 'all'
-                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                      }`}
+                      onClick={() => {
+                        setAddItemPortal('products-hierarchy');
+                        setAddItemCategoryId(
+                          selectedProductCatId ||
+                          (revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined)
+                        );
+                        setAddItemSubCategoryId(selectedProductSubCatId || undefined);
+                        setIsAddItemModalOpen(true);
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
                     >
-                      All ({combinedAllRevenueRecords.length})
+                      <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
+                      <span>+ Add Product</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRevenueTableTypeFilter('product')}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                        revenueTableTypeFilter === 'product'
-                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                      }`}
+                      onClick={() => {
+                        setAddItemPortal('revenue');
+                        setAddItemCategoryId(
+                          revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined
+                        );
+                        setAddItemSubCategoryId(undefined);
+                        setIsAddItemModalOpen(true);
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
                     >
-                      Products ({combinedAllRevenueRecords.filter(r => r.type === 'product').length})
+                      <Plus className="w-3.5 h-3.5 text-white" />
+                      <span>+ Add Revenue Item</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRevenueTableTypeFilter('service')}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                        revenueTableTypeFilter === 'service'
-                          ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                      }`}
+                      onClick={() => {
+                        setBulkImportConfig({
+                          isOpen: true,
+                          targetType: 'produce'
+                        });
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950 dark:hover:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer"
+                      title="Bulk import deliverables"
                     >
-                      Services ({combinedAllRevenueRecords.filter(r => r.type === 'service').length})
+                      <Upload className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Import</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFXTTCard({
+                          cardType: 'product_category',
+                          cardId: 'rev-all-grid',
+                          cardTitle: 'Revenue Deliverables Matrix',
+                          cardSubtitle: 'Full Master Revenue Streams & Deliverables Grid',
+                          cardTag: 'REVENUE PORTAL'
+                        });
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-amber-600" />
+                      <span>FXTT Grid</span>
                     </button>
                   </div>
-
-                  <span className="text-slate-300 dark:text-slate-700">|</span>
-
-                  <select
-                    value={revenueTableCategoryFilter}
-                    onChange={(e) => setRevenueTableCategoryFilter(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 focus:outline-none"
-                  >
-                    <option value="all">All Categories</option>
-                    {Array.from(new Set(combinedAllRevenueRecords.map((r) => r.category).filter(Boolean))).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddItemPortal('products-hierarchy');
-                      setAddItemCategoryId(
-                        selectedProductCatId ||
-                        (revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined)
-                      );
-                      setAddItemSubCategoryId(selectedProductSubCatId || undefined);
-                      setIsAddItemModalOpen(true);
-                    }}
-                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-[#fdf0d5]" />
-                    <span>+ Add Product</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddItemPortal('revenue');
-                      setAddItemCategoryId(
-                        revenueTableCategoryFilter !== 'all' ? categories.find((c) => c.name === revenueTableCategoryFilter)?.id : undefined
-                      );
-                      setAddItemSubCategoryId(undefined);
-                      setIsAddItemModalOpen(true);
-                    }}
-                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-white" />
-                    <span>+ Add Revenue Item</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveFXTTCard({
-                        cardType: 'product_category',
-                        cardId: 'rev-all-grid',
-                        cardTitle: 'Revenue Deliverables Matrix',
-                        cardSubtitle: 'Full Master Revenue Streams & Deliverables Grid',
-                        cardTag: 'REVENUE PORTAL'
-                      });
-                    }}
-                    className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-amber-600" />
-                    <span>FXTT Grid</span>
-                  </button>
-                </div>
-              </div>
+                {/* 1. CARDS VIEW: Responsive ModernTileCard Grid matching Directory standards */}
+                {revenueViewMode === 'cards' && (
+                  <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {filteredRevenueRecords.map((item) => {
+                        const style = getTileStyle(item.id, item.themeId || (item.type === 'service' ? 'napa-purple' : 'airbus-cobalt'));
+                        const marginPct = item.retailPrice > 0
+                          ? (((item.retailPrice - item.costPrice) / item.retailPrice) * 100).toFixed(1)
+                          : '0.0';
+                        const numMargin = Number(marginPct);
 
-              {/* Data Table */}
-              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
-                    <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="py-2.5 px-3 font-semibold">Code</th>
-                        <th className="py-2.5 px-3 font-semibold">Deliverable / Product</th>
-                        <th className="py-2.5 px-3 font-semibold">Type</th>
-                        <th className="py-2.5 px-3 font-semibold">Category</th>
-                        <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
-                        <th className="py-2.5 px-3 font-semibold text-center">Unit</th>
-                        <th className="py-2.5 px-3 font-semibold text-right">Cost Rate</th>
-                        <th className="py-2.5 px-3 font-semibold text-right">Retail / Billable</th>
-                        <th className="py-2.5 px-3 font-semibold text-right">Margin %</th>
-                        <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                        <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {combinedAllRevenueRecords
-                        .filter((item) => {
-                          if (revenueTableTypeFilter !== 'all' && item.type !== revenueTableTypeFilter) return false;
-                          if (revenueTableCategoryFilter !== 'all' && item.category !== revenueTableCategoryFilter) return false;
-                          if (!searchQuery) return true;
-                          const q = searchQuery.toLowerCase();
-                          return (
-                            item.name?.toLowerCase().includes(q) ||
-                            item.code?.toLowerCase().includes(q) ||
-                            item.category?.toLowerCase().includes(q) ||
-                            item.subCategory?.toLowerCase().includes(q)
-                          );
-                        })
-                        .map((item) => {
-                          const marginPct = item.retailPrice > 0
-                            ? (((item.retailPrice - item.costPrice) / item.retailPrice) * 100).toFixed(1)
-                            : '0.0';
-                          return (
-                            <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                              <td className="py-2.5 px-3 font-mono font-bold text-[#003049] dark:text-sky-400">
-                                {item.code}
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <div className="font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
-                                <div className="text-[10px] text-slate-400">{item.source}</div>
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                                    item.type === 'product'
-                                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                                      : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                                  }`}
-                                >
-                                  {item.type}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{item.category}</td>
-                              <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400">{item.subCategory || '—'}</td>
-                              <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">{item.unit}</td>
-                              <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
-                                ${Number(item.costPrice).toFixed(2)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold text-[#003049] dark:text-sky-400">
-                                ${Number(item.retailPrice).toFixed(2)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
-                                    Number(marginPct) >= 30
-                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                      : Number(marginPct) >= 15
-                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                  }`}
-                                >
-                                  {marginPct}%
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-center">
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                  {item.status || 'Active'}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-right">
-                                <div className="flex items-center justify-end space-x-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveFXTTCard({
-                                        cardType: 'product_category',
-                                        cardId: item.id,
-                                        cardTitle: item.name,
-                                        cardSubtitle: `${item.code} • ${item.category} • Cost $${item.costPrice} / Sell $${item.retailPrice}`,
-                                        cardTag: item.type === 'product' ? 'PRODUCT DELIVERABLE' : 'COMMERCIAL SERVICE'
-                                      });
-                                    }}
-                                    className="p-1 px-2 bg-slate-100 hover:bg-[#0078d4] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors cursor-pointer"
-                                    title="Open in FXTT Grid"
-                                  >
-                                    FXTT
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleOpenEdit(
-                                        item.type === 'product' ? 'produce' : 'revenue',
-                                        item.id,
-                                        {
-                                          name: item.name,
-                                          title: item.name,
-                                          code: item.code,
-                                          category: item.category,
-                                          subCategory: item.subCategory,
-                                          unit: item.unit,
-                                          retailPrice: item.retailPrice,
-                                          costPrice: item.costPrice
-                                        }
-                                      );
-                                    }}
-                                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 cursor-pointer"
-                                    title="Edit Deliverable"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenDelete('Revenue Deliverable', item.id, item.name, 'revenue-streams')}
-                                    className="p-1 hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-600 rounded cursor-pointer"
-                                    title="Delete Record"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                        return (
+                          <ModernTileCard
+                            key={item.id}
+                            id={item.id}
+                            tag={item.type === 'service' ? 'CUSTOMER SERVICE REVENUE' : 'SUPPLIED PRODUCT REVENUE'}
+                            title={item.name}
+                            brief={`Code: ${item.code} • ${item.category}${item.subCategory ? ` / ${item.subCategory}` : ''}`}
+                            actionLabel="COMPETITOR RATES"
+                            actionVariant="button"
+                            themeId={style.themeId}
+                            customGradient={style.customGradient}
+                            onChangeTheme={(tId, grad) => handleUpdateTileTheme(item.id, tId, grad)}
+                            onAction={() => {
+                              setActiveCompetitorMatrixItem({
+                                item: {
+                                  id: item.id,
+                                  code: item.code,
+                                  name: item.name,
+                                  category: item.category,
+                                  unit: item.unit,
+                                  ourPrice: item.retailPrice,
+                                  ourCost: item.costPrice,
+                                  currency: activeCurr,
+                                  type: item.type === 'service' ? 'service' : 'product'
+                                },
+                                itemType: item.type === 'product' ? 'produce' : 'revenue_item'
+                              });
+                            }}
+                            onViewListView={() => {
+                              setActiveFXTTCard({
+                                cardType: item.type === 'product' ? 'produce' : 'product_category',
+                                cardId: item.id,
+                                cardTitle: item.name,
+                                cardSubtitle: `${item.code} • Cost: ${formatCurrency(item.costPrice, activeCurr)} / Quoted: ${formatCurrency(item.retailPrice, activeCurr)}`,
+                                cardTag: item.type === 'product' ? 'PRODUCT DELIVERABLE' : 'COMMERCIAL SERVICE'
+                              });
+                            }}
+                            listViewLabel="FXTT & Competitors"
+                            onEdit={() => {
+                              handleOpenEdit(
+                                item.type === 'product' ? 'produce' : 'revenue',
+                                item.id,
+                                {
+                                  name: item.name,
+                                  title: item.name,
+                                  code: item.code,
+                                  category: item.category,
+                                  subCategory: item.subCategory,
+                                  unit: item.unit,
+                                  retailPrice: item.retailPrice,
+                                  costPrice: item.costPrice,
+                                  themeId: style.themeId,
+                                  customGradient: style.customGradient
+                                }
+                              );
+                            }}
+                            onDelete={() => handleOpenDelete('Revenue Deliverable', item.id, item.name, 'revenue-streams')}
+                            onDuplicate={() => handleDuplicate(item.type === 'product' ? 'produce' : 'revenue', item.id)}
+                            extraMeta={
+                              <div className="space-y-1.5 pt-1">
+                                {/* Cost vs Retail Row */}
+                                <div className="flex items-center justify-between text-[11px] text-white/95">
+                                  <span className="bg-black/35 px-2 py-0.5 rounded text-[10px] font-mono">
+                                    Cost: {formatCurrency(item.costPrice, activeCurr)} / {item.unit}
+                                  </span>
+                                  <span className="bg-emerald-500/80 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-2xs">
+                                    Sell: {formatCurrency(item.retailPrice, activeCurr)}
+                                  </span>
                                 </div>
+                                {/* Margin Spread & Status */}
+                                <div className="flex items-center justify-between text-[10px] text-white/90 pt-0.5">
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded font-bold ${
+                                      numMargin >= 30
+                                        ? 'bg-emerald-500/80 text-white'
+                                        : numMargin >= 15
+                                        ? 'bg-amber-500/80 text-white'
+                                        : 'bg-rose-500/80 text-white'
+                                    }`}
+                                  >
+                                    +{marginPct}% Margin
+                                  </span>
+                                  <span className="bg-black/25 px-1.5 py-0.2 rounded font-mono text-[9px] uppercase tracking-wide">
+                                    {item.code} • {item.status || 'Active'}
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {filteredRevenueRecords.length === 0 && (
+                      <div className="bg-white dark:bg-slate-900 p-8 text-center rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No revenue deliverables found matching filter</p>
+                        <p className="text-xs text-slate-400 mt-1">Use "+ Add Product" or "+ Add Revenue Item" to register commercial deliverables in the database.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 2. TABLE VIEW: Detailed Master Table */}
+                {revenueViewMode === 'items_table' && (
+                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                        <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-[11px] uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                          <tr>
+                            <th className="py-2.5 px-3 font-semibold">Code</th>
+                            <th className="py-2.5 px-3 font-semibold">Deliverable / Product</th>
+                            <th className="py-2.5 px-3 font-semibold">Type</th>
+                            <th className="py-2.5 px-3 font-semibold">Category</th>
+                            <th className="py-2.5 px-3 font-semibold">Sub-Category</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Unit</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Cost Rate</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Retail / Billable</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Margin %</th>
+                            <th className="py-2.5 px-3 font-semibold text-center">Status</th>
+                            <th className="py-2.5 px-3 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {filteredRevenueRecords.map((item) => {
+                            const marginPct = item.retailPrice > 0
+                              ? (((item.retailPrice - item.costPrice) / item.retailPrice) * 100).toFixed(1)
+                              : '0.0';
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                <td className="py-2.5 px-3 font-mono font-bold text-[#003049] dark:text-sky-400">
+                                  {item.code}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                                  <div className="text-[10px] text-slate-400">{item.source}</div>
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                                      item.type === 'product'
+                                        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                    }`}
+                                  >
+                                    {item.type}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{item.category}</td>
+                                <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400">{item.subCategory || '—'}</td>
+                                <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">{item.unit}</td>
+                                <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                                  {formatCurrency(Number(item.costPrice), activeCurr)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-[#003049] dark:text-sky-400">
+                                  {formatCurrency(Number(item.retailPrice), activeCurr)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                                      Number(marginPct) >= 30
+                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                        : Number(marginPct) >= 15
+                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                    }`}
+                                  >
+                                    {marginPct}%
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                    {item.status || 'Active'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <div className="flex items-center justify-end space-x-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveFXTTCard({
+                                          cardType: 'product_category',
+                                          cardId: item.id,
+                                          cardTitle: item.name,
+                                          cardSubtitle: `${item.code} • ${item.category} • Cost ${formatCurrency(item.costPrice, activeCurr)} / Sell ${formatCurrency(item.retailPrice, activeCurr)}`,
+                                          cardTag: item.type === 'product' ? 'PRODUCT DELIVERABLE' : 'COMMERCIAL SERVICE'
+                                        });
+                                      }}
+                                      className="p-1 px-2 bg-slate-100 hover:bg-[#0078d4] hover:text-white rounded text-[11px] font-medium text-slate-700 transition-colors cursor-pointer"
+                                      title="Open in FXTT Grid"
+                                    >
+                                      FXTT
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleOpenEdit(
+                                          item.type === 'product' ? 'produce' : 'revenue',
+                                          item.id,
+                                          {
+                                            name: item.name,
+                                            title: item.name,
+                                            code: item.code,
+                                            category: item.category,
+                                            subCategory: item.subCategory,
+                                            unit: item.unit,
+                                            retailPrice: item.retailPrice,
+                                            costPrice: item.costPrice
+                                          }
+                                        );
+                                      }}
+                                      className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-600 dark:text-slate-300 cursor-pointer"
+                                      title="Edit Deliverable"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenDelete('Revenue Deliverable', item.id, item.name, 'revenue-streams')}
+                                      className="p-1 hover:bg-rose-100 dark:hover:bg-rose-950 text-rose-600 rounded cursor-pointer"
+                                      title="Delete Record"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {filteredRevenueRecords.length === 0 && (
+                            <tr>
+                              <td colSpan={11} className="py-8 text-center text-slate-400">
+                                No revenue records found in the database. Use "+ Add Product" or "+ Add Revenue Item" to create one.
                               </td>
                             </tr>
-                          );
-                        })}
-                      {combinedAllRevenueRecords.length === 0 && (
-                        <tr>
-                          <td colSpan={11} className="py-8 text-center text-slate-400">
-                            No revenue records found in the database. Use "+ Add Product" or "+ Add Revenue Item" to create one.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* SUB-PORTAL: PRODUCTS (Product categories which we supply) */}
           {/* SUB-PORTAL: PRODUCTS (Manufactured Products Supplied to Customers) */}
@@ -5919,74 +6218,238 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
           })()}
 
           {/* SUB-PORTAL: SERVICES (Service categories we render to the customer - not others) */}
-          {revenueSubTab === 'services' && (
-            <div className="space-y-4">
-              <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex items-center space-x-2 text-xs text-slate-600">
-                <button
-                  onClick={() => setSelectedServiceCatId(null)}
-                  className={`hover:text-[#003049] transition-colors ${!selectedServiceCatId ? 'font-normal text-[#003049]' : ''}`}
-                >
-                  All Customer Service Categories (Level 1)
-                </button>
+          {revenueSubTab === 'services' && (() => {
+            const activeCurr = getStoredCurrency() || 'LKR';
+            const serviceRecords = combinedAllRevenueRecords.filter((r) => r.type === 'service');
+            const selectedCatName = selectedServiceCatId ? categories.find((c) => c.id === selectedServiceCatId)?.name : null;
+            const categoryDeliverables = selectedCatName
+              ? serviceRecords.filter((r) => r.category.toLowerCase() === selectedCatName.toLowerCase())
+              : serviceRecords;
 
-                {selectedServiceCatId && (
-                  <>
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="font-normal text-[#003049]">
-                      {categories.find((c) => c.id === selectedServiceCatId)?.name} (Tariffs & Rates)
-                    </span>
-                  </>
-                )}
-              </div>
+            return (
+              <div className="space-y-4">
+                <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 dark:text-slate-300">
+                  <div className="flex items-center space-x-2 flex-wrap">
+                    <button
+                      onClick={() => setSelectedServiceCatId(null)}
+                      className={`hover:text-[#003049] dark:hover:text-sky-400 transition-colors cursor-pointer ${!selectedServiceCatId ? 'font-bold text-[#003049] dark:text-sky-400' : ''}`}
+                    >
+                      Customer Services Scopes (Level 1)
+                    </button>
 
-              {!selectedServiceCatId && (
-                <div>
-                  <div className="text-xs text-slate-500 mb-2">
-                    Click any service category we render to the customer to view billable tariff rates (not outsourced supplier costs):
+                    {selectedServiceCatId && (
+                      <>
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="font-bold text-[#003049] dark:text-sky-400">
+                          {selectedCatName} (Tariffs & Deliverables)
+                        </span>
+                      </>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {categories
-                      .filter((c) => c.group === 'service' && c.type === 'category')
-                      .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
-                      .map((cat) => {
-                        const style = getTileStyle(cat.id, cat.themeId);
-                        return (
-                          <ModernTileCard
-                            key={cat.id}
-                            id={cat.id}
-                            tag="CUSTOMER SERVICE SCOPE"
-                            title={cat.name}
-                            brief={cat.brief}
-                            actionLabel="VIEW TARIFF RATES"
-                            actionVariant="link"
-                            themeId={style.themeId}
-                            customGradient={style.customGradient}
-                            onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
-                            onEdit={() =>
-                              handleOpenEdit('category', cat.id, {
-                                title: cat.name,
-                                name: cat.name,
-                                brief: cat.brief
-                              })
-                            }
-                            onDelete={() => handleOpenDelete('Customer Service Scope', cat.id, cat.name, 'revenue-streams')}
-                            onDuplicate={() => handleDuplicate('category', cat.id)}
-                            onAction={() => setSelectedServiceCatId(cat.id)}
-                            onViewListView={() => {
-                              setActiveFXTTCard({
-                                cardType: 'service_category',
-                                cardId: cat.id,
-                                cardTitle: cat.name,
-                                cardSubtitle: cat.brief,
-                                cardTag: 'CUSTOMER SERVICE SCOPE'
-                              });
-                            }}
-                          />
-                        );
-                      })}
+
+                  {/* View Mode Switcher for Services */}
+                  <div className="flex items-center space-x-2">
+                    <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+                      <button
+                        type="button"
+                        id="view-mode-services-hierarchy"
+                        onClick={() => setServiceViewMode('hierarchy')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          serviceViewMode === 'hierarchy'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white font-semibold shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <FolderTree className="w-3.5 h-3.5" />
+                        <span>Scope Hierarchy</span>
+                      </button>
+                      <button
+                        type="button"
+                        id="view-mode-services-cards"
+                        onClick={() => setServiceViewMode('cards')}
+                        className={`px-2.5 py-1 rounded-md transition-all flex items-center space-x-1.5 cursor-pointer ${
+                          serviceViewMode === 'cards'
+                            ? 'bg-white dark:bg-slate-700 text-[#003049] dark:text-white font-semibold shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>Service Deliverable Cards ({serviceRecords.length})</span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddItemPortal('revenue');
+                        setAddItemCategoryId(selectedServiceCatId || undefined);
+                        setAddItemSubCategoryId(undefined);
+                        setIsAddItemModalOpen(true);
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-white" />
+                      <span>+ Add Service</span>
+                    </button>
                   </div>
                 </div>
-              )}
+
+                {/* 1. Direct Service Deliverables Cards View */}
+                {serviceViewMode === 'cards' && (
+                  <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      {serviceRecords
+                        .filter((item) => !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.code.toLowerCase().includes(searchQuery.toLowerCase()) || item.category.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map((item) => {
+                          const style = getTileStyle(item.id, item.themeId || 'napa-purple');
+                          const marginPct = item.retailPrice > 0
+                            ? (((item.retailPrice - item.costPrice) / item.retailPrice) * 100).toFixed(1)
+                            : '0.0';
+                          const numMargin = Number(marginPct);
+
+                          return (
+                            <ModernTileCard
+                              key={item.id}
+                              id={item.id}
+                              tag="CUSTOMER SERVICE REVENUE"
+                              title={item.name}
+                              brief={`Code: ${item.code} • ${item.category}${item.subCategory ? ` / ${item.subCategory}` : ''}`}
+                              actionLabel="COMPETITOR RATES"
+                              actionVariant="button"
+                              themeId={style.themeId}
+                              customGradient={style.customGradient}
+                              onChangeTheme={(tId, grad) => handleUpdateTileTheme(item.id, tId, grad)}
+                              onAction={() => {
+                                setActiveCompetitorMatrixItem({
+                                  item: {
+                                    id: item.id,
+                                    code: item.code,
+                                    name: item.name,
+                                    category: item.category,
+                                    unit: item.unit,
+                                    ourPrice: item.retailPrice,
+                                    ourCost: item.costPrice,
+                                    currency: activeCurr,
+                                    type: 'service'
+                                  },
+                                  itemType: 'revenue_item'
+                                });
+                              }}
+                              onViewListView={() => {
+                                setActiveFXTTCard({
+                                  cardType: 'service_category',
+                                  cardId: item.id,
+                                  cardTitle: item.name,
+                                  cardSubtitle: `${item.code} • Cost: ${formatCurrency(item.costPrice, activeCurr)} / Quoted: ${formatCurrency(item.retailPrice, activeCurr)}`,
+                                  cardTag: 'CUSTOMER SERVICE REVENUE'
+                                });
+                              }}
+                              listViewLabel="FXTT & Competitors"
+                              onEdit={() => {
+                                handleOpenEdit(
+                                  'revenue',
+                                  item.id,
+                                  {
+                                    name: item.name,
+                                    title: item.name,
+                                    code: item.code,
+                                    category: item.category,
+                                    subCategory: item.subCategory,
+                                    unit: item.unit,
+                                    retailPrice: item.retailPrice,
+                                    costPrice: item.costPrice,
+                                    themeId: style.themeId,
+                                    customGradient: style.customGradient
+                                  }
+                                );
+                              }}
+                              onDelete={() => handleOpenDelete('Revenue Deliverable', item.id, item.name, 'revenue-streams')}
+                              onDuplicate={() => handleDuplicate('revenue', item.id)}
+                              extraMeta={
+                                <div className="space-y-1.5 pt-1">
+                                  <div className="flex items-center justify-between text-[11px] text-white/95">
+                                    <span className="bg-black/35 px-2 py-0.5 rounded text-[10px] font-mono">
+                                      Cost: {formatCurrency(item.costPrice, activeCurr)} / {item.unit}
+                                    </span>
+                                    <span className="bg-emerald-500/80 px-2 py-0.5 rounded text-[10px] font-bold text-white shadow-2xs">
+                                      Sell: {formatCurrency(item.retailPrice, activeCurr)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[10px] text-white/90 pt-0.5">
+                                    <span
+                                      className={`px-1.5 py-0.2 rounded font-bold ${
+                                        numMargin >= 30
+                                          ? 'bg-emerald-500/80 text-white'
+                                          : numMargin >= 15
+                                          ? 'bg-amber-500/80 text-white'
+                                          : 'bg-rose-500/80 text-white'
+                                      }`}
+                                    >
+                                      +{marginPct}% Margin
+                                    </span>
+                                    <span className="bg-black/25 px-1.5 py-0.2 rounded font-mono text-[9px] uppercase tracking-wide">
+                                      {item.code} • {item.status || 'Active'}
+                                    </span>
+                                  </div>
+                                </div>
+                              }
+                            />
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Hierarchy Scope View */}
+                {serviceViewMode === 'hierarchy' && !selectedServiceCatId && (
+                  <div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                      Click any customer service scope category to view child tariffs, scopes, and billable deliverables:
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {categories
+                        .filter((c) => c.group === 'service' && c.type === 'category')
+                        .filter((c) => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.brief.toLowerCase().includes(searchQuery.toLowerCase()))
+                        .map((cat) => {
+                          const style = getTileStyle(cat.id, cat.themeId);
+                          const matchingServices = serviceRecords.filter((r) => r.category.toLowerCase() === cat.name.toLowerCase());
+                          return (
+                            <ModernTileCard
+                              key={cat.id}
+                              id={cat.id}
+                              tag="CUSTOMER SERVICE SCOPE"
+                              title={cat.name}
+                              brief={cat.brief || `${matchingServices.length} billable services`}
+                              actionLabel="VIEW TARIFF RATES"
+                              actionVariant="link"
+                              themeId={style.themeId}
+                              customGradient={style.customGradient}
+                              onChangeTheme={(tId, grad) => handleUpdateTileTheme(cat.id, tId, grad)}
+                              onEdit={() =>
+                                handleOpenEdit('category', cat.id, {
+                                  title: cat.name,
+                                  name: cat.name,
+                                  brief: cat.brief
+                                })
+                              }
+                              onDelete={() => handleOpenDelete('Customer Service Scope', cat.id, cat.name, 'revenue-streams')}
+                              onDuplicate={() => handleDuplicate('category', cat.id)}
+                              onAction={() => setSelectedServiceCatId(cat.id)}
+                              onViewListView={() => {
+                                setActiveFXTTCard({
+                                  cardType: 'service_category',
+                                  cardId: cat.id,
+                                  cardTitle: cat.name,
+                                  cardSubtitle: cat.brief,
+                                  cardTag: 'CUSTOMER SERVICE SCOPE'
+                                });
+                              }}
+                            />
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
 
               {selectedServiceCatId && (
                 <div>
@@ -6077,7 +6540,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
                 </div>
               )}
             </div>
-          )}
+          );
+        })()}
 
           {/* SUB-PORTAL: HIERARCHY (CATEGORIES & SUB-CATEGORIES OF REVENUE & PRODUCTS) */}
           {revenueSubTab === 'hierarchy' && (

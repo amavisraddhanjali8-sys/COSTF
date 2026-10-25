@@ -1482,35 +1482,19 @@ export class PostgresService {
         );
       `);
 
-      // Seed default revenue categories if empty
-      const catCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_categories');
-      if (Number(catCountRes.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO revenue_categories (id, code, name, type, description, sort_order) VALUES
-            ('revcat-01', 'CAT-ALUM', 'Architectural & Structural Aluminium', 'product', 'Manufactured aluminium architectural assemblies, doors, windows, curtain walls, and structural frames', 1),
-            ('revcat-02', 'CAT-AUTO', 'Industrial Automation & Machinery', 'product', 'Custom robotic cells, CNC automated lines, and servo-press assemblies', 2),
-            ('revcat-03', 'CAT-MECH', 'Mechanical Fabrication & Systems', 'product', 'Heavy structural frames, pressure vessels, and pre-engineered steel fabrications', 3),
-            ('revcat-04', 'CAT-ENGR', 'Engineering & Design Consultancy', 'service', 'Structural PE engineering calculations, FEA analysis, and CAD detailing', 4),
-            ('revcat-05', 'CAT-INST', 'Site Installation & Commissioning', 'service', 'Turnkey on-site mechanical erection, electrical wiring, and performance testing', 5),
-            ('revcat-06', 'CAT-MAINT', 'Facility Integration & Maintenance', 'service', 'Scheduled preventive servicing, calibration, and 24/7 SLA operational response', 6)
-          ON CONFLICT (code) DO NOTHING;
-        `);
-      }
-
-      // Seed default revenue subcategories if empty
-      const subcatCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_subcategories');
-      if (Number(subcatCountRes.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO revenue_subcategories (id, category_id, category_name, code, name, description, sort_order) VALUES
-            ('revsub-01', 'revcat-01', 'Architectural & Structural Aluminium', 'SUB-FAC', 'Curtain Wall Profiles & Facades', 'Thermally broken curtain walls', 1),
-            ('revsub-02', 'revcat-01', 'Architectural & Structural Aluminium', 'SUB-EXT', 'Heavy Structural Extrusions', 'Custom alloy structural profiles', 2),
-            ('revsub-03', 'revcat-02', 'Industrial Automation & Machinery', 'SUB-ROB', 'Custom Robotic End-Effectors', 'Grippers and servo actuators', 1),
-            ('revsub-04', 'revcat-02', 'Industrial Automation & Machinery', 'SUB-JIG', 'Inspection Jigs & Tooling', 'Precision nestings and fixtures', 2),
-            ('revsub-05', 'revcat-04', 'Engineering & Design Consultancy', 'SUB-FEA', 'FEA Analysis & Structural PE', 'Finite element structural simulation', 1),
-            ('revsub-06', 'revcat-05', 'Site Installation & Commissioning', 'SUB-CAL', 'Turnkey Laser Calibration', 'On-site installation and alignment', 1)
-          ON CONFLICT (id) DO NOTHING;
-        `);
-      }
+      // Purge all dummy revenue records, categories, and benchmark quotes
+      await db.exec(`
+        DELETE FROM revenue_rate_history WHERE revenue_item_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR revenue_item_id LIKE 'rev-srv-%';
+        DELETE FROM product_competitor_price_history WHERE item_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR item_id LIKE 'rev-srv-%';
+        DELETE FROM product_competitor_quotes WHERE item_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR item_id LIKE 'rev-srv-%';
+        DELETE FROM competitor WHERE item_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR item_id LIKE 'rev-srv-%';
+        DELETE FROM project_deliverables WHERE revenue_item_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR revenue_item_id LIKE 'rev-srv-%';
+        DELETE FROM barcode_registry WHERE entity_id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR entity_id LIKE 'rev-srv-%';
+        DELETE FROM revenue_items WHERE id IN ('rev-srv-01', 'rev-srv-02', 'rev-srv-03', 'rev-srv-04') OR code LIKE 'REV-SRV-%';
+        DELETE FROM revenue_subcategories WHERE id IN ('revsub-01', 'revsub-02', 'revsub-03', 'revsub-04', 'revsub-05', 'revsub-06') OR category_id IN ('revcat-01', 'revcat-02', 'revcat-03', 'revcat-04', 'revcat-05', 'revcat-06') OR category_id LIKE 'revcat-%';
+        DELETE FROM revenue_categories WHERE id IN ('revcat-01', 'revcat-02', 'revcat-03', 'revcat-04', 'revcat-05', 'revcat-06') OR code IN ('CAT-ALUM', 'CAT-AUTO', 'CAT-MECH', 'CAT-ENGR', 'CAT-INST', 'CAT-MAINT');
+        DELETE FROM categories WHERE id IN ('rev-serv-cat-01', 'rev-serv-sub-01-01', 'rev-serv-cat-02', 'rev-serv-sub-02-01');
+      `).catch(() => {});
 
       // Seed default overhead categories if empty
       const ovhCatCountRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_categories');
@@ -1524,7 +1508,7 @@ export class PostgresService {
         `);
       }
 
-      // Seed standard overhead and revenue nodes in categories table
+      // Seed standard overhead nodes in categories table
       const overheadInCats = await db.query("SELECT COUNT(*) as cnt FROM categories WHERE group_name = 'overhead'");
       if (Number(overheadInCats.rows[0]?.cnt || 0) === 0) {
         await db.exec(`
@@ -1537,11 +1521,7 @@ export class PostgresService {
             ('oh-sub-02-02', 'Facility Leasing & Depreciation', 'sub_category', 'overhead', 'oh-cat-02', 'Utilities & Plant Facilities', 'Square footage lease and plant maintenance', 'teal-deep', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
             ('oh-cat-03', 'Administrative & Quality Assurance', 'category', 'overhead', NULL, NULL, 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance', 'airbus-cobalt', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
             ('oh-sub-03-01', 'Quality Audits & Compliance Testing', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'CMM calibration, ultrasonic NDT tests, and standard audits', 'airbus-cobalt', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-sub-03-02', 'ERP Software & Cloud Infrastructure', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'Compute licensing and enterprise database servers', 'indigo-night', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('rev-serv-cat-01', 'Engineering & Design Consultancy', 'category', 'service', NULL, NULL, 'Structural PE engineering calculations, FEA analysis, and CAD detailing', 'napa-purple', 'SERVICE ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
-            ('rev-serv-sub-01-01', 'FEA Stress Analysis & Simulation', 'sub_category', 'service', 'rev-serv-cat-01', 'Engineering & Design Consultancy', 'Non-linear finite element structural simulation', 'napa-purple', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('rev-serv-cat-02', 'Site Installation & Commissioning', 'category', 'service', NULL, NULL, 'Turnkey on-site mechanical erection, electrical wiring, and performance testing', 'crimson-horizon', 'SERVICE ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
-            ('rev-serv-sub-02-01', 'On-Site Machine Calibration & Commissioning', 'sub_category', 'service', 'rev-serv-cat-02', 'Site Installation & Commissioning', 'Laser alignment, hydraulic pressure testing, and pilot handover', 'crimson-horizon', 'SUB-CATEGORY', 'VIEW ITEMS', NOW())
+            ('oh-sub-03-02', 'ERP Software & Cloud Infrastructure', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'Compute licensing and enterprise database servers', 'indigo-night', 'SUB-CATEGORY', 'VIEW ITEMS', NOW())
           ON CONFLICT (id) DO NOTHING;
         `);
       }
@@ -1559,53 +1539,6 @@ export class PostgresService {
             ('ovh-seed-02', 'OVH-IND-002', 'BC-OVH-IND-002', 'Plant Safety Equipment & PPE Re-issuance', 'Indirect Materials & Factory Consumables', 'PPE & Operational Safety', 'Respirators, safety goggles, welding shields, and cut-resistant Kevlar gloves', 'Variable', 'fixed_amount', 2200.00, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'sunset-amber'),
             ('ovh-seed-03', 'OVH-UTL-001', 'BC-OVH-UTL-001', 'Industrial Three-Phase Electricity & Machine Draw', 'Utilities & Plant Facilities', 'Industrial Three-Phase Power', 'Substation electrical utility consumption for high-speed machining centers', 'Semi-Variable', 'percentage_of_cost_base', 4.50, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'pacific-sky'),
             ('ovh-seed-04', 'OVH-ADM-001', 'BC-OVH-ADM-001', 'ISO 9001 / AS9100 Annual Quality Audits & NDT', 'Administrative & Quality Assurance', 'Quality Audits & Compliance Testing', 'Accredited third-party quality systems audit, ISO surveillance, and CMM laser calibration', 'Fixed', 'fixed_amount', 12500.00, 'total_direct_cost', 'year', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'airbus-cobalt')
-          ON CONFLICT (code) DO NOTHING;
-        `);
-      }
-
-      // Seed/backfill revenue_items from produce_items where type IN ('product', 'service')
-      // STRICT REQUIREMENT: Only products sold by company and services provided by company.
-      // NEVER include outsourced third-party services.
-      const revItemCountRes = await db.query('SELECT COUNT(*) as cnt FROM revenue_items');
-      if (Number(revItemCountRes.rows[0]?.cnt || 0) === 0) {
-        const prodRes = await db.query("SELECT * FROM produce_items WHERE type IN ('product', 'service')");
-        for (const p of prodRes.rows) {
-          await db.query(
-            `INSERT INTO revenue_items (
-              id, code, barcode, name, type, category, sub_category, description, unit,
-              default_rate, cost_price, currency, tax_treatment, tax_rate_pct, status, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Standard (0%)', 0, 'Active', NOW(), NOW())
-            ON CONFLICT (code) DO NOTHING`,
-            [
-              `rev-${p.id}`,
-              p.code,
-              p.barcode || `BC-${p.code}`,
-              p.name,
-              p.type || 'product',
-              p.category || 'Architectural & Structural Aluminium',
-              p.sub_category || '',
-              `Commercial product/service: ${p.name}`,
-              p.unit || 'unit',
-              round4(p.retail_price || p.cost_price || 0),
-              round4(p.cost_price || 0),
-              p.currency || 'USD'
-            ]
-          ).catch(() => {});
-        }
-      }
-
-      // Ensure dedicated customer revenue services exist in revenue_items
-      const revServiceCount = await db.query("SELECT COUNT(*) as cnt FROM revenue_items WHERE type = 'service'");
-      if (Number(revServiceCount.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO revenue_items (
-            id, code, barcode, name, type, category, sub_category, description, unit,
-            default_rate, cost_price, currency, tax_treatment, tax_rate_pct, status, created_at, updated_at
-          ) VALUES
-            ('rev-srv-01', 'REV-SRV-001', 'BC-REV-SRV-001', 'FEA Structural Stress Analysis & Design Review', 'service', 'Engineering & Design Consultancy', 'FEA Stress Analysis & Simulation', 'Comprehensive non-linear finite element structural simulation and certification report', 'hours', 185.00, 95.00, 'USD', 'Standard (0%)', 0, 'Active', NOW(), NOW()),
-            ('rev-srv-02', 'REV-SRV-002', 'BC-REV-SRV-002', 'On-Site CMM Laser Calibration & Metrology', 'service', 'Site Installation & Commissioning', 'On-Site Machine Calibration & Commissioning', 'High-precision coordinate measuring laser tracking and sub-micron spatial calibration', 'day', 2400.00, 1200.00, 'USD', 'Standard (0%)', 0, 'Active', NOW(), NOW()),
-            ('rev-srv-03', 'REV-SRV-003', 'BC-REV-SRV-003', 'Turnkey Robotic Cell Commissioning & FAT', 'service', 'Site Installation & Commissioning', 'On-Site Machine Calibration & Commissioning', 'Field acceptance testing, safety interlock commissioning, and robotic trajectory optimization', 'project', 18500.00, 9800.00, 'USD', 'Standard (0%)', 0, 'Active', NOW(), NOW()),
-            ('rev-srv-04', 'REV-SRV-004', 'BC-REV-SRV-004', 'AS9100 / ISO Quality Audit & Compliance Support', 'service', 'Engineering & Design Consultancy', 'Quality & Compliance Verification', 'Accredited third-party aerospace & defense quality surveillance and documentation package', 'hours', 220.00, 110.00, 'USD', 'Standard (0%)', 0, 'Active', NOW(), NOW())
           ON CONFLICT (code) DO NOTHING;
         `);
       }
@@ -3631,7 +3564,61 @@ export class PostgresService {
 
   public async deleteProduce(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query('DELETE FROM produce_items WHERE id=$1', [id]);
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
+
+    const strippedId = cleanId.startsWith('rev-') ? cleanId.slice(4) : cleanId;
+    const prefixedId = `rev-${strippedId}`;
+
+    const prodRes = await db.query('SELECT code FROM produce_items WHERE id = $1 OR id = $2', [cleanId, strippedId]).catch(() => ({ rows: [] }));
+    const prodCode = prodRes.rows[0]?.code || '';
+
+    // Cascade delete across all foreign references
+    await db.query(
+      `DELETE FROM product_competitor_price_history WHERE item_id = $1 OR item_id = $2 OR quote_id IN (
+        SELECT id FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2
+      )`,
+      [cleanId, strippedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2',
+      [cleanId, strippedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM competitor WHERE item_id = $1 OR item_id = $2',
+      [cleanId, strippedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM project_deliverables WHERE produce_item_id = $1 OR produce_item_id = $2 OR revenue_item_id = $1 OR revenue_item_id = $2 OR revenue_item_id = $3',
+      [cleanId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM project_plan_boq_items WHERE catalog_item_id = $1 OR catalog_item_id = $2 OR revenue_item_id = $1 OR revenue_item_id = $2 OR revenue_item_id = $3',
+      [cleanId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM revenue_rate_history WHERE revenue_item_id = $1 OR revenue_item_id = $2 OR revenue_item_id = $3',
+      [cleanId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM barcode_registry WHERE entity_id = $1 OR entity_id = $2 OR entity_id = $3 OR entity_code = $4',
+      [cleanId, strippedId, prefixedId, prodCode]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM price_history_records WHERE entity_id = $1 OR entity_id = $2 OR entity_id = $3',
+      [cleanId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    await db.query('DELETE FROM produce_items WHERE id = $1 OR id = $2', [cleanId, strippedId]).catch(() => {});
+    await db.query('DELETE FROM revenue_items WHERE id = $1 OR id = $2 OR id = $3', [cleanId, strippedId, prefixedId]).catch(() => {});
+
     return true;
   }
 
@@ -5969,6 +5956,15 @@ export class PostgresService {
         await q('DELETE FROM overhead_categories WHERE id = $1 OR name = $2', [id, catName]).catch(() => {});
       } else {
         await q('DELETE FROM overhead_categories WHERE id = $1', [id]).catch(() => {});
+      }
+
+      // Delete from revenue_categories and revenue_subcategories if matching
+      if (catName) {
+        await q('DELETE FROM revenue_categories WHERE id = $1 OR name = $2', [id, catName]).catch(() => {});
+        await q('DELETE FROM revenue_subcategories WHERE id = $1 OR name = $2 OR category_id = $1', [id, catName]).catch(() => {});
+      } else {
+        await q('DELETE FROM revenue_categories WHERE id = $1', [id]).catch(() => {});
+        await q('DELETE FROM revenue_subcategories WHERE id = $1 OR category_id = $1', [id]).catch(() => {});
       }
 
       // Delete child categories and the category itself
@@ -9409,8 +9405,10 @@ export class PostgresService {
     // Unlink items in revenue_items referencing this category
     if (catName) {
       await db.query("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category = $1 OR category_id = $2", [catName, id]).catch(() => {});
+      await db.query("DELETE FROM categories WHERE id = $1 OR name = $2", [id, catName]).catch(() => {});
     } else {
       await db.query("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category_id = $1", [id]).catch(() => {});
+      await db.query("DELETE FROM categories WHERE id = $1", [id]).catch(() => {});
     }
     // Delete associated subcategories
     await db.query('DELETE FROM revenue_subcategories WHERE category_id = $1', [id]).catch(() => {});
@@ -9464,8 +9462,10 @@ export class PostgresService {
     const subName = subRes.rows[0]?.name;
     if (subName) {
       await db.query("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category = $1 OR sub_category_id = $2", [subName, id]).catch(() => {});
+      await db.query("DELETE FROM categories WHERE id = $1 OR name = $2", [id, subName]).catch(() => {});
     } else {
       await db.query("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category_id = $1", [id]).catch(() => {});
+      await db.query("DELETE FROM categories WHERE id = $1", [id]).catch(() => {});
     }
     await db.query('DELETE FROM revenue_subcategories WHERE id = $1', [id]);
     return true;
@@ -9891,12 +9891,75 @@ export class PostgresService {
 
   public async deleteRevenueItem(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
     const db = await this.getDb();
-    const existing = await this.getRevenueItemById(id);
-    if (!existing) return false;
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
 
-    await db.query('DELETE FROM project_plan_boq_items WHERE revenue_item_id = $1', [id]).catch(() => {});
-    await db.query('DELETE FROM revenue_rate_history WHERE revenue_item_id = $1', [id]).catch(() => {});
-    await db.query('DELETE FROM revenue_items WHERE id = $1', [id]);
+    // Resolve item in revenue_items or produce_items
+    let existing = await this.getRevenueItemById(cleanId);
+    let targetId = cleanId;
+    if (!existing && cleanId.startsWith('rev-')) {
+      existing = await this.getRevenueItemById(cleanId.slice(4));
+      if (existing) targetId = cleanId.slice(4);
+    } else if (!existing && !cleanId.startsWith('rev-')) {
+      existing = await this.getRevenueItemById(`rev-${cleanId}`);
+      if (existing) targetId = `rev-${cleanId}`;
+    }
+
+    const itemCode = existing?.code || cleanId;
+    const strippedId = targetId.startsWith('rev-') ? targetId.slice(4) : targetId;
+    const prefixedId = `rev-${strippedId}`;
+
+    // 1. Cascade delete project plan BOQ line items
+    await db.query(
+      'DELETE FROM project_plan_boq_items WHERE revenue_item_id = $1 OR revenue_item_id = $2 OR catalog_item_id = $1 OR catalog_item_id = $2 OR item_code = $3',
+      [targetId, strippedId, itemCode]
+    ).catch(() => {});
+
+    // 2. Cascade delete revenue rate history records
+    await db.query(
+      'DELETE FROM revenue_rate_history WHERE revenue_item_id = $1 OR revenue_item_id = $2 OR revenue_item_id = $3',
+      [targetId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    // 3. Cascade delete competitor quotes and price histories
+    await db.query(
+      `DELETE FROM product_competitor_price_history WHERE item_id = $1 OR item_id = $2 OR quote_id IN (
+        SELECT id FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2
+      )`,
+      [targetId, strippedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2',
+      [targetId, strippedId]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM competitor WHERE item_id = $1 OR item_id = $2',
+      [targetId, strippedId]
+    ).catch(() => {});
+
+    // 4. Cascade delete project deliverables
+    await db.query(
+      'DELETE FROM project_deliverables WHERE revenue_item_id = $1 OR revenue_item_id = $2 OR revenue_item_id = $3 OR produce_item_id = $1 OR produce_item_id = $2',
+      [targetId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    // 5. Cascade delete barcodes & price history
+    await db.query(
+      'DELETE FROM barcode_registry WHERE entity_id = $1 OR entity_id = $2 OR entity_id = $3 OR entity_code = $4',
+      [targetId, strippedId, prefixedId, itemCode]
+    ).catch(() => {});
+
+    await db.query(
+      'DELETE FROM price_history_records WHERE entity_id = $1 OR entity_id = $2 OR entity_id = $3',
+      [targetId, strippedId, prefixedId]
+    ).catch(() => {});
+
+    // 6. Delete from both revenue_items and produce_items
+    await db.query('DELETE FROM revenue_items WHERE id = $1 OR id = $2 OR id = $3 OR code = $4', [targetId, strippedId, prefixedId, itemCode]).catch(() => {});
+    await db.query('DELETE FROM produce_items WHERE id = $1 OR id = $2 OR id = $3 OR code = $4', [targetId, strippedId, prefixedId, itemCode]).catch(() => {});
+
     return true;
   }
 
@@ -13019,31 +13082,7 @@ export class PostgresService {
         CREATE INDEX IF NOT EXISTS idx_competitor_created_at ON competitor(created_at DESC);
       `);
 
-      // Seed initial competitor records if empty
-      const compCountRes = await db.query('SELECT COUNT(*) as cnt FROM competitor');
-      if (Number(compCountRes.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO competitor (
-            id, competitor_name, item_id, item_code, item_name, item_type,
-            product_service_association, pricing, currency, our_price, price_delta, spread_pct,
-            market_tier, notes, quoted_at, created_at, updated_at
-          ) VALUES
-            -- Revenue Services Benchmarks
-            ('comp-c01', 'Apex Industrial Dynamics', 'rev-srv-01', 'REV-SRV-001', 'FEA Structural Stress Analysis & Design Review', 'service', 'REV-SRV-001 • FEA Structural Stress Analysis', 195.00, 'USD', 185.00, 10.00, 5.41, 'Market Leader', 'Quoted for ASME Section VIII certified simulation', CURRENT_DATE, NOW(), NOW()),
-            ('comp-c02', 'Global Core Systems Ltd', 'rev-srv-01', 'REV-SRV-001', 'FEA Structural Stress Analysis & Design Review', 'service', 'REV-SRV-001 • FEA Structural Stress Analysis', 210.00, 'USD', 185.00, 25.00, 13.51, 'Premium Rival', 'European engineering rates with Eurocode validation', CURRENT_DATE, NOW(), NOW()),
-            ('comp-c03', 'Benchmark Industry Average', 'rev-srv-01', 'REV-SRV-001', 'FEA Structural Stress Analysis & Design Review', 'service', 'REV-SRV-001 • FEA Structural Stress Analysis', 190.00, 'USD', 185.00, 5.00, 2.70, 'Market Benchmark', 'Aggregated median engineering consultancy rate', CURRENT_DATE, NOW(), NOW()),
-
-            ('comp-c04', 'Apex Industrial Dynamics', 'rev-srv-02', 'REV-SRV-002', 'On-Site CMM Laser Calibration & Metrology', 'service', 'REV-SRV-002 • On-Site CMM Laser Calibration', 2550.00, 'USD', 2400.00, 150.00, 6.25, 'Market Leader', 'Field technician daily metrology day-rate', CURRENT_DATE, NOW(), NOW()),
-            ('comp-c05', 'Vanguard Precision Tech', 'rev-srv-02', 'REV-SRV-002', 'On-Site CMM Laser Calibration & Metrology', 'service', 'REV-SRV-002 • On-Site CMM Laser Calibration', 2280.00, 'USD', 2400.00, -120.00, -5.00, 'Low-Cost Challenger', 'Rapid field calibration service without ISO certificate', CURRENT_DATE, NOW(), NOW()),
-
-            ('comp-c06', 'Apex Industrial Dynamics', 'rev-srv-03', 'REV-SRV-003', 'Turnkey Robotic Cell Commissioning & FAT', 'service', 'REV-SRV-003 • Turnkey Robotic Cell Commissioning', 19800.00, 'USD', 18500.00, 1300.00, 7.03, 'Primary Competitor', 'Standard robotic cell FAT and pilot signoff', CURRENT_DATE, NOW(), NOW()),
-            ('comp-c07', 'Benchmark Industry Average', 'rev-srv-03', 'REV-SRV-003', 'Turnkey Robotic Cell Commissioning & FAT', 'service', 'REV-SRV-003 • Turnkey Robotic Cell Commissioning', 19000.00, 'USD', 18500.00, 500.00, 2.70, 'Market Benchmark', 'Median turnkey automation commissioning quote', CURRENT_DATE, NOW(), NOW()),
-
-            ('comp-c08', 'Global Core Systems Ltd', 'rev-srv-04', 'REV-SRV-004', 'AS9100 / ISO Quality Audit & Compliance Support', 'service', 'REV-SRV-004 • AS9100 / ISO Quality Audit', 240.00, 'USD', 220.00, 20.00, 9.09, 'Premium Rival', 'Accredited lead auditor hourly rate', CURRENT_DATE, NOW(), NOW()),
-            ('comp-c09', 'Apex Industrial Dynamics', 'rev-srv-04', 'REV-SRV-004', 'AS9100 / ISO Quality Audit & Compliance Support', 'service', 'REV-SRV-004 • AS9100 / ISO Quality Audit', 230.00, 'USD', 220.00, 10.00, 4.55, 'Market Leader', 'Domestic compliance audit hourly rate', CURRENT_DATE, NOW(), NOW())
-          ON CONFLICT (id) DO NOTHING;
-        `);
-      }
+      // Competitor quotes are created by users per product/service
     } catch (e: any) {
       console.warn('[PostgreSQL] ensureProductCompetitorSchema warning:', e?.message);
     }
