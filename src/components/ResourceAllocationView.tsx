@@ -398,7 +398,9 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
       }
       if (onDeleteResource) onDeleteResource(targetId);
       setDbResources((prev) => prev.filter((r) => r.id !== targetId && r.code !== targetCode));
-      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: targetId, code: targetCode } }));
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', {
+        detail: { id: targetId, code: targetCode, deletedId: targetId, action: 'delete' }
+      }));
       setSaveSuccess(`Resource "${resourceToDelete.name}" deleted from database.`);
       setResourceToDelete(null);
       setTimeout(() => setSaveSuccess(null), 3500);

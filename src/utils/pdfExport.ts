@@ -115,12 +115,16 @@ export function exportProjectQuotePDF(project: Project) {
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.text(phase.name.substring(0, 42), 16, y + 4.5);
-    doc.text(`${phase.startDate} to ${phase.endDate}`, 85, y + 4.5);
+    const phaseName = String(phase?.name || `Phase ${idx + 1}`).substring(0, 42);
+    const phaseSchedule = `${phase?.startDate || 'TBD'} to ${phase?.endDate || 'TBD'}`;
+    const phaseBudget = Number(phase?.budget || 0).toLocaleString();
+    const phaseStatus = String(phase?.status || 'Planned');
+    doc.text(phaseName, 16, y + 4.5);
+    doc.text(phaseSchedule, 85, y + 4.5);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${cur} ${Number(phase.budget).toLocaleString()}`, 130, y + 4.5);
+    doc.text(`${cur} ${phaseBudget}`, 130, y + 4.5);
     doc.setFont('helvetica', 'normal');
-    doc.text(phase.status, 168, y + 4.5);
+    doc.text(phaseStatus, 168, y + 4.5);
     y += 6.5;
   });
 

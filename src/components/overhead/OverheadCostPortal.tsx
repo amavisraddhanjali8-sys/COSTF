@@ -351,7 +351,9 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
         await api.deleteOverheadItem(deletingOverheadItem.code).catch(() => {});
       }
       if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
-      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+        detail: { id: targetId, code: targetCode, deletedId: targetId, action: 'delete' }
+      }));
       await loadData();
       if (showToast) showToast(`Overhead item "${deletingOverheadItem.name}" permanently deleted.`);
       setDeletingOverheadItem(null);
@@ -1061,7 +1063,9 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
             onDeleteOverheadItem={async (id) => {
               await api.deleteOverheadItem(id);
               if (onDeleteOverheadItem) onDeleteOverheadItem(id);
-              window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
+              window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+                detail: { id, deletedId: id, action: 'delete' }
+              }));
               await loadData();
               if (showToast) showToast('Overhead item deleted from PostgreSQL database.');
             }}
@@ -1276,7 +1280,9 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
         onDelete={async (id) => {
           await api.deleteOverheadItem(id);
           if (onDeleteOverheadItem) onDeleteOverheadItem(id);
-          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+            detail: { id, deletedId: id, action: 'delete' }
+          }));
           loadData();
           if (showToast) showToast('Overhead item permanently deleted from PostgreSQL.');
         }}

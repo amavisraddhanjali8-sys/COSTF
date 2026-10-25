@@ -8303,7 +8303,9 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             }
             if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
             setOverheadItems((prev) => prev.filter((o) => o.id !== targetId && o.code !== targetCode));
-            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
+            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', {
+              detail: { id: targetId, code: targetCode, deletedId: targetId, action: 'delete' }
+            }));
             showToast(`Overhead item "${target.name}" permanently deleted.`);
           } catch (err: any) {
             console.error('Failed to delete overhead item:', err);

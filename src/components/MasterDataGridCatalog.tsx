@@ -301,9 +301,40 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   const [editStock, setEditStock] = useState<number>(0);
   const [editReason, setEditReason] = useState<string>('');
 
-  // Delete Confirmation States
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<CatalogGridItem | null>(null);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState<boolean>(false);
+  const [deletedItemIds, setDeletedItemIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const handleGenericDelete = (e: any) => {
+      const isDelete = e?.detail?.action === 'delete' || Boolean(e?.detail?.deletedId);
+      const id = e?.detail?.deletedId || (isDelete ? e?.detail?.id : null);
+      const code = e?.detail?.code;
+      if (isDelete && (id || code)) {
+        setDeletedItemIds((prev) => {
+          const next = new Set(prev);
+          if (id) {
+            next.add(id);
+            next.add(id.toLowerCase());
+          }
+          if (code) {
+            next.add(code);
+            next.add(code.toLowerCase());
+          }
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('fxtt-overheads-changed', handleGenericDelete);
+    window.addEventListener('fxtt-resources-changed', handleGenericDelete);
+    window.addEventListener('fxtt-materials-changed', handleGenericDelete);
+    return () => {
+      window.removeEventListener('fxtt-overheads-changed', handleGenericDelete);
+      window.removeEventListener('fxtt-resources-changed', handleGenericDelete);
+      window.removeEventListener('fxtt-materials-changed', handleGenericDelete);
+    };
+  }, []);
 
   // Bulk Price Increase / Adjustment States
   const [isBulkPriceModalOpen, setIsBulkPriceModalOpen] = useState<boolean>(false);
@@ -720,8 +751,12 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       });
     }
 
-    return list;
-  }, [materials, services, subcontractors, suppliers, produceItems, overheads, revenueItems, enterpriseResources]);
+    return list.filter((item) => {
+      if (deletedItemIds.has(item.id) || deletedItemIds.has(item.id.toLowerCase())) return false;
+      if (item.code && (deletedItemIds.has(item.code) || deletedItemIds.has(item.code.toLowerCase()))) return false;
+      return true;
+    });
+  }, [materials, services, subcontractors, suppliers, produceItems, overheads, revenueItems, enterpriseResources, deletedItemIds]);
 
   // Extract facet statistics for the multiple filter settings panel
   const facetStats = useMemo(() => {
@@ -3556,6 +3591,16 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                   if (onDeleteRecord) {
                     onDeleteRecord(rawType, id);
                   }
+                  setDeletedItemIds((prev) => {
+                    const next = new Set(prev);
+                    next.add(id);
+                    next.add(id.toLowerCase());
+                    if (deleteConfirmItem.code) {
+                      next.add(deleteConfirmItem.code);
+                      next.add(deleteConfirmItem.code.toLowerCase());
+                    }
+                    return next;
+                  });
                   showToast(`Deleted ${deleteConfirmItem.code} (${deleteConfirmItem.name}) permanently from PostgreSQL database`);
                   setDeleteConfirmItem(null);
                 }}
@@ -3631,6 +3676,19 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                       }
                     })
                   );
+                  setDeletedItemIds((prev) => {
+                    const next = new Set(prev);
+                    toDelete.forEach((delId) => {
+                      next.add(delId);
+                      next.add(delId.toLowerCase());
+                      const itm = allItems.find((i) => i.id === delId);
+                      if (itm?.code) {
+                        next.add(itm.code);
+                        next.add(itm.code.toLowerCase());
+                      }
+                    });
+                    return next;
+                  });
                   showToast(`Permanently deleted ${toDelete.length} records from PostgreSQL database`);
                   setSelectedIds(new Set());
                   setIsBulkDeleteOpen(false);

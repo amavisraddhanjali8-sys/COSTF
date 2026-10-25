@@ -16,18 +16,7 @@ ALTER TABLE project_plan_boq_items ADD COLUMN IF NOT EXISTS barcode TEXT;
 -- Enforces absolute global uniqueness of all barcodes across the entire enterprise system
 CREATE TABLE IF NOT EXISTS barcode_registry (
   barcode TEXT PRIMARY KEY,
-  entity_type TEXT NOT NULL CHECK (entity_type IN (
-    'material',
-    'revenue_product',
-    'revenue_service',
-    'overhead_item',
-    'supplier',
-    'outsourced_service',
-    'subcontractor',
-    'produce_item',
-    'inventory_item',
-    'client'
-  )),
+  entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
   entity_code TEXT NOT NULL,
   entity_name TEXT NOT NULL,

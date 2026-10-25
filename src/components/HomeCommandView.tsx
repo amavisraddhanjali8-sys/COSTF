@@ -59,7 +59,8 @@ import {
   CalendarEvent,
   OverheadItem,
   RevenueItem,
-  InventoryTransaction
+  InventoryTransaction,
+  EnterpriseResource
 } from '../types';
 import { ActiveTab } from './TopNavbar';
 import { CameraBarcodeScanner } from './CameraBarcodeScanner';
@@ -102,6 +103,7 @@ interface HomeCommandViewProps {
   currentUser?: AppUser | null;
   overheads?: OverheadItem[];
   revenueItems?: RevenueItem[];
+  enterpriseResources?: EnterpriseResource[];
   onAddOverheadItem?: (item: Partial<OverheadItem>) => void;
   onAddRevenueItem?: (item: Partial<RevenueItem>) => void;
 }
@@ -140,6 +142,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   currentUser,
   overheads = [],
   revenueItems = [],
+  enterpriseResources = [],
   onAddOverheadItem,
   onAddRevenueItem
 }) => {
@@ -165,10 +168,19 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
   };
 
   useEffect(() => {
-    if (currentUser?.role === 'ADMIN') {
+    fetchPostgresStatus();
+    const handleDbChange = () => {
       fetchPostgresStatus();
-    }
-  }, [currentUser?.role]);
+    };
+    window.addEventListener('fxtt-overheads-changed', handleDbChange);
+    window.addEventListener('fxtt-resources-changed', handleDbChange);
+    window.addEventListener('fxtt-materials-changed', handleDbChange);
+    return () => {
+      window.removeEventListener('fxtt-overheads-changed', handleDbChange);
+      window.removeEventListener('fxtt-resources-changed', handleDbChange);
+      window.removeEventListener('fxtt-materials-changed', handleDbChange);
+    };
+  }, []);
 
   // Modals
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
@@ -1501,7 +1513,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
             >
               <div className="text-[11px] text-blue-200 font-medium">Overheads</div>
               <div className="text-lg font-bold text-indigo-300 mt-0.5">
-                {overheads.length || postgresStatus?.tables?.overhead_items || 4}
+                {overheads?.length ?? (postgresStatus?.tables?.overhead_items ?? postgresStatus?.tableCounts?.overhead_items ?? 0)}
               </div>
             </div>
             <div
@@ -1510,7 +1522,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
             >
               <div className="text-[11px] text-blue-200 font-medium">Revenue</div>
               <div className="text-lg font-bold text-rose-300 mt-0.5">
-                {revenueItems.length || postgresStatus?.tables?.revenue_items || 6}
+                {revenueItems?.length ?? (postgresStatus?.tables?.revenue_items ?? postgresStatus?.tableCounts?.revenue_items ?? 0)}
               </div>
             </div>
             <div
@@ -1528,7 +1540,7 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
             >
               <div className="text-[11px] text-blue-200 font-medium">Resources</div>
               <div className="text-lg font-bold text-amber-300 mt-0.5">
-                {postgresStatus?.tables?.enterprise_resources || 6}
+                {(enterpriseResources && enterpriseResources.length > 0) ? enterpriseResources.length : (postgresStatus?.tables?.enterprise_resources ?? postgresStatus?.tableCounts?.enterprise_resources ?? 0)}
               </div>
             </div>
           </div>
@@ -3379,11 +3391,11 @@ export const HomeCommandView: React.FC<HomeCommandViewProps> = ({
                     </div>
                     <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg flex justify-between items-center border border-slate-200 dark:border-slate-700">
                       <span className="text-slate-600 dark:text-slate-300 font-mono">inventory_tx</span>
-                      <span className="font-bold text-slate-900 dark:text-white">{postgresStatus?.counts?.inventory_transactions ?? 14}</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{postgresStatus?.tables?.inventory_transactions ?? postgresStatus?.counts?.inventory_transactions ?? 0}</span>
                     </div>
                     <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg flex justify-between items-center border border-slate-200 dark:border-slate-700">
                       <span className="text-slate-600 dark:text-slate-300 font-mono">audit_logs</span>
-                      <span className="font-bold text-slate-900 dark:text-white">{postgresStatus?.counts?.audit_logs ?? 42}</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{postgresStatus?.tables?.audit_logs ?? postgresStatus?.counts?.audit_logs ?? 0}</span>
                     </div>
                   </div>
                 </div>

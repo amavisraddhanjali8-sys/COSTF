@@ -8539,9 +8539,12 @@ export class PostgresService {
     // 1. Clean up allocations in project plans and project_plan_overhead_allocations
     await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM project_plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM project_plan_boq_items WHERE (item_type = $1 OR item_type = $2) AND (item_id = $3 OR item_id = $4 OR item_code = $3 OR item_code = $4)', ['overhead', 'overhead_item', targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM competitor_quotes WHERE (resource_id = $1 OR resource_id = $2 OR item_id = $1 OR item_id = $2)', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2', [targetId, targetCode]).catch(() => {});
 
     // 2. Cascade delete barcodes, price history, and any matching category items
-    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead_item', 'overhead']).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $1 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead_item', 'overhead']).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead', 'overhead_item']).catch(() => {});
     await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'overhead', 'overheads']).catch(() => {});
 
@@ -11689,6 +11692,8 @@ export class PostgresService {
           created_at TIMESTAMPTZ DEFAULT NOW(),
           updated_at TIMESTAMPTZ DEFAULT NOW()
         );
+
+        ALTER TABLE barcode_registry DROP CONSTRAINT IF EXISTS barcode_registry_entity_type_check;
 
         CREATE INDEX IF NOT EXISTS idx_barcode_reg_entity ON barcode_registry(entity_type, entity_id);
         CREATE INDEX IF NOT EXISTS idx_barcode_reg_code ON barcode_registry(entity_code);
@@ -14904,8 +14909,10 @@ export class PostgresService {
     const targetCode = existing?.code || cleanId;
 
     await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1 OR resource_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM project_plan_boq_items WHERE (item_type = $1 OR item_type = $2) AND (item_id = $3 OR item_id = $4 OR item_code = $3 OR item_code = $4)', ['resource', 'enterprise_resource', targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
     await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $1 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
+    await db.query('DELETE FROM competitor_quotes WHERE (resource_id = $1 OR resource_id = $2 OR item_id = $1 OR item_id = $2)', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'resource', 'resources']).catch(() => {});
     await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $1 OR code = $2 OR LOWER(code) = LOWER($1) OR LOWER(code) = LOWER($2) OR LOWER(id) = LOWER($1) OR LOWER(id) = LOWER($2)', [targetId, targetCode]);
@@ -15674,11 +15681,11 @@ export class PostgresService {
 
   public async getDbStats(): Promise<any> {
     const db = await this.getDb();
+    const startTime = Date.now();
     const tables = [
       'clients', 'projects', 'project_plans', 'project_plan_revisions',
       'project_plan_sections', 'project_plan_boq_items', 'project_plan_resources',
       'project_plan_overhead_allocations', 'project_plan_cost_summaries', 'project_plan_cost_controls',
-      'project_plan_overhead_allocations', 'project_plan_cost_summaries',
       'overhead_categories', 'overhead_items', 'plan_overhead_allocations', 'overhead_audit_logs',
       'revenue_categories', 'revenue_subcategories', 'revenue_items', 'revenue_rate_history',
       'competitors', 'product_competitor_quotes', 'product_competitor_price_history', 'project_deliverables',
@@ -15686,7 +15693,7 @@ export class PostgresService {
       'subcontractors', 'produce_items', 'inventory', 'inventory_transactions',
       'price_history_records', 'procurement_price_history', 'categories', 'custom_tiles', 'company_details',
       'users', 'account_requests', 'media_assets', 'audit_logs', 'tariffs', 'tariff_versions', 'plan_tariffs',
-      'enterprise_resources', 'schema_migrations'
+      'enterprise_resources', 'schema_migrations', 'barcode_registry'
     ];
     const counts: Record<string, number> = {};
     for (const t of tables) {
@@ -15697,15 +15704,23 @@ export class PostgresService {
         counts[t] = 0;
       }
     }
+    const latencyMs = Math.max(1, Date.now() - startTime);
     const migrations = await this.getMigrations().catch(() => []);
     return {
+      status: 'Connected',
       connected: true,
-      engine: 'PostgreSQL',
+      engine: 'PostgreSQL (PGlite Relational Engine)',
       database: 'inno_cost',
       isPrimary: true,
       soleDatabase: true,
+      latencyMs,
+      uptimeSeconds: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      counts,
+      tables: counts,
       tableCounts: counts,
-      migrationsApplied: migrations.map((m) => m.name)
+      migrationsApplied: migrations.map((m) => m.name),
+      recentMigrations: migrations.slice(0, 5)
     };
   }
 }

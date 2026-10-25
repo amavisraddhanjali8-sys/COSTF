@@ -752,15 +752,31 @@ export default function App() {
 
   useEffect(() => {
     const handleOverheadsUpdate = (e?: any) => {
-      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
-      if (deletedId) {
-        deletedOverheadIdsRef.current.add(deletedId);
-        setOverheads(prev => prev.filter(o => o.id !== deletedId && o.code !== deletedId));
+      const isDelete = e?.detail?.action === 'delete' || Boolean(e?.detail?.deletedId);
+      const delId = e?.detail?.deletedId || (isDelete ? e?.detail?.id : null);
+      const delCode = e?.detail?.code;
+      if (isDelete && (delId || delCode)) {
+        if (delId) {
+          deletedOverheadIdsRef.current.add(delId);
+          deletedOverheadIdsRef.current.add(delId.toLowerCase());
+        }
+        if (delCode) {
+          deletedOverheadIdsRef.current.add(delCode);
+          deletedOverheadIdsRef.current.add(delCode.toLowerCase());
+        }
+        setOverheads(prev => prev.filter(o => 
+          (!delId || (o.id !== delId && o.id.toLowerCase() !== delId.toLowerCase())) &&
+          (!delCode || (o.code !== delCode && o.code.toLowerCase() !== delCode.toLowerCase()))
+        ));
       }
       api.getOverheadItems({ limit: 200 })
         .then((data) => {
           if (Array.isArray(data)) {
-            const filtered = data.filter(o => !deletedOverheadIdsRef.current.has(o.id) && !deletedOverheadIdsRef.current.has(o.code));
+            const filtered = data.filter(o => 
+              !deletedOverheadIdsRef.current.has(o.id) &&
+              !deletedOverheadIdsRef.current.has(o.id.toLowerCase()) &&
+              (!o.code || (!deletedOverheadIdsRef.current.has(o.code) && !deletedOverheadIdsRef.current.has(o.code.toLowerCase())))
+            );
             setOverheads(filtered);
           }
         })
@@ -768,15 +784,31 @@ export default function App() {
     };
 
     const handleResourcesUpdate = (e?: any) => {
-      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
-      if (deletedId) {
-        deletedResourceIdsRef.current.add(deletedId);
-        setEnterpriseResources(prev => prev.filter(r => r.id !== deletedId && r.code !== deletedId));
+      const isDelete = e?.detail?.action === 'delete' || Boolean(e?.detail?.deletedId);
+      const delId = e?.detail?.deletedId || (isDelete ? e?.detail?.id : null);
+      const delCode = e?.detail?.code;
+      if (isDelete && (delId || delCode)) {
+        if (delId) {
+          deletedResourceIdsRef.current.add(delId);
+          deletedResourceIdsRef.current.add(delId.toLowerCase());
+        }
+        if (delCode) {
+          deletedResourceIdsRef.current.add(delCode);
+          deletedResourceIdsRef.current.add(delCode.toLowerCase());
+        }
+        setEnterpriseResources(prev => prev.filter(r => 
+          (!delId || (r.id !== delId && r.id.toLowerCase() !== delId.toLowerCase())) &&
+          (!delCode || (r.code !== delCode && r.code.toLowerCase() !== delCode.toLowerCase()))
+        ));
       }
       api.getResources()
         .then((data) => {
           if (Array.isArray(data)) {
-            const filtered = data.filter(r => !deletedResourceIdsRef.current.has(r.id) && !deletedResourceIdsRef.current.has(r.code));
+            const filtered = data.filter(r => 
+              !deletedResourceIdsRef.current.has(r.id) &&
+              !deletedResourceIdsRef.current.has(r.id.toLowerCase()) &&
+              (!r.code || (!deletedResourceIdsRef.current.has(r.code) && !deletedResourceIdsRef.current.has(r.code.toLowerCase())))
+            );
             setEnterpriseResources(filtered);
           }
         })
@@ -1487,6 +1519,7 @@ export default function App() {
             currentUser={currentUser}
             overheads={overheads}
             revenueItems={revenueItems}
+            enterpriseResources={enterpriseResources}
             onAddOverheadItem={handleAddOverheadItem}
             onAddRevenueItem={handleAddRevenueItem}
           />
