@@ -42,10 +42,12 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const activeCurrencyInfo = getCurrencyInfo(currency);
 
   useEffect(() => {
+    setShowDeleteConfirm(false);
     if (tariff) {
       setCode(tariff.code);
       setName(tariff.name);
@@ -444,27 +446,49 @@ export const CreateEditTariffModal: React.FC<CreateEditTariffModalProps> = ({
           <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
               {isEditing && tariff?.id && onDelete && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (window.confirm(`Delete tariff "${tariff.code}"? This will permanently remove it from the database.`)) {
-                      setLoading(true);
-                      try {
-                        await onDelete(tariff.id);
-                        onClose();
-                      } catch (err: any) {
-                        setError(err?.message || 'Failed to delete tariff');
-                      } finally {
-                        setLoading(false);
-                      }
-                    }
-                  }}
-                  disabled={loading}
-                  className="px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg cursor-pointer transition-colors flex items-center space-x-1"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
-                </button>
+                showDeleteConfirm ? (
+                  <div className="flex items-center space-x-1.5 p-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 animate-in fade-in">
+                    <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 pl-1">
+                      Permanently delete tariff?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setLoading(true);
+                        try {
+                          await onDelete(tariff.id);
+                          onClose();
+                        } catch (err: any) {
+                          setError(err?.message || 'Failed to delete tariff');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={loading}
+                      className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {loading ? 'Deleting...' : 'Yes, Delete'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={loading}
+                      className="px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-[11px] font-medium transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={loading}
+                    className="px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg cursor-pointer transition-colors flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Tariff</span>
+                  </button>
+                )
               )}
             </div>
             <div className="flex items-center space-x-2">

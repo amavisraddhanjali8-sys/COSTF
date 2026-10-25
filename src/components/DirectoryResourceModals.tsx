@@ -485,7 +485,8 @@ interface DeleteResourceConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
   resource: EnterpriseResource | null;
-  onConfirmed: () => void;
+  onConfirmed?: () => void;
+  onDeleted?: (id: string) => void;
   showToast: (msg: string) => void;
 }
 
@@ -494,6 +495,7 @@ export const DeleteResourceConfirmModal: React.FC<DeleteResourceConfirmModalProp
   onClose,
   resource,
   onConfirmed,
+  onDeleted,
   showToast
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -505,7 +507,12 @@ export const DeleteResourceConfirmModal: React.FC<DeleteResourceConfirmModalProp
     try {
       await api.deleteResource(resource.id);
       showToast(`Resource "${resource.name}" [${resource.code}] deleted from PostgreSQL`);
-      onConfirmed();
+      if (onDeleted) {
+        onDeleted(resource.id);
+      }
+      if (onConfirmed) {
+        onConfirmed();
+      }
       onClose();
     } catch (err: any) {
       console.error('Delete error:', err);

@@ -53,10 +53,12 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const activeCurrencyInfo = getCurrencyInfo(currency);
 
   useEffect(() => {
+    setShowDeleteConfirm(false);
     if (itemToEdit) {
       setName(itemToEdit.name || '');
       setCode(itemToEdit.code || '');
@@ -395,27 +397,49 @@ export const CreateEditOverheadItemModal: React.FC<CreateEditOverheadItemModalPr
           <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
             <div>
               {isEditing && itemToEdit?.id && onDelete && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (window.confirm(`Are you sure you want to permanently delete overhead "${itemToEdit.name}"?`)) {
-                      setSaving(true);
-                      try {
-                        await onDelete(itemToEdit.id);
-                        onClose();
-                      } catch (err: any) {
-                        setError(err?.message || 'Failed to delete overhead');
-                      } finally {
-                        setSaving(false);
-                      }
-                    }
-                  }}
-                  disabled={saving}
-                  className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete</span>
-                </button>
+                showDeleteConfirm ? (
+                  <div className="flex items-center space-x-1.5 p-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 animate-in fade-in">
+                    <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 pl-1">
+                      Delete overhead permanently?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSaving(true);
+                        try {
+                          await onDelete(itemToEdit.id);
+                          onClose();
+                        } catch (err: any) {
+                          setError(err?.message || 'Failed to delete overhead');
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      disabled={saving}
+                      className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {saving ? 'Deleting...' : 'Yes, Delete'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={saving}
+                      className="px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-[11px] font-medium transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={saving}
+                    className="px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Overhead</span>
+                  </button>
+                )
               )}
             </div>
             <div className="flex items-center space-x-2">

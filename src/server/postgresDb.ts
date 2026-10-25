@@ -5937,11 +5937,47 @@ export class PostgresService {
 
   public async deleteCategory(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query(
-      'DELETE FROM categories WHERE id=$1 OR parent_id=$1 OR parent_id IN (SELECT id FROM categories WHERE parent_id=$1)',
-      [id]
-    );
-    return true;
+    return this.withTransaction(async (q) => {
+      const catRes = await q('SELECT id, name, type, group_name FROM categories WHERE id = $1', [id]);
+      const cat = catRes.rows[0];
+      const catName = cat?.name || '';
+
+      // Unlink any materials referencing this category or child subcategories
+      await q('UPDATE materials SET category_id = NULL WHERE category_id = $1 OR category_id IN (SELECT id FROM categories WHERE parent_id = $1)', [id]).catch(() => {});
+      await q('UPDATE materials SET subcategory_id = NULL WHERE subcategory_id = $1 OR subcategory_id IN (SELECT id FROM categories WHERE parent_id = $1)', [id]).catch(() => {});
+
+      // Unlink overhead items referencing this category
+      if (catName) {
+        await q("UPDATE overhead_items SET category = 'General Overhead', category_id = NULL WHERE category = $1 OR category_id = $2", [catName, id]).catch(() => {});
+        await q("UPDATE overhead_items SET sub_category = '', sub_category_id = NULL WHERE sub_category = $1 OR sub_category_id = $2", [catName, id]).catch(() => {});
+      } else {
+        await q("UPDATE overhead_items SET category = 'General Overhead', category_id = NULL WHERE category_id = $1", [id]).catch(() => {});
+        await q("UPDATE overhead_items SET sub_category = '', sub_category_id = NULL WHERE sub_category_id = $1", [id]).catch(() => {});
+      }
+
+      // Unlink revenue items referencing this category
+      if (catName) {
+        await q("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category = $1 OR category_id = $2", [catName, id]).catch(() => {});
+        await q("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category = $1 OR sub_category_id = $2", [catName, id]).catch(() => {});
+      } else {
+        await q("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category_id = $1", [id]).catch(() => {});
+        await q("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category_id = $1", [id]).catch(() => {});
+      }
+
+      // Delete from overhead_categories if matching
+      if (catName) {
+        await q('DELETE FROM overhead_categories WHERE id = $1 OR name = $2', [id, catName]).catch(() => {});
+      } else {
+        await q('DELETE FROM overhead_categories WHERE id = $1', [id]).catch(() => {});
+      }
+
+      // Delete child categories and the category itself
+      await q(
+        'DELETE FROM categories WHERE id=$1 OR parent_id=$1 OR parent_id IN (SELECT id FROM categories WHERE parent_id=$1)',
+        [id]
+      );
+      return true;
+    });
   }
 
   // --- Inventory CRUD ---
@@ -8516,16 +8552,8 @@ export class PostgresService {
     const existing = await this.getOverheadItemById(id);
     if (!existing) return false;
 
-    // Verify whether any plans are actively using this item (Requirement 17, 20)
-    const inUse = await db.query('SELECT COUNT(*) as cnt FROM plan_overhead_allocations WHERE overhead_item_id = $1', [id]);
-    const cnt = Number(inUse.rows[0]?.cnt || 0);
-    if (cnt > 0) {
-      throw Object.assign(
-        new Error(`Cannot delete overhead item '${existing.name}' (${existing.code}) because it is actively allocated in ${cnt} project plan(s). To maintain plan historical integrity, archive the item or remove the allocations first.`),
-        { status: 400, linkedPlansCount: cnt }
-      );
-    }
-
+    // Clean up any allocations in project plans and delete the item from PostgreSQL
+    await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1', [id]).catch(() => {});
     await db.query('DELETE FROM overhead_items WHERE id = $1', [id]);
 
     await this.createOverheadAuditLog({
@@ -9376,16 +9404,16 @@ export class PostgresService {
   public async deleteRevenueCategory(id: string): Promise<boolean> {
     const db = await this.getDb();
     const catRes = await db.query('SELECT name FROM revenue_categories WHERE id = $1', [id]);
-    if (catRes.rows.length === 0) return false;
-    const catName = catRes.rows[0].name;
+    const catName = catRes.rows[0]?.name;
 
-    const inUse = await db.query('SELECT COUNT(*) as cnt FROM revenue_items WHERE category = $1', [catName]);
-    if (Number(inUse.rows[0]?.cnt || 0) > 0) {
-      throw Object.assign(
-        new Error(`Cannot delete category '${catName}' because it is in use by ${inUse.rows[0].cnt} revenue catalogue item(s).`),
-        { status: 400 }
-      );
+    // Unlink items in revenue_items referencing this category
+    if (catName) {
+      await db.query("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category = $1 OR category_id = $2", [catName, id]).catch(() => {});
+    } else {
+      await db.query("UPDATE revenue_items SET category = 'General', category_id = NULL WHERE category_id = $1", [id]).catch(() => {});
     }
+    // Delete associated subcategories
+    await db.query('DELETE FROM revenue_subcategories WHERE category_id = $1', [id]).catch(() => {});
     await db.query('DELETE FROM revenue_categories WHERE id = $1', [id]);
     return true;
   }
@@ -9428,6 +9456,19 @@ export class PostgresService {
       [id, data.categoryId || null, data.categoryName || '', code, name, String(data.description || ''), Number(data.sortOrder || 0), data.isActive !== false]
     );
     return { id, categoryId: data.categoryId, categoryName: data.categoryName, code, name, description: data.description || '', sortOrder: Number(data.sortOrder || 0), isActive: data.isActive !== false };
+  }
+
+  public async deleteRevenueSubcategory(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const subRes = await db.query('SELECT name FROM revenue_subcategories WHERE id = $1', [id]);
+    const subName = subRes.rows[0]?.name;
+    if (subName) {
+      await db.query("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category = $1 OR sub_category_id = $2", [subName, id]).catch(() => {});
+    } else {
+      await db.query("UPDATE revenue_items SET sub_category = '', sub_category_id = NULL WHERE sub_category_id = $1", [id]).catch(() => {});
+    }
+    await db.query('DELETE FROM revenue_subcategories WHERE id = $1', [id]);
+    return true;
   }
 
   // --- Centralized Revenue Catalogue Items (Requirements 2, 3, 4, 5, 6, 20) ---
@@ -9853,12 +9894,8 @@ export class PostgresService {
     const existing = await this.getRevenueItemById(id);
     if (!existing) return false;
 
-    // If linked to active plans, soft-delete by setting status = 'Archived' (to preserve historical integrity)
-    if (existing.linkedPlansCount > 0) {
-      await db.query(`UPDATE revenue_items SET status = 'Archived', updated_at = NOW() WHERE id = $1`, [id]);
-      return true;
-    }
-
+    await db.query('DELETE FROM project_plan_boq_items WHERE revenue_item_id = $1', [id]).catch(() => {});
+    await db.query('DELETE FROM revenue_rate_history WHERE revenue_item_id = $1', [id]).catch(() => {});
     await db.query('DELETE FROM revenue_items WHERE id = $1', [id]);
     return true;
   }
@@ -14821,6 +14858,8 @@ export class PostgresService {
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
+    await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1', [id]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND entity_id = $2', ['resource', id]).catch(() => {});
     await db.query('DELETE FROM enterprise_resources WHERE id = $1', [id]);
     return true;
   }

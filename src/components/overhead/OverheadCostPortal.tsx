@@ -64,6 +64,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   const [fxttAuditHistory, setFxttAuditHistory] = useState<FXTTPriceAuditEntry[]>([]);
   const [isFxttAuditOpen, setIsFxttAuditOpen] = useState(false);
 
+  // In-app deletion confirmation modals state (Replaces window.confirm)
+  const [deletingCategory, setDeletingCategory] = useState<{ id: string; name: string } | null>(null);
+  const [deletingOverheadItem, setDeletingOverheadItem] = useState<OverheadItem | null>(null);
+  const [isExecutingDelete, setIsExecutingDelete] = useState(false);
+
   // Open FXTT price changes and rate audit modal for any overhead item
   const handleOpenOverheadPriceAudit = async (item: OverheadItem) => {
     setFxttAuditItem({
@@ -308,17 +313,41 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
     }
   };
 
-  const handleDeleteCategory = async (catId: string, catName: string) => {
-    if (!window.confirm(`Delete overhead category "${catName}" and unlink its items?`)) return;
+  const handleDeleteCategory = (catId: string, catName: string) => {
+    setDeletingCategory({ id: catId, name: catName });
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deletingCategory) return;
+    setIsExecutingDelete(true);
     try {
-      await api.deleteCategory(catId);
+      await api.deleteCategory(deletingCategory.id);
       await loadData();
-      if (selectedCatId === catId) setSelectedCatId(null);
-      if (selectedSubCatId === catId) setSelectedSubCatId(null);
-      if (showToast) showToast(`Category "${catName}" removed.`);
+      if (selectedCatId === deletingCategory.id) setSelectedCatId(null);
+      if (selectedSubCatId === deletingCategory.id) setSelectedSubCatId(null);
+      if (showToast) showToast(`Category "${deletingCategory.name}" removed from database.`);
+      setDeletingCategory(null);
     } catch (err: any) {
       console.error('Failed to delete category:', err);
       if (showToast) showToast({ message: 'Failed to delete category: ' + err.message, type: 'error' });
+    } finally {
+      setIsExecutingDelete(false);
+    }
+  };
+
+  const confirmDeleteOverheadItem = async () => {
+    if (!deletingOverheadItem) return;
+    setIsExecutingDelete(true);
+    try {
+      await api.deleteOverheadItem(deletingOverheadItem.id);
+      await loadData();
+      if (showToast) showToast(`Overhead item "${deletingOverheadItem.name}" permanently deleted.`);
+      setDeletingOverheadItem(null);
+    } catch (err: any) {
+      console.error('Failed to delete overhead item:', err);
+      if (showToast) showToast({ message: 'Failed to delete overhead item: ' + err.message, type: 'error' });
+    } finally {
+      setIsExecutingDelete(false);
     }
   };
 
@@ -784,12 +813,8 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                           setItemToEdit(item);
                           setIsCreateEditOpen(true);
                         }}
-                        onDelete={async () => {
-                          if (window.confirm(`Delete overhead item "${item.name}"?`)) {
-                            await api.deleteOverheadItem(item.id);
-                            loadData();
-                            if (showToast) showToast(`Overhead item "${item.name}" removed.`);
-                          }
+                        onDelete={() => {
+                          setDeletingOverheadItem(item);
                         }}
                         extraMeta={
                           <div className="space-y-1.5 pt-1">
@@ -969,12 +994,8 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (window.confirm(`Delete overhead item ${item.name}?`)) {
-                              await api.deleteOverheadItem(item.id);
-                              loadData();
-                              if (showToast) showToast(`Overhead item ${item.name} removed.`);
-                            }
+                          onClick={() => {
+                            setDeletingOverheadItem(item);
                           }}
                           className="p-1 hover:bg-rose-100 dark:hover:bg-rose-950/40 rounded text-rose-500 transition-colors cursor-pointer"
                           title="Delete Overhead Item"
@@ -1229,6 +1250,11 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
           loadData();
           if (showToast) showToast(`Overhead item "${saved.name}" saved successfully.`);
         }}
+        onDelete={async (id) => {
+          await api.deleteOverheadItem(id);
+          loadData();
+          if (showToast) showToast('Overhead item permanently deleted from PostgreSQL.');
+        }}
       />
 
       {/* MODAL: FXTT Full Screen Price Changes Audit Log */}
@@ -1250,6 +1276,86 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
             }
           }}
         />
+      )}
+
+      {/* MODAL: Confirm Delete Category */}
+      {deletingCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/80 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete Category</h3>
+                <p className="text-[11px] text-slate-500 font-mono">Overhead Structure</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to delete category <strong className="text-slate-900 dark:text-slate-100">"{deletingCategory.name}"</strong>? This will remove it from PostgreSQL and unlink referenced overhead items.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingCategory(null)}
+                disabled={isExecutingDelete}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteCategory}
+                disabled={isExecutingDelete}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                {isExecutingDelete ? 'Deleting...' : 'Delete Category'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Confirm Delete Overhead Item */}
+      {deletingOverheadItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/80 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete Overhead Item</h3>
+                <p className="text-[11px] text-slate-500 font-mono">{deletingOverheadItem.code}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Permanently delete <strong className="text-slate-900 dark:text-slate-100">"{deletingOverheadItem.name}"</strong>? This will remove the overhead item and its plan allocations from PostgreSQL.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingOverheadItem(null)}
+                disabled={isExecutingDelete}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteOverheadItem}
+                disabled={isExecutingDelete}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                {isExecutingDelete ? 'Deleting...' : 'Delete Item'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

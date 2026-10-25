@@ -3293,6 +3293,26 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/revenue-categories/:id', async (req, res) => {
+    try {
+      await postgresService.deleteRevenueCategory(req.params.id);
+      res.json({ success: true, message: 'Revenue category deleted successfully' });
+    } catch (e: any) {
+      console.error('Failed to delete revenue category:', e);
+      res.status(500).json({ error: 'Failed to delete revenue category', details: e?.message });
+    }
+  });
+
+  app.delete('/api/revenue-subcategories/:id', async (req, res) => {
+    try {
+      await postgresService.deleteRevenueSubcategory(req.params.id);
+      res.json({ success: true, message: 'Revenue subcategory deleted successfully' });
+    } catch (e: any) {
+      console.error('Failed to delete revenue subcategory:', e);
+      res.status(500).json({ error: 'Failed to delete revenue subcategory', details: e?.message });
+    }
+  });
+
   // --- Centralized Revenue Items Catalogue ---
   app.get('/api/revenue-items', async (req, res) => {
     try {

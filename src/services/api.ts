@@ -1599,6 +1599,16 @@ export const api = {
     return await res.json();
   },
 
+  async deleteRevenueCategory(id: string): Promise<void> {
+    const res = await fetch(`/api/revenue-categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete revenue category');
+  },
+
+  async deleteRevenueSubcategory(id: string): Promise<void> {
+    const res = await fetch(`/api/revenue-subcategories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete revenue subcategory');
+  },
+
   async getRevenueItems(params?: ListQueryParams): Promise<PaginatedApiResponse<RevenueItem>> {
     const res = await fetch(`/api/revenue-items?${buildQueryString(params, true)}`);
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch revenue items');

@@ -56,6 +56,8 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
   const [editHours, setEditHours] = useState<number>(0);
   const [editRate, setEditRate] = useState<number>(0);
   const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [deletingResourceTarget, setDeletingResourceTarget] = useState<{ id: string; name: string } | null>(null);
+  const [submittingRemove, setSubmittingRemove] = useState(false);
 
   const activeCurrency = project.currency || 'LKR';
 
@@ -185,16 +187,17 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
   };
 
   // Handle removing assigned resource
-  const handleRemoveResource = async (resourceId: string, name: string) => {
-    if (!activePlan) return;
-    if (!window.confirm(`Are you sure you want to unassign resource "${name}" from this project plan?`)) {
-      return;
-    }
+  const handleConfirmRemoveResource = async () => {
+    if (!activePlan || !deletingResourceTarget) return;
+    setSubmittingRemove(true);
     try {
-      await api.deletePlanResource(activePlan.id, resourceId);
+      await api.deletePlanResource(activePlan.id, deletingResourceTarget.id);
+      setDeletingResourceTarget(null);
       onPlanUpdated();
     } catch (err: any) {
-      alert(`Could not remove resource: ${err?.message || 'Database error'}`);
+      console.error('Could not remove resource:', err);
+    } finally {
+      setSubmittingRemove(false);
     }
   };
 
@@ -432,7 +435,7 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRemoveResource(item.id, item.name)}
+                            onClick={() => setDeletingResourceTarget({ id: item.id, name: item.name })}
                             className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
                             title="Unassign resource from project"
                           >
@@ -670,6 +673,46 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Remove Resource Modal */}
+      {deletingResourceTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/80 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Unassign Resource</h3>
+                <p className="text-[11px] text-slate-500 font-mono">Project Plan Allocation</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to unassign resource <strong className="text-slate-900 dark:text-slate-100">"{deletingResourceTarget.name}"</strong> from this plan?
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingResourceTarget(null)}
+                disabled={submittingRemove}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRemoveResource}
+                disabled={submittingRemove}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                {submittingRemove ? 'Removing...' : 'Remove Resource'}
+              </button>
+            </div>
           </div>
         </div>
       )}

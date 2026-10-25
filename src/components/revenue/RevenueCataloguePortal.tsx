@@ -106,6 +106,10 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
     itemType?: 'revenue_item' | 'produce';
   } | null>(null);
 
+  // In-app deletion confirmation modal state (replaces window.confirm)
+  const [deletingRevenueItem, setDeletingRevenueItem] = useState<RevenueItem | null>(null);
+  const [isExecutingDelete, setIsExecutingDelete] = useState(false);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -135,6 +139,22 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
   useEffect(() => {
     loadData();
   }, [page, search, categoryFilter, statusFilter]);
+
+  const confirmDeleteRevenueItem = async () => {
+    if (!deletingRevenueItem) return;
+    setIsExecutingDelete(true);
+    try {
+      await api.deleteRevenueItem(deletingRevenueItem.id);
+      await loadData();
+      if (showNotification) showNotification(`Deliverable "${deletingRevenueItem.name}" deleted from database.`);
+      setDeletingRevenueItem(null);
+    } catch (err: any) {
+      console.error('Failed to delete revenue item:', err);
+      if (showNotification) showNotification('Failed to delete revenue item: ' + err.message);
+    } finally {
+      setIsExecutingDelete(false);
+    }
+  };
 
   // Client-side type filter
   const displayedItems = items.filter((item) => {
@@ -438,12 +458,8 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                       setItemToEdit(item);
                       setIsCreateEditOpen(true);
                     }}
-                    onDelete={async () => {
-                      if (window.confirm(`Delete deliverable "${item.name}"?`)) {
-                        await api.deleteRevenueItem(item.id);
-                        loadData();
-                        if (showNotification) showNotification(`Item "${item.name}" removed.`);
-                      }
+                    onDelete={() => {
+                      setDeletingRevenueItem(item);
                     }}
                     extraMeta={
                       <div className="space-y-1.5 pt-1">
@@ -809,6 +825,16 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Delete Item */}
+                          <button
+                            type="button"
+                            onClick={() => setDeletingRevenueItem(item)}
+                            className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            title="Delete deliverable from catalogue"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -860,6 +886,11 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           if (onAddRevenueItem && savedItem) onAddRevenueItem(savedItem);
           loadData();
           if (showNotification) showNotification('Revenue catalogue item saved successfully.');
+        }}
+        onDelete={async (id) => {
+          await api.deleteRevenueItem(id);
+          loadData();
+          if (showNotification) showNotification('Deliverable permanently deleted from database.');
         }}
         itemToEdit={itemToEdit}
         categories={categories}
@@ -918,6 +949,46 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
             }
           }}
         />
+      )}
+
+      {/* In-App Confirmation Modal: Delete Revenue Deliverable */}
+      {deletingRevenueItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-[#0b101b] rounded-2xl border border-slate-200 dark:border-slate-800 p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/80 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Delete Deliverable</h3>
+                <p className="text-[11px] text-slate-500 font-mono">{deletingRevenueItem.code}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900 dark:text-slate-100">"{deletingRevenueItem.name}"</strong>? This will remove the deliverable, BOQ allocations, and rate histories from PostgreSQL.
+            </p>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingRevenueItem(null)}
+                disabled={isExecutingDelete}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteRevenueItem}
+                disabled={isExecutingDelete}
+                className="px-4 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-50 transition-colors"
+              >
+                {isExecutingDelete ? 'Deleting...' : 'Delete Deliverable'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
