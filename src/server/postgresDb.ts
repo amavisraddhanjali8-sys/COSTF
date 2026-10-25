@@ -1095,6 +1095,7 @@ export class PostgresService {
         lead_time_days INT DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'Available',
         skill_or_sla TEXT,
+        barcode TEXT,
         alternatives JSONB DEFAULT '[]',
         specifications JSONB DEFAULT '{}',
         connected_allocations JSONB DEFAULT '[]',
@@ -1278,8 +1279,10 @@ export class PostgresService {
         DO $$
         BEGIN
           ALTER TABLE enterprise_resources ALTER COLUMN currency SET DEFAULT 'LKR';
+          ALTER TABLE enterprise_resources ADD COLUMN IF NOT EXISTS barcode TEXT;
           UPDATE enterprise_resources SET currency = 'LKR' WHERE currency IS NULL OR currency = '' OR currency = 'USD';
         END $$;
+        CREATE INDEX IF NOT EXISTS idx_enterprise_resources_barcode ON enterprise_resources(barcode);
       `);
 
       await this.seedEnterpriseResourcesIfEmpty();
@@ -1504,12 +1507,10 @@ export class PostgresService {
         DELETE FROM categories WHERE id IN ('rev-serv-cat-01', 'rev-serv-sub-01-01', 'rev-serv-cat-02', 'rev-serv-sub-02-01');
       `).catch(() => {});
 
-      // Purge all dummy overhead records and categories
+      // Purge only legacy test dummy items if present (never purge user-created OVH-% or categories)
       await db.exec(`
-        DELETE FROM overhead_items WHERE id IN ('ovh-seed-01', 'ovh-seed-02', 'ovh-seed-03', 'ovh-seed-04') OR code LIKE 'OVH-%';
-        DELETE FROM overhead_categories WHERE id IN ('ovh-cat-01', 'ovh-cat-02', 'ovh-cat-03') OR code IN ('CAT-IND', 'CAT-UTIL', 'CAT-ADM');
-        DELETE FROM categories WHERE group_name = 'overhead';
-        DELETE FROM barcode_registry WHERE entity_type = 'overhead_item' OR entity_id LIKE 'ovh-%';
+        DELETE FROM overhead_items WHERE id IN ('ovh-seed-01', 'ovh-seed-02', 'ovh-seed-03', 'ovh-seed-04');
+        DELETE FROM overhead_categories WHERE id IN ('ovh-cat-01', 'ovh-cat-02', 'ovh-cat-03') AND name LIKE 'Mock%';
       `).catch(() => {});
     } catch (e) {
       console.warn('[PostgreSQL] ensureOverheadAndRevenueTables warning:', (e as Error).message);
@@ -1626,7 +1627,11 @@ export class PostgresService {
     await db.exec(`
       DELETE FROM project_deliverables;
       DELETE FROM revenue_rate_history;
-      UPDATE enterprise_resources SET connected_allocations = '[]'::jsonb;
+      DELETE FROM product_competitor_quotes;
+      DELETE FROM product_competitor_price_history;
+      DELETE FROM competitor;
+      DELETE FROM enterprise_resources;
+      DELETE FROM barcode_registry;
       DELETE FROM project_plan_cost_summaries;
       DELETE FROM plan_overhead_allocations;
       DELETE FROM project_plan_overhead_allocations;
@@ -1652,6 +1657,9 @@ export class PostgresService {
       DELETE FROM suppliers;
       DELETE FROM clients;
       DELETE FROM custom_tiles;
+      DELETE FROM plan_tariffs;
+      DELETE FROM tariff_versions;
+      DELETE FROM tariffs;
       DELETE FROM audit_logs;
     `);
   }
@@ -8146,17 +8154,16 @@ export class PostgresService {
   public async deleteOverheadCategory(id: string): Promise<boolean> {
     const db = await this.getDb();
     const catRes = await db.query('SELECT name FROM overhead_categories WHERE id = $1', [id]);
-    if (catRes.rows.length === 0) return false;
-    const catName = catRes.rows[0].name;
+    const catName = catRes.rows[0]?.name;
 
-    const inUse = await db.query('SELECT COUNT(*) as cnt FROM overhead_items WHERE category = $1', [catName]);
-    if (Number(inUse.rows[0]?.cnt || 0) > 0) {
-      throw Object.assign(
-        new Error(`Cannot delete category '${catName}' because it is in use by ${inUse.rows[0].cnt} overhead catalogue item(s).`),
-        { status: 400 }
-      );
+    if (catName) {
+      await db.query(
+        "UPDATE overhead_items SET category = 'General Overheads', category_id = NULL WHERE category = $1 OR category_id = $2",
+        [catName, id]
+      ).catch(() => {});
     }
     await db.query('DELETE FROM overhead_categories WHERE id = $1', [id]);
+    await db.query('DELETE FROM categories WHERE id = $1 OR parent_id = $1', [id]).catch(() => {});
     return true;
   }
 
@@ -8539,7 +8546,7 @@ export class PostgresService {
     await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'overhead', 'overheads']).catch(() => {});
 
     // 3. Delete from overhead_items by id or code
-    await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+    await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $1 OR code = $2 OR LOWER(code) = LOWER($1) OR LOWER(code) = LOWER($2) OR LOWER(id) = LOWER($1) OR LOWER(id) = LOWER($2)', [targetId, targetCode]);
 
     if (existing) {
       await this.createOverheadAuditLog({
@@ -11388,6 +11395,8 @@ export class PostgresService {
       case 'supplier': prefix = 'SUP'; break;
       case 'outsourced_service': prefix = 'OUT'; break;
       case 'subcontractor': prefix = 'SUB'; break;
+      case 'resource':
+      case 'enterprise_resource': prefix = 'RES'; break;
       case 'produce_item': prefix = 'PRD'; break;
       case 'inventory_item': prefix = 'INV'; break;
       case 'client': prefix = 'CLI'; break;
@@ -11571,6 +11580,8 @@ export class PostgresService {
       } else if (regRow.entity_type === 'inventory_item') {
         const invs = await this.getInventory();
         rawRecord = invs.find((i: any) => i.id === regRow.entity_id || i.sku === regRow.entity_code);
+      } else if (regRow.entity_type === 'resource' || regRow.entity_type === 'enterprise_resource') {
+        rawRecord = await this.getResourceById(regRow.entity_id || regRow.entity_code);
       }
     } catch {
       // ignore
@@ -14725,6 +14736,7 @@ export class PostgresService {
     const operationalCharge = Number(data.operationalCharge ?? 0);
     const competitorRate = Number(data.competitorRate ?? 0);
     const benchmarkRate = Number(data.industryBenchmarkRate ?? 0);
+    const barcode = data.barcode || (await this.generateUniqueBarcode('resource', code));
 
     const altsJson = JSON.stringify(data.alternatives || []);
     const specs = data.specifications || {};
@@ -14740,8 +14752,8 @@ export class PostgresService {
         unit, base_rate, operational_charge, charge_type, currency,
         supplier_id, supplier_name, competitor_company, competitor_rate,
         industry_benchmark_rate, lead_time_days, status, skill_or_sla,
-        alternatives, specifications, connected_allocations, notes, effective_date
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+        alternatives, specifications, connected_allocations, notes, effective_date, barcode
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
       [
         id, code, data.name || 'Untitled Resource', data.type || 'labour',
         data.category || 'General', data.subCategory || null, data.moreSubCategory || null,
@@ -14749,9 +14761,27 @@ export class PostgresService {
         data.currency || 'LKR', data.supplierId || null, data.supplierName || null,
         data.competitorCompany || null, competitorRate, benchmarkRate,
         data.leadTimeDays || 1, data.status || 'Available', data.skillOrSla || null,
-        altsJson, specsJson, allocsJson, data.notes || '', data.effectiveDate || new Date().toISOString().slice(0, 10)
+        altsJson, specsJson, allocsJson, data.notes || '', data.effectiveDate || new Date().toISOString().slice(0, 10),
+        barcode
       ]
     );
+
+    await this.registerBarcode({
+      barcode,
+      entityType: 'resource',
+      entityId: id,
+      entityCode: code,
+      entityName: data.name || 'Untitled Resource',
+      category: data.category || 'General',
+      subCategory: data.subCategory || '',
+      unit: data.unit || 'hr',
+      unitCost: baseRate,
+      sellingRate: baseRate,
+      currency: data.currency || 'LKR',
+      isCostEligible: true,
+      isBoqEligible: true,
+      metadata: { type: data.type || 'labour', status: data.status || 'Available' }
+    }).catch((err) => console.warn('Could not register barcode for resource:', err?.message));
 
     return this.getResourceById(id);
   }
@@ -14776,6 +14806,7 @@ export class PostgresService {
     const status = data.status !== undefined ? data.status : existing.status;
     const skillOrSla = data.skillOrSla !== undefined ? data.skillOrSla : existing.skillOrSla;
     const notes = data.notes !== undefined ? data.notes : existing.notes;
+    const barcode = data.barcode !== undefined ? data.barcode : existing.barcode;
     const altsJson = data.alternatives !== undefined ? JSON.stringify(data.alternatives) : JSON.stringify(existing.alternatives);
     const allocsJson = data.connectedAllocations !== undefined ? JSON.stringify(data.connectedAllocations) : JSON.stringify(existing.connectedAllocations);
     const specs = data.specifications !== undefined ? data.specifications : (existing.specifications || {});
@@ -14810,14 +14841,30 @@ export class PostgresService {
         unit = $5, base_rate = $6, operational_charge = $7, charge_type = $8,
         supplier_name = $9, competitor_company = $10, competitor_rate = $11,
         industry_benchmark_rate = $12, status = $13, skill_or_sla = $14,
-        notes = $15, alternatives = $16, connected_allocations = $17, specifications = $18, updated_at = NOW()
-       WHERE id = $19`,
+        notes = $15, alternatives = $16, connected_allocations = $17, specifications = $18, barcode = $19, updated_at = NOW()
+       WHERE id = $20`,
       [
         name, type, category, subCategory, unit, baseRate, operationalCharge,
         chargeType, supplierName, competitorCompany, competitorRate,
-        industryBenchmarkRate, status, skillOrSla, notes, altsJson, allocsJson, specsJson, id
+        industryBenchmarkRate, status, skillOrSla, notes, altsJson, allocsJson, specsJson, barcode, id
       ]
     );
+
+    if (barcode) {
+      await this.registerBarcode({
+        barcode,
+        entityType: 'resource',
+        entityId: id,
+        entityCode: existing.code,
+        entityName: name,
+        category: category || 'General',
+        subCategory: subCategory || '',
+        unit: unit || 'hr',
+        unitCost: baseRate,
+        sellingRate: baseRate,
+        currency: data.currency || existing.currency || 'LKR'
+      }).catch(() => {});
+    }
 
     return this.getResourceById(id);
   }
@@ -14847,7 +14894,6 @@ export class PostgresService {
     }));
   }
 
-
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();
     const cleanId = String(id || '').trim();
@@ -14859,10 +14905,10 @@ export class PostgresService {
 
     await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1 OR resource_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
-    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $1 OR entity_code = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'resource', 'enterprise_resource']).catch(() => {});
     await db.query('DELETE FROM product_competitor_quotes WHERE item_id = $1 OR item_id = $2', [targetId, targetCode]).catch(() => {});
     await db.query('DELETE FROM categories WHERE (id = $1 OR id = $2) AND ("group" = $3 OR "group" = $4)', [targetId, targetCode, 'resource', 'resources']).catch(() => {});
-    await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+    await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $1 OR code = $2 OR LOWER(code) = LOWER($1) OR LOWER(code) = LOWER($2) OR LOWER(id) = LOWER($1) OR LOWER(id) = LOWER($2)', [targetId, targetCode]);
     return true;
   }
 

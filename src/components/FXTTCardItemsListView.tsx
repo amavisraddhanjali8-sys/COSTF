@@ -369,11 +369,11 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     } else if (row.itemType === 'overhead' || cardType === 'overhead') {
       onDeleteOverheadItem?.(row.id);
       api.deleteOverheadItem(row.id).catch(console.error);
-      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code } }));
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code, deletedId: row.id, action: 'delete' } }));
     } else if ((row.itemType as any) === 'resource' || (cardType as any) === 'resource') {
       onDeleteResource?.(row.id);
       api.deleteResource(row.id).catch(console.error);
-      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code } }));
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code, deletedId: row.id, action: 'delete' } }));
     } else if (row.itemType === 'revenue' || cardType === 'revenue') {
       onDeleteRevenueItem?.(row.id);
       api.deleteRevenueItem(row.id).catch(console.error);
@@ -409,11 +409,11 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
         } else if (row.itemType === 'overhead' || cardType === 'overhead') {
           onDeleteOverheadItem?.(row.id);
           api.deleteOverheadItem(row.id).catch(console.error);
-          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code } }));
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: row.id, code: row.code, deletedId: row.id, action: 'delete' } }));
         } else if ((row.itemType as any) === 'resource' || (cardType as any) === 'resource') {
           onDeleteResource?.(row.id);
           api.deleteResource(row.id).catch(console.error);
-          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code } }));
+          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: row.id, code: row.code, deletedId: row.id, action: 'delete' } }));
         } else if (row.itemType === 'revenue' || cardType === 'revenue') {
           onDeleteRevenueItem?.(row.id);
           api.deleteRevenueItem(row.id).catch(console.error);
@@ -1862,6 +1862,60 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       });
     }
 
+    // 9. ENTERPRISE RESOURCE PORTAL CARD: View all enterprise resources
+    else if ((cardType as any) === 'resource' || (cardType as any) === 'enterprise_resource') {
+      const activeResources = enterpriseResources || [];
+      const isAll = !cardTitle || cardTitle.toLowerCase() === 'all' || cardId === 'all-resources' || cardTitle.toLowerCase().includes('all resource');
+      const filtered = isAll
+        ? activeResources
+        : activeResources.filter((res: any) => {
+            const resType = (res.type || '').toLowerCase().trim();
+            const resCat = (res.category || '').toLowerCase().trim();
+            const resSub = (res.subCategory || '').toLowerCase().trim();
+            if (isSubCat) {
+              return (
+                resSub === titleLower ||
+                resSub.includes(titleLower) ||
+                titleLower.includes(resSub) ||
+                (cardId && (res.subCategoryId === cardId || res.subCategory === cardId))
+              );
+            }
+            return (
+              resCat === titleLower ||
+              resCat.includes(titleLower) ||
+              titleLower.includes(resCat) ||
+              resType === titleLower ||
+              resType.includes(titleLower) ||
+              titleLower.includes(resType) ||
+              (cardId && (res.id === cardId || res.category === cardId || res.type === cardId))
+            );
+          });
+
+      filtered.forEach((res: any, idx: number) => {
+        list.push({
+          id: res.id,
+          code: res.code || `RES-${1000 + idx}`,
+          name: res.name,
+          itemType: 'service' as any,
+          status: res.status === 'Inactive' ? 'Under Review' : 'Active',
+          category: res.category || res.type || 'Enterprise Resource',
+          subCategory: res.subCategory || 'General',
+          moreSubCategory: res.moreSubCategory || res.type,
+          supplierName: res.supplierName || 'Internal Operations',
+          supplierCountry: 'Sri Lanka',
+          email: 'resources@fxtt-enterprise.com',
+          phone: '+94 11 234 5678',
+          rate: Number(res.operationalCharge) || Number(res.baseRate) || 0,
+          retailPrice: Number(res.baseRate) || 0,
+          unit: res.unit || 'hr',
+          stockOrScope: `Charge: ${res.chargeType || 'hourly'} • Model: ${res.type || 'resource'}`,
+          createdTime: res.createdAt || '',
+          assignedTo: 'Resource Manager',
+          rawItem: res
+        });
+      });
+    }
+
     // Strict addedRows filtering by active card
     const filteredAddedRows = addedRows.filter((r) => {
       // Deduplicate: If an item with matching id or code already exists in list (from props), do not include it from addedRows!
@@ -1879,6 +1933,7 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
       if (cardType === 'subcontractor' && r.itemType !== 'subcontractor') return false;
       if (cardType === 'overhead' && r.itemType !== 'overhead') return false;
       if (cardType === 'revenue' && r.itemType !== 'revenue') return false;
+      if (((cardType as any) === 'resource' || (cardType as any) === 'enterprise_resource') && (r.itemType as any) !== 'resource' && r.itemType !== 'service') return false;
       if (cardType === 'client' && r.itemType !== 'project') return false;
       if (cardType === 'supplier') {
         const supMatch = suppliers.find((s) => s.id === cardId || s.name.toLowerCase() === titleLower);
@@ -1916,6 +1971,9 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
     subcontractors,
     projects,
     produceItems,
+    overheads,
+    revenueItems,
+    enterpriseResources,
     addedRows,
     editedRowsMap
   ]);
@@ -2536,6 +2594,33 @@ export const FXTTCardItemsListView: React.FC<FXTTCardItemsListViewProps> = ({
           });
         }
         api.updateSupplier(editingRow.id, { name: editingRow.name }).catch(console.error);
+      }
+
+      // 9. Enterprise Resources
+      if ((editingRow.itemType as any) === 'resource' || (cardType as any) === 'resource') {
+        if (onUpdateResource) {
+          onUpdateResource(editingRow.id, {
+            name: editingRow.name,
+            code: editingRow.code,
+            baseRate: updatedCostRate,
+            operationalCharge: updatedCostRate,
+            unit: editingRow.unit
+          });
+        }
+        api.updateResource(editingRow.id, {
+          name: editingRow.name,
+          code: editingRow.code,
+          baseRate: updatedCostRate,
+          operationalCharge: updatedCostRate,
+          unit: editingRow.unit
+        }).catch(console.error);
+        api.commitResourcePrice(editingRow.id, {
+          newRate: updatedCostRate,
+          reason: editReason || 'Rate update from FXTT table',
+          effectiveDate: new Date().toISOString().slice(0, 10),
+          currency: 'LKR'
+        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: editingRow.id } }));
       }
 
       // Update in editedRowsMap for instant rendering

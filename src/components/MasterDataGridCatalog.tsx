@@ -1300,6 +1300,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       newItemType === 'subcontractor' ? `SUB-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       newItemType === 'overhead' ? `OVH-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       newItemType === 'revenue' ? `REV-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
+      newItemType === 'resource' ? `RES-NEW-${Math.floor(Math.random() * 9000 + 1000)}` :
       `MAT-NEW-${Math.floor(Math.random() * 9000 + 1000)}`
     );
 
@@ -1467,6 +1468,28 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       }
 
       showToast(`Created new Outsourced Tariff & connected to service providers: ${newItemName.trim()}`);
+    } else if ((newItemType as string) === 'resource') {
+      const resPayload = {
+        code: generatedCode,
+        name: newItemName.trim(),
+        type: (newItemCategory.toLowerCase().includes('machin') ? 'machinery' : newItemCategory.toLowerCase().includes('equip') ? 'equipment' : newItemCategory.toLowerCase().includes('tool') ? 'tool' : 'labour') as any,
+        category: newItemCategory.trim() || 'General Labour & Skills',
+        subCategory: newItemSubCategory.trim() || 'Operations',
+        unit: newItemUnit.trim() || 'hr',
+        baseRate: priceNum,
+        operationalCharge: costNum,
+        chargeType: 'hourly' as const,
+        currency: newItemCurrency || DEFAULT_CURRENCY_CODE,
+        status: 'Available' as const
+      };
+
+      if (onAddResource) {
+        onAddResource(resPayload);
+      } else {
+        api.createResource(resPayload).catch((err) => console.warn('Could not create enterprise resource:', err));
+      }
+
+      showToast(`Created new Enterprise Resource & registered in directory: ${generatedCode}`);
     } else {
       // Raw Material
       const matPayload: Partial<MaterialItem> = {
@@ -3518,13 +3541,13 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                       await api.deleteProduceItem(id);
                     } else if (rawType === 'overhead') {
                       await api.deleteOverheadItem(id);
-                      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
+                      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id, deletedId: id, action: 'delete' } }));
                     } else if (rawType === 'revenue') {
                       await api.deleteRevenueItem(id);
                     } else if (rawType === 'resource') {
                       await api.deleteResource(id);
                       if (onDeleteResource) onDeleteResource(id);
-                      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
+                      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id, deletedId: id, action: 'delete' } }));
                     }
                   } catch (err: any) {
                     console.warn(`Direct DB deletion warning:`, err?.message);
@@ -3591,13 +3614,13 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                             await api.deleteProduceItem(itm.id);
                           } else if (itm.rawType === 'overhead') {
                             await api.deleteOverheadItem(itm.id);
-                            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: itm.id } }));
+                            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: itm.id, deletedId: itm.id, action: 'delete' } }));
                           } else if (itm.rawType === 'revenue') {
                             await api.deleteRevenueItem(itm.id);
                           } else if (itm.rawType === 'resource') {
                             await api.deleteResource(itm.id);
                             if (onDeleteResource) onDeleteResource(itm.id);
-                            window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: itm.id } }));
+                            window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: itm.id, deletedId: itm.id, action: 'delete' } }));
                           }
                         } catch (e: any) {
                           console.warn(`Bulk direct DB delete warning for ${itm.id}:`, e?.message);
@@ -4075,7 +4098,8 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                     { id: 'service', label: 'Service' },
                     { id: 'subcontractor', label: 'Subcontractor' },
                     { id: 'overhead', label: 'Overhead' },
-                    { id: 'revenue', label: 'Revenue BOQ' }
+                    { id: 'revenue', label: 'Revenue BOQ' },
+                    { id: 'resource', label: 'Resource' }
                   ].map((t) => (
                     <button
                       key={t.id}

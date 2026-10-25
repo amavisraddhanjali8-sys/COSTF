@@ -14,7 +14,8 @@ import {
   InventoryTransaction,
   OverheadItem,
   RevenueItem,
-  Tariff
+  Tariff,
+  EnterpriseResource
 } from '../types';
 
 /**
@@ -651,5 +652,46 @@ export function exportTariffsToCSV(tariffs: (Tariff | OutsourcedService)[]): voi
   });
 
   downloadCSV(`Industrial_Tariff_Schedule_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+}
+
+// ----------------------------------------------------
+// 13. ENTERPRISE RESOURCES EXPORT
+// ----------------------------------------------------
+export function exportEnterpriseResourcesToCSV(resources: EnterpriseResource[]): void {
+  const headers = [
+    'Resource Code',
+    'Resource Name',
+    'Resource Type',
+    'Category',
+    'SubCategory',
+    'Base Rate',
+    'Operational Charge',
+    'Charge Type',
+    'Unit',
+    'Currency',
+    'Supplier / Partner',
+    'Barcode',
+    'Status',
+    'Notes'
+  ];
+
+  const rows = resources.map(res => [
+    res.code || res.id || '',
+    res.name || '',
+    res.type || 'labour',
+    res.category || '',
+    res.subCategory || '',
+    res.baseRate ?? 0,
+    res.operationalCharge ?? 0,
+    res.chargeType || 'hourly',
+    res.unit || 'hr',
+    res.currency || 'LKR',
+    res.supplierName || '',
+    res.barcode || '',
+    res.status || 'Available',
+    res.notes || ''
+  ]);
+
+  downloadCSV(`Enterprise_Resources_Catalog_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
 }
 

@@ -2115,7 +2115,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/produce/:id', async (req, res) => {
+  app.delete(['/api/produce/:id', '/api/produce-items/:id'], async (req, res) => {
     try {
       await postgresService.deleteProduce(req.params.id);
       res.json({ success: true });
@@ -3118,6 +3118,35 @@ async function startServer() {
       if (e?.status) return res.status(e.status).json({ error: e.message, linkedPlansCount: e?.linkedPlansCount });
       console.error('Failed to delete overhead item:', e);
       res.status(500).json({ error: 'Failed to delete overhead catalogue item', details: e?.message });
+    }
+  });
+
+  app.post(['/api/overhead-items/:id/commit-price', '/api/overheads/:id/commit-price'], async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updateOverheadItem(req.params.id, {
+        defaultRate: req.body.newRate ?? req.body.defaultRate ?? req.body.newPrice,
+        unitType: req.body.unitType,
+        description: req.body.reason ? `${req.body.reason}` : undefined
+      }, {
+        id: actor?.id,
+        name: actor?.name,
+        role: actor?.role
+      });
+      res.json(updated);
+    } catch (e: any) {
+      console.error('Failed to commit overhead price:', e);
+      res.status(500).json({ error: 'Failed to commit overhead rate', details: e?.message });
+    }
+  });
+
+  app.get(['/api/overhead-items/:id/price-history', '/api/overheads/:id/price-history'], async (req, res) => {
+    try {
+      const history = await postgresService.getOverheadAuditLogs({ itemId: req.params.id, limit: 100 });
+      res.json(history.data || []);
+    } catch (e: any) {
+      console.error('Failed to get overhead price history:', e);
+      res.status(500).json({ error: 'Failed to fetch overhead price history', details: e?.message });
     }
   });
 

@@ -1,5 +1,5 @@
 import { bizStore } from './services/bizStore';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopNavbar, ActiveTab } from './components/TopNavbar';
 import { CostAnalysisView } from './components/CostAnalysisView';
 import { ResourceAllocationView } from './components/ResourceAllocationView';
@@ -747,19 +747,38 @@ export default function App() {
   }, [currentUser?.id]);
 
   // Synchronize Overheads & Resources globally across all portals and data grid
+  const deletedOverheadIdsRef = useRef<Set<string>>(new Set());
+  const deletedResourceIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    const handleOverheadsUpdate = () => {
+    const handleOverheadsUpdate = (e?: any) => {
+      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
+      if (deletedId) {
+        deletedOverheadIdsRef.current.add(deletedId);
+        setOverheads(prev => prev.filter(o => o.id !== deletedId && o.code !== deletedId));
+      }
       api.getOverheadItems({ limit: 200 })
         .then((data) => {
-          if (Array.isArray(data)) setOverheads(data);
+          if (Array.isArray(data)) {
+            const filtered = data.filter(o => !deletedOverheadIdsRef.current.has(o.id) && !deletedOverheadIdsRef.current.has(o.code));
+            setOverheads(filtered);
+          }
         })
         .catch(() => {});
     };
 
-    const handleResourcesUpdate = () => {
+    const handleResourcesUpdate = (e?: any) => {
+      const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
+      if (deletedId) {
+        deletedResourceIdsRef.current.add(deletedId);
+        setEnterpriseResources(prev => prev.filter(r => r.id !== deletedId && r.code !== deletedId));
+      }
       api.getResources()
         .then((data) => {
-          if (Array.isArray(data)) setEnterpriseResources(data);
+          if (Array.isArray(data)) {
+            const filtered = data.filter(r => !deletedResourceIdsRef.current.has(r.id) && !deletedResourceIdsRef.current.has(r.code));
+            setEnterpriseResources(filtered);
+          }
         })
         .catch(() => {});
     };
@@ -999,12 +1018,14 @@ export default function App() {
   const handleAddOverheadItem = async (itemData: Partial<OverheadItem>) => {
     try {
       let finalItem: OverheadItem;
-      if (itemData.id && (itemData as any).createdAt) {
+      if (itemData.id && !String(itemData.id).startsWith('temp-')) {
         finalItem = itemData as OverheadItem;
       } else {
         const created = await api.createOverheadItem(itemData);
         finalItem = created && created.id ? created : ({ ...itemData, id: itemData.id || `ovh-${Date.now()}` } as OverheadItem);
       }
+      deletedOverheadIdsRef.current.delete(finalItem.id);
+      if (finalItem.code) deletedOverheadIdsRef.current.delete(finalItem.code);
       setOverheads(prev => [finalItem, ...prev.filter(o => o.id !== finalItem.id && o.code !== finalItem.code)]);
       window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: finalItem.id, overhead: finalItem } }));
       logAuditEvent('OVERHEAD_CREATED', 'Catalog', finalItem.id, finalItem.name, `Created overhead item ${finalItem.name} (${finalItem.category}).`);
@@ -1013,6 +1034,8 @@ export default function App() {
     } catch (e: any) {
       console.warn('Overhead create API error:', e);
       const fallbackItem = { ...itemData, id: itemData.id || `ovh-${Date.now()}` } as OverheadItem;
+      deletedOverheadIdsRef.current.delete(fallbackItem.id);
+      if (fallbackItem.code) deletedOverheadIdsRef.current.delete(fallbackItem.code);
       setOverheads(prev => [fallbackItem, ...prev.filter(o => o.id !== fallbackItem.id && o.code !== fallbackItem.code)]);
       window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: fallbackItem.id } }));
       showToast(`Overhead cost item "${fallbackItem.name}" saved to database.`);
@@ -1035,13 +1058,14 @@ export default function App() {
   };
 
   const handleDeleteOverheadItem = async (id: string) => {
+    deletedOverheadIdsRef.current.add(id);
+    setOverheads(prev => prev.filter(o => o.id !== id && o.code !== id));
+    window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id, deletedId: id, action: 'delete' } }));
     try {
       await api.deleteOverheadItem(id);
     } catch (e) {
       console.warn('Overhead delete error:', e);
     }
-    setOverheads(prev => prev.filter(o => o.id !== id && o.code !== id));
-    window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
     logAuditEvent('OVERHEAD_DELETED', 'Catalog', id, 'Overhead Item', `Deleted overhead record ${id}.`);
     showToast('Overhead record deleted from PostgreSQL database.');
   };
@@ -1049,12 +1073,14 @@ export default function App() {
   const handleAddResource = async (resourceData: Partial<EnterpriseResource>) => {
     try {
       let finalResource: EnterpriseResource;
-      if (resourceData.id && (resourceData as any).code && !resourceData.id.startsWith('temp-')) {
+      if (resourceData.id && !String(resourceData.id).startsWith('temp-')) {
         finalResource = resourceData as EnterpriseResource;
       } else {
         const created = await api.createResource(resourceData);
         finalResource = created && created.id ? created : ({ ...resourceData, id: resourceData.id || `res-${Date.now()}` } as EnterpriseResource);
       }
+      deletedResourceIdsRef.current.delete(finalResource.id);
+      if (finalResource.code) deletedResourceIdsRef.current.delete(finalResource.code);
       setEnterpriseResources(prev => [finalResource, ...prev.filter(r => r.id !== finalResource.id && r.code !== finalResource.code)]);
       window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: finalResource.id, resource: finalResource } }));
       logAuditEvent('RESOURCE_CREATED', 'Catalog', finalResource.id, finalResource.name, `Created resource ${finalResource.name} (${finalResource.type}).`);
@@ -1063,6 +1089,8 @@ export default function App() {
     } catch (e: any) {
       console.warn('Resource create API error:', e);
       const fallback = { ...resourceData, id: resourceData.id || `res-${Date.now()}` } as EnterpriseResource;
+      deletedResourceIdsRef.current.delete(fallback.id);
+      if (fallback.code) deletedResourceIdsRef.current.delete(fallback.code);
       setEnterpriseResources(prev => [fallback, ...prev.filter(r => r.id !== fallback.id && r.code !== fallback.code)]);
       window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: fallback.id } }));
       showToast(`Resource "${fallback.name}" saved to database.`);
@@ -1085,13 +1113,14 @@ export default function App() {
   };
 
   const handleDeleteResource = async (id: string) => {
+    deletedResourceIdsRef.current.add(id);
+    setEnterpriseResources(prev => prev.filter(r => r.id !== id && r.code !== id));
+    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id, deletedId: id, action: 'delete' } }));
     try {
       await api.deleteResource(id);
     } catch (e) {
       console.warn('Resource delete error:', e);
     }
-    setEnterpriseResources(prev => prev.filter(r => r.id !== id && r.code !== id));
-    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
     logAuditEvent('RESOURCE_DELETED', 'Catalog', id, 'Enterprise Resource', `Deleted resource ${id}.`);
     showToast('Enterprise resource removed from PostgreSQL database.');
   };

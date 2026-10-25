@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Sparkles,
   Search,
@@ -373,16 +373,20 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }
   }, [enterpriseResourcesProp]);
 
+  const deletedResourceIdsRef = useRef<Set<string>>(new Set());
+  const deletedOverheadIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const refreshResources = (e?: any) => {
       const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
       if (deletedId) {
+        deletedResourceIdsRef.current.add(deletedId);
         setEnterpriseResources((prev) => prev.filter((r) => r.id !== deletedId && r.code !== deletedId));
       }
       api.getResources()
         .then((res) => {
           if (Array.isArray(res)) {
-            setEnterpriseResources(deletedId ? res.filter((r) => r.id !== deletedId && r.code !== deletedId) : res);
+            setEnterpriseResources(res.filter((r) => !deletedResourceIdsRef.current.has(r.id) && !deletedResourceIdsRef.current.has(r.code)));
           }
         })
         .catch((err) => console.warn('Could not load enterprise resources in Directory Hub:', err));
@@ -391,12 +395,13 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     const refreshOverheads = (e?: any) => {
       const deletedId = e?.detail?.deletedId || (e?.detail?.action === 'delete' ? e?.detail?.id : null);
       if (deletedId) {
+        deletedOverheadIdsRef.current.add(deletedId);
         setOverheadItems((prev) => prev.filter((o) => o.id !== deletedId && o.code !== deletedId));
       }
       api.getOverheadItems({ limit: 200 })
         .then((res) => {
           const list = Array.isArray(res) ? res : (res as any)?.data || [];
-          setOverheadItems(deletedId ? list.filter((o: any) => o.id !== deletedId && o.code !== deletedId) : list);
+          setOverheadItems(list.filter((o: any) => !deletedOverheadIdsRef.current.has(o.id) && !deletedOverheadIdsRef.current.has(o.code)));
         })
         .catch((err) => console.warn('Could not reload overhead items in Directory Hub:', err));
     };
@@ -413,6 +418,8 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   }, []);
 
   const handleResourceSaved = (saved: EnterpriseResource) => {
+    deletedResourceIdsRef.current.delete(saved.id);
+    if (saved.code) deletedResourceIdsRef.current.delete(saved.code);
     setEnterpriseResources((prev) => {
       const idx = prev.findIndex((r) => r.id === saved.id || (r.code && r.code === saved.code));
       if (idx >= 0) {
@@ -427,8 +434,10 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   };
 
   const handleResourceDeleted = (id: string) => {
+    deletedResourceIdsRef.current.add(id);
     setEnterpriseResources((prev) => prev.filter((r) => r.id !== id && r.code !== id));
     if (onDeleteResource) onDeleteResource(id);
+    api.deleteResource(id).catch(console.error);
     window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id, deletedId: id, action: 'delete' } }));
   };
 
@@ -1239,7 +1248,27 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     } else if (entityType === 'subcontractor') {
       if (onAddSubcontractor) onAddSubcontractor(itemData);
       else api.createSubcontractor(itemData).catch(console.error);
-      showToast(`Subcontractor "${itemData.subcontractorName || itemData.name}" created and stored in database.`);
+    } else if (entityType === 'resource' || entityType === 'enterprise_resource') {
+      const resPayload = {
+        code: itemData.code || `RES-${Math.floor(Math.random() * 9000 + 1000)}`,
+        name: itemData.name,
+        type: itemData.type || 'labour',
+        category: itemData.category || 'General Labour & Skills',
+        subCategory: itemData.subCategory || 'Operations',
+        moreSubCategory: itemData.moreSubCategory || '',
+        unit: itemData.unit || 'hr',
+        baseRate: Number(itemData.price || itemData.baseRate || 0),
+        operationalCharge: Number(itemData.costPrice || itemData.operationalCharge || 0),
+        chargeType: itemData.chargeType || 'hourly',
+        status: itemData.status || 'Available',
+        currency: itemData.currency || 'LKR'
+      };
+      if (onAddResource) {
+        onAddResource(resPayload);
+      } else {
+        api.createResource(resPayload).then(handleResourceSaved).catch(console.error);
+      }
+      showToast(`Enterprise resource "${itemData.name}" created and saved.`);
     } else if (entityType === 'project' && onAddProject) {
       onAddProject(itemData);
     } else if (entityType === 'client') {

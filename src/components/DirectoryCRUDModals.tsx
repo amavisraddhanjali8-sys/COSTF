@@ -827,6 +827,23 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
         customGradient
       });
       generateNextNumber('clients', true);
+    } else if (selectedType === 'resource') {
+      onSave('resource', {
+        code: code.trim(),
+        name: name.trim(),
+        type: 'labour',
+        category: category || 'General Labour & Skills',
+        subCategory: subCategory || 'Operations',
+        unit: unit || 'hr',
+        baseRate: Number(price) || 0,
+        operationalCharge: Number(costPrice) || 0,
+        chargeType: 'hourly',
+        currency,
+        status: 'Available',
+        themeId,
+        customGradient
+      });
+      generateNextNumber('resources', true);
     }
 
     onClose();
@@ -850,6 +867,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               ? 'Add Product'
               : selectedType === 'overhead'
               ? 'Add Overhead'
+              : selectedType === 'resource'
+              ? 'Add Enterprise Resource'
               : 'Add Item'}
           </h3>
           <button
@@ -879,6 +898,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                 <option value="produce">Product</option>
                 <option value="revenue">Revenue Deliverable</option>
                 <option value="overhead">Overhead</option>
+                <option value="resource">Enterprise Resource</option>
                 <option value="project">Project</option>
                 <option value="client">Client</option>
               </select>
