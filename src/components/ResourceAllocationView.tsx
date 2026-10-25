@@ -124,6 +124,10 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
 
   useEffect(() => {
     fetchResources();
+    window.addEventListener('fxtt-resources-changed', fetchResources);
+    return () => {
+      window.removeEventListener('fxtt-resources-changed', fetchResources);
+    };
   }, []);
 
   // Listen for navigation events with filters from HomeCommandView or Project cards
@@ -368,13 +372,20 @@ export const ResourceAllocationView: React.FC<ResourceAllocationViewProps> = ({
   const handleDeleteResource = async () => {
     if (!resourceToDelete) return;
     try {
-      await api.deleteResource(resourceToDelete.id);
-      setDbResources((prev) => prev.filter((r) => r.id !== resourceToDelete.id));
+      const targetId = resourceToDelete.id || resourceToDelete.code;
+      const targetCode = resourceToDelete.code || resourceToDelete.id;
+      await api.deleteResource(targetId);
+      if (resourceToDelete.code && resourceToDelete.code !== targetId) {
+        await api.deleteResource(resourceToDelete.code).catch(() => {});
+      }
+      setDbResources((prev) => prev.filter((r) => r.id !== targetId && r.code !== targetCode));
+      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: targetId, code: targetCode } }));
       setSaveSuccess(`Resource "${resourceToDelete.name}" deleted from database.`);
       setResourceToDelete(null);
       setTimeout(() => setSaveSuccess(null), 3500);
     } catch (e: any) {
-      alert(`Error deleting resource: ${e?.message || 'Database error'}`);
+      console.error('Error deleting resource:', e);
+      setSaveSuccess(`Error deleting resource: ${e?.message || 'Database error'}`);
     }
   };
 

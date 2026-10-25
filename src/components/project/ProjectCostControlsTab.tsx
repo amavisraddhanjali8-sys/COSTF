@@ -591,7 +591,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               onClick={() => setIsSaveTemplateModalOpen(true)}
               className="flex items-center space-x-1 px-2.5 py-1.5 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors text-xs font-semibold cursor-pointer shadow-2xs"
             >
-              <span>Save Template</span>
+              <span>Save</span>
             </button>
 
             <button
@@ -618,7 +618,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Plan</span>
+              <span>New</span>
             </button>
           </div>
         </div>
@@ -626,31 +626,31 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
         {/* Financial Rollup Badges */}
         <div className="bg-slate-50 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 p-3 grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Direct Cost</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Direct</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
               {formatCurrency(planMetrics.totalDirectCost, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Overhead ({activePlan.overheadPct || 8.5}%)</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Overhead</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
               {formatCurrency(planMetrics.overheadAmount, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Contingency ({activePlan.contingencyPct || 5.0}%)</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Contingency</span>
             <span className="font-bold text-slate-900 dark:text-slate-100 font-mono text-sm mt-0.5 block">
               {formatCurrency(planMetrics.contingencyAmount, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Cost</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Total</span>
             <span className="font-bold text-[#0078d4] dark:text-sky-300 font-mono text-sm mt-0.5 block">
               {formatCurrency(planMetrics.totalProjectCost, project.currency || 'LKR')}
             </span>
           </div>
           <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <span className="text-[10px] text-slate-400 font-bold uppercase block">Gross Margin</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase block">Margin</span>
             <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm mt-0.5 block">
               {planMetrics.grossMarginPct.toFixed(1)}%
             </span>
@@ -722,7 +722,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>Bulk Import (.xlsx / .csv)</span>
+              <span>Import</span>
             </button>
 
             <button
@@ -731,7 +731,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#003049] hover:bg-[#002235] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
             >
               <Layers className="w-3.5 h-3.5 text-[#fdf0d5]" />
-              <span>Quick Insert (FXTT Table)</span>
+              <span>Quick</span>
             </button>
 
             <button
@@ -743,7 +743,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
             >
               <Building2 className="w-3.5 h-3.5" />
-              <span>+ Material</span>
+              <span>Material</span>
             </button>
 
             <button
@@ -752,7 +752,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
             >
               <Wrench className="w-3.5 h-3.5 text-[#0078d4]" />
-              <span>+ Subcontractor</span>
+              <span>Subcontractor</span>
             </button>
 
             <button
@@ -761,7 +761,7 @@ export const ProjectCostControlsTab: React.FC<ProjectCostControlsTabProps> = ({
               className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
             >
               <Truck className="w-3.5 h-3.5 text-teal-600" />
-              <span>+ Tariff</span>
+              <span>Tariff</span>
             </button>
           </div>
         </div>

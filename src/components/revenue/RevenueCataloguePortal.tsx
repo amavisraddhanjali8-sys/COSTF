@@ -215,14 +215,11 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-2">
-              <span>Revenue Deliverables</span>
+              <span>Revenue</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-mono font-semibold">
-                {totalCount} Total Items
+                {totalCount} items
               </span>
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Client billing rates, competitor rate benchmarks, and turnkey deliverable catalogue
-            </p>
           </div>
 
           <div className="flex items-center space-x-2.5 flex-wrap">
@@ -235,7 +232,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               className="px-4 py-2 text-xs font-bold rounded-xl bg-[#003049] hover:bg-[#002235] text-white flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4 text-[#fdf0d5]" />
-              <span>New Deliverable</span>
+              <span>Add</span>
             </button>
 
             {/* View Mode Toggle: Cards vs Table */}
@@ -250,7 +247,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                 }`}
               >
                 <LayoutGrid className="w-3.5 h-3.5 text-blue-500" />
-                <span>Cards View</span>
+                <span>Cards</span>
               </button>
               <button
                 type="button"
@@ -262,7 +259,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
                 }`}
               >
                 <ListFilter className="w-3.5 h-3.5 text-slate-500" />
-                <span>Table View</span>
+                <span>Table</span>
               </button>
             </div>
           </div>
@@ -299,7 +296,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
 
           <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
             <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              Total Revenue
+              Revenue
             </div>
             <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 truncate">
               {formatCurrency(totalQuotedRevenue, activeCurrency)}
@@ -309,7 +306,7 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
           {/* Competitor Benchmark Metric Card */}
           <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-sky-950/40 border border-blue-200/80 dark:border-sky-800/60 col-span-2 md:col-span-1">
             <div className="text-[11px] font-semibold text-blue-700 dark:text-sky-300 flex items-center justify-between">
-              <span>Competitor Advantage</span>
+              <span>Advantage</span>
               <Scale className="w-3.5 h-3.5 text-blue-500" />
             </div>
             <div className="text-lg font-extrabold text-blue-900 dark:text-sky-100 font-mono mt-0.5 flex items-center space-x-1.5">
@@ -317,9 +314,6 @@ export const RevenueCataloguePortal: React.FC<RevenueCataloguePortalProps> = ({
               <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 font-sans">
                 Favorable
               </span>
-            </div>
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-              {benchmarkCount} benchmarks tracked
             </div>
           </div>
         </div>

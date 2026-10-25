@@ -81,7 +81,7 @@ export interface CatalogGridItem {
   id: string;
   code: string;
   name: string;
-  classification: 'product' | 'material' | 'service' | 'labour' | 'overhead' | 'revenue';
+  classification: 'product' | 'material' | 'service' | 'labour' | 'overhead' | 'revenue' | 'resource';
   category: string;
   subCategory: string;
   rate: number;
@@ -95,7 +95,7 @@ export interface CatalogGridItem {
   phone: string;
   createdTime: string;
   assignedTo: string;
-  rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue';
+  rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue' | 'resource';
   rawItem: any;
   currency?: string;
   priceHistory?: PriceHistoryRecord[];
@@ -111,6 +111,7 @@ interface MasterDataGridCatalogProps {
   produceItems?: ProduceItem[];
   overheads?: OverheadItem[];
   revenueItems?: RevenueItem[];
+  enterpriseResources?: EnterpriseResource[];
   categories?: CategoryNode[];
   selectedProject?: Project | null;
   onUpdateMaterialPrice?: (id: string, newPrice: number, reason: string) => void;
@@ -123,8 +124,10 @@ interface MasterDataGridCatalogProps {
   onAddSubcontractor?: (item: Partial<SubcontractorRateItem>) => void;
   onAddOverheadItem?: (item: any) => void;
   onAddRevenueItem?: (item: any) => void;
-  onEditRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue', item: any) => void;
-  onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue', id: string) => void;
+  onAddResource?: (item: any) => void;
+  onEditRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue' | 'resource', item: any) => void;
+  onDeleteRecord?: (rawType: 'material' | 'service' | 'subcontractor' | 'product' | 'overhead' | 'revenue' | 'resource', id: string) => void;
+  onDeleteResource?: (id: string) => void;
   initialFilterTab?: string;
   embeddedMode?: boolean; // When used inside MaterialsView or ServicesView
   currentUser?: AppUser | null;
@@ -140,6 +143,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   produceItems = [],
   overheads = [],
   revenueItems = [],
+  enterpriseResources = [],
   categories = [],
   selectedProject,
   onUpdateMaterialPrice,
@@ -152,8 +156,10 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
   onAddSubcontractor,
   onAddOverheadItem,
   onAddRevenueItem,
+  onAddResource,
   onEditRecord,
   onDeleteRecord,
+  onDeleteResource,
   initialFilterTab = 'ALL',
   embeddedMode = false,
   currentUser,
@@ -686,14 +692,42 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
       });
     }
 
+    // 6. Enterprise Resources (Labour, Machinery, Equipment, Tools)
+    if (enterpriseResources && enterpriseResources.length > 0) {
+      enterpriseResources.forEach((res, idx) => {
+        list.push({
+          id: res.id,
+          code: res.code || `RES-${100 + idx}`,
+          name: res.name,
+          classification: 'resource',
+          category: res.category || 'Enterprise Resources',
+          subCategory: res.subCategory || (res.type ? res.type.toUpperCase() : 'General'),
+          rate: Number(res.baseRate || 0),
+          unit: res.unit || 'hr',
+          stockOrSla: res.skillOrSla || (res.type ? res.type.toUpperCase() : 'Available'),
+          supplierName: res.supplierName || 'Internal Enterprise Resource',
+          supplierCountry: 'United States',
+          status: res.status || 'Active',
+          email: 'resources@enterprise.com',
+          phone: '+1 800 555 0188',
+          createdTime: res.effectiveDate || '',
+          assignedTo: 'Resource Manager',
+          rawType: 'resource',
+          rawItem: res,
+          currency: res.currency || DEFAULT_CURRENCY_CODE,
+          priceHistory: []
+        });
+      });
+    }
+
     return list;
-  }, [materials, services, subcontractors, suppliers, produceItems, overheads, revenueItems]);
+  }, [materials, services, subcontractors, suppliers, produceItems, overheads, revenueItems, enterpriseResources]);
 
   // Extract facet statistics for the multiple filter settings panel
   const facetStats = useMemo(() => {
     const cats = new Map<string, number>();
     const sups = new Map<string, number>();
-    const classifications: Record<string, number> = { product: 0, material: 0, service: 0, labour: 0, overhead: 0, revenue: 0 };
+    const classifications: Record<string, number> = { product: 0, material: 0, service: 0, labour: 0, overhead: 0, revenue: 0, resource: 0 };
     const statuses = new Map<string, number>();
 
     allItems.forEach((item) => {
@@ -3484,8 +3518,13 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                       await api.deleteProduceItem(id);
                     } else if (rawType === 'overhead') {
                       await api.deleteOverheadItem(id);
+                      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
                     } else if (rawType === 'revenue') {
                       await api.deleteRevenueItem(id);
+                    } else if (rawType === 'resource') {
+                      await api.deleteResource(id);
+                      if (onDeleteResource) onDeleteResource(id);
+                      window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
                     }
                   } catch (err: any) {
                     console.warn(`Direct DB deletion warning:`, err?.message);
@@ -3552,8 +3591,13 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
                             await api.deleteProduceItem(itm.id);
                           } else if (itm.rawType === 'overhead') {
                             await api.deleteOverheadItem(itm.id);
+                            window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: itm.id } }));
                           } else if (itm.rawType === 'revenue') {
                             await api.deleteRevenueItem(itm.id);
+                          } else if (itm.rawType === 'resource') {
+                            await api.deleteResource(itm.id);
+                            if (onDeleteResource) onDeleteResource(itm.id);
+                            window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: itm.id } }));
                           }
                         } catch (e: any) {
                           console.warn(`Bulk direct DB delete warning for ${itm.id}:`, e?.message);

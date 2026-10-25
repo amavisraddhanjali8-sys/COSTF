@@ -234,7 +234,7 @@ export const CostAnalysisView: React.FC<CostAnalysisViewProps> = ({
             className="flex items-center space-x-1.5 px-3 py-1 bg-[#003049] hover:bg-[#002235] text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
           >
             <FileDown className="w-3.5 h-3.5 text-white" />
-            <span>Export PDF</span>
+            <span>Export</span>
           </button>
         </div>
       </div>

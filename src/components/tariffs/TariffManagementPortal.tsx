@@ -235,9 +235,6 @@ export const TariffManagementPortal: React.FC<TariffManagementPortalProps> = ({
                   PostgreSQL
                 </span>
               </h1>
-              <p className="text-xs text-slate-500">
-                Scope rules, rates & multi-currency schedules
-              </p>
             </div>
           </div>
 

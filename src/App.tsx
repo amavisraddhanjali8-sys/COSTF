@@ -746,6 +746,32 @@ export default function App() {
     fetchData();
   }, [currentUser?.id]);
 
+  // Synchronize Overheads & Resources globally across all portals and data grid
+  useEffect(() => {
+    const handleOverheadsUpdate = () => {
+      api.getOverheadItems({ limit: 200 })
+        .then((data) => {
+          if (Array.isArray(data)) setOverheads(data);
+        })
+        .catch(() => {});
+    };
+
+    const handleResourcesUpdate = () => {
+      api.getResources()
+        .then((data) => {
+          if (Array.isArray(data)) setEnterpriseResources(data);
+        })
+        .catch(() => {});
+    };
+
+    window.addEventListener('fxtt-overheads-changed', handleOverheadsUpdate);
+    window.addEventListener('fxtt-resources-changed', handleResourcesUpdate);
+    return () => {
+      window.removeEventListener('fxtt-overheads-changed', handleOverheadsUpdate);
+      window.removeEventListener('fxtt-resources-changed', handleResourcesUpdate);
+    };
+  }, []);
+
   // Recalculate with Python Analytics Engine
   const handleRefreshAnalytics = async () => {
     if (!selectedProject) return;
@@ -1002,9 +1028,22 @@ export default function App() {
     } catch (e) {
       console.warn('Overhead delete error:', e);
     }
-    setOverheads(prev => prev.filter(o => o.id !== id));
+    setOverheads(prev => prev.filter(o => o.id !== id && o.code !== id));
+    window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id } }));
     logAuditEvent('OVERHEAD_DELETED', 'Catalog', id, 'Overhead Item', `Deleted overhead record ${id}.`);
-    showToast('Overhead record deleted.');
+    showToast('Overhead record deleted from PostgreSQL database.');
+  };
+
+  const handleDeleteResource = async (id: string) => {
+    try {
+      await api.deleteResource(id);
+    } catch (e) {
+      console.warn('Resource delete error:', e);
+    }
+    setEnterpriseResources(prev => prev.filter(r => r.id !== id && r.code !== id));
+    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
+    logAuditEvent('RESOURCE_DELETED', 'Catalog', id, 'Enterprise Resource', `Deleted resource ${id}.`);
+    showToast('Enterprise resource removed from PostgreSQL database.');
   };
 
   // Revenue Catalogue Deliverable Handlers (All Portals Connected)
@@ -1432,6 +1471,8 @@ export default function App() {
             onAddRevenueItem={handleAddRevenueItem}
             onUpdateRevenueItem={handleUpdateRevenueItem}
             onDeleteRevenueItem={handleDeleteRevenueItem}
+            enterpriseResources={enterpriseResources}
+            onDeleteResource={handleDeleteResource}
           />
         )}
 
@@ -1446,6 +1487,7 @@ export default function App() {
             categories={categories}
             overheads={overheads}
             revenueItems={revenueItems}
+            enterpriseResources={enterpriseResources}
             initialFilterTab="ALL"
             currentUser={currentUser}
             onLogAudit={logAuditEvent}
@@ -1461,6 +1503,7 @@ export default function App() {
             onAddSubcontractor={handleAddSubcontractor}
             onAddOverheadItem={handleAddOverheadItem}
             onAddRevenueItem={handleAddRevenueItem}
+            onDeleteResource={handleDeleteResource}
             onEditRecord={(rawType, item) => {
               if (rawType === 'material') {
                 handleUpdateMaterial(item.id, item);
@@ -1474,6 +1517,10 @@ export default function App() {
                 handleUpdateOverheadItem(item.id, item);
               } else if (rawType === 'revenue') {
                 handleUpdateRevenueItem(item.id, item);
+              } else if (rawType === 'resource') {
+                api.updateResource(item.id, item).then(() => {
+                  window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: item.id } }));
+                }).catch(console.error);
               }
               logAuditEvent('CATALOG_EDIT', 'Catalog', item.id, rawType, `Edited ${item.code || item.name} in master data grid`);
             }}
@@ -1490,6 +1537,8 @@ export default function App() {
                 handleDeleteOverheadItem(id);
               } else if (rawType === 'revenue') {
                 handleDeleteRevenueItem(id);
+              } else if (rawType === 'resource') {
+                handleDeleteResource(id);
               }
               logAuditEvent('CATALOG_DELETE', 'Catalog', id, rawType, `Deleted ${rawType} record ${id} from master data grid`);
             }}

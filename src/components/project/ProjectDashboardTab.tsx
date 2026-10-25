@@ -268,24 +268,16 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             <DollarSign className="w-4 h-4 text-blue-200" />
           </div>
           <div className="text-2xl font-bold text-white mt-2">{formatCurrency(revenue, project.currency || 'LKR')}</div>
-          <div className="flex items-center space-x-1.5 text-xs text-blue-200 mt-2">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Agreed Price</span>
-          </div>
         </div>
 
         {/* Total Cost Tile */}
         <div className="bg-white dark:bg-[#0b101b] p-4 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Cost</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Cost</span>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             {formatCurrency(totalCost, project.currency || 'LKR')}
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 flex items-center justify-between font-mono">
-            <span>Direct: {formatCurrency(directCost, project.currency || 'LKR')}</span>
-            <span>Overhead: {formatCurrency(overheadAndContingency, project.currency || 'LKR')}</span>
           </div>
         </div>
 
@@ -296,7 +288,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             : 'bg-white dark:bg-[#0b101b] border-slate-200 dark:border-slate-800'
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Gross Margin</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Margin</span>
             {grossMarginPct < getMarginThreshold() ? (
               <span className="flex items-center space-x-1 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -314,32 +306,13 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             }`}>
               {grossMarginPct.toFixed(1)}%
             </div>
-            <span className="text-xs text-slate-500 font-mono">Target: {project.targetMarginPct}%</span>
-          </div>
-          <div className="flex items-center justify-between text-xs mt-2 font-medium">
-            {grossMarginPct >= project.targetMarginPct ? (
-              <span className="flex items-center text-emerald-600 dark:text-emerald-400">
-                <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-                +{(grossMarginPct - project.targetMarginPct).toFixed(1)}%
-              </span>
-            ) : (
-              <span className="flex items-center text-red-500">
-                <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />
-                {(grossMarginPct - project.targetMarginPct).toFixed(1)}%
-              </span>
-            )}
-            {grossMarginPct < getMarginThreshold() && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                Below {getMarginThreshold()}% limit
-              </span>
-            )}
           </div>
         </div>
 
         {/* Health Score Tile */}
         <div className="bg-white dark:bg-[#0b101b] p-4 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Health Index</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Health</span>
             <TrendingUp className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="flex items-baseline space-x-1.5 mt-2">
@@ -549,7 +522,7 @@ export const ProjectDashboardTab: React.FC<ProjectDashboardTabProps> = ({
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Item</span>
+            <span>Add</span>
           </button>
         </div>
 

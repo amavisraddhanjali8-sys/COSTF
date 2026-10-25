@@ -174,11 +174,7 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
       <div className="bg-gradient-to-r from-[#003049] via-[#004e8a] to-[#0078d4] rounded-2xl p-4 sm:p-5 text-white shadow-md border border-[#002235]">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/15">
           <div>
-            <div className="flex items-center space-x-2 text-xs font-semibold text-sky-200 uppercase tracking-wider">
-              <Calendar className="w-4 h-4 text-[#fdf0d5]" />
-              <span>Schedules</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-black text-white mt-1">
+            <h1 className="text-xl sm:text-2xl font-black text-white">
               Timelines
             </h1>
           </div>
@@ -191,9 +187,6 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
             <div className="text-xl sm:text-2xl font-black font-mono text-white mt-0.5">
               {aggregateStats.totalProjects}
             </div>
-            <span className="text-[10px] text-sky-200 block mt-0.5">
-              Active
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
@@ -201,19 +194,13 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
             <div className="text-lg sm:text-xl font-black font-mono text-[#fdf0d5] mt-0.5">
               {aggregateStats.completedMilestones} / {aggregateStats.totalMilestones}
             </div>
-            <span className="text-[10px] text-sky-200 block mt-0.5">
-              {aggregateStats.overallProgress}% done
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">On Schedule</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200 block">Schedule</span>
             <div className="text-lg sm:text-xl font-black font-mono text-emerald-300 mt-0.5">
               {aggregateStats.onTrack}
             </div>
-            <span className="text-[10px] text-emerald-200 block mt-0.5">
-              Normal
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
@@ -221,9 +208,6 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
             <div className="text-lg sm:text-xl font-black font-mono text-amber-300 mt-0.5">
               {aggregateStats.critical}
             </div>
-            <span className="text-[10px] text-amber-200 block mt-0.5">
-              Urgent
-            </span>
           </div>
         </div>
       </div>
@@ -235,7 +219,7 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Search project timelines by code, name, client..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0078d4]"
@@ -244,12 +228,11 @@ export const ProjectTimelinesLandingView: React.FC<ProjectTimelinesLandingViewPr
 
         {/* Filter Pills */}
         <div className="flex items-center space-x-1.5 overflow-x-auto text-xs">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase mr-1">Filter:</span>
           {[
             { id: 'all', label: 'All', count: timelineCards.length },
-            { id: 'on_track', label: 'On Schedule', count: aggregateStats.onTrack },
+            { id: 'on_track', label: 'Track', count: aggregateStats.onTrack },
             { id: 'critical', label: 'Critical', count: aggregateStats.critical },
-            { id: 'completed', label: 'Delivered', count: aggregateStats.completed }
+            { id: 'completed', label: 'Done', count: aggregateStats.completed }
           ].map((tab) => {
             const active = statusFilter === tab.id;
             return (

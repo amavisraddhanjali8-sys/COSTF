@@ -249,48 +249,42 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Spend</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Spend</span>
             <Users className="w-4 h-4 text-[#0078d4]" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
             {formatCurrency(totalCost, activeCurrency)}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">Live allocation total</span>
         </div>
 
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Allocated Units</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Units</span>
             <Calendar className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
             {totalHours.toLocaleString()} <span className="text-xs font-normal text-slate-500">hrs/units</span>
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">Total project workload</span>
         </div>
 
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Resources</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Resources</span>
             <CheckCircle2 className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
             {assignedResources.length}
           </div>
-          <span className="text-[10px] text-slate-500 mt-1 block">
-            {countByType.labour} labour • {countByType.machinery} mach • {countByType.equipment} eqp • {countByType.tool} tools
-          </span>
         </div>
 
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Plan</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Plan</span>
             <Layers className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate mt-1">
-            {activePlan ? `${activePlan.planNumber || ''} - ${activePlan.name}` : 'No active plan'}
+            {activePlan ? `${activePlan.planNumber || ''} - ${activePlan.name}` : 'No plan'}
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold mt-1">PostgreSQL Synced</span>
         </div>
       </div>
 
@@ -322,7 +316,7 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search assigned resources..."
+              placeholder="Search..."
               className="pl-8 pr-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-[#0078d4]"
             />
           </div>
@@ -333,7 +327,7 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
             type="button"
             onClick={fetchDbResources}
             className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-            title="Refresh resources from PostgreSQL"
+            title="Refresh"
           >
             <RefreshCw className={`w-4 h-4 ${loadingResources ? 'animate-spin' : ''}`} />
           </button>
@@ -345,7 +339,7 @@ export const ProjectResourcesTab: React.FC<ProjectResourcesTabProps> = ({
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Assign Resource</span>
+            <span>Assign</span>
           </button>
         </div>
       </div>

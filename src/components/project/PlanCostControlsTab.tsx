@@ -310,10 +310,10 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                 setIsAddResourceModalOpen(true);
               }}
               className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white rounded-lg text-xs font-bold cursor-pointer shadow-2xs transition-colors"
-              title="Add or assign a resource"
+              title="Add"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Resource</span>
+              <span>Add</span>
             </button>
 
             {isFrozen ? (
@@ -349,7 +349,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
                   ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300'
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300'
               }`}
-              title="Escalation Lock"
+              title="Escalation"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>{isEscalationLocked ? 'Locked' : 'Escalation'}</span>
@@ -360,10 +360,10 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
               onClick={() => handleAction('apply_savings_target', { discountPct: 5 })}
               disabled={saving}
               className="flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-2xs"
-              title="Apply -5% Savings Target"
+              title="Savings"
             >
               <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
-              <span>-5% Savings</span>
+              <span>Savings</span>
             </button>
 
             <button
@@ -457,7 +457,7 @@ export const PlanCostControlsTab: React.FC<PlanCostControlsTabProps> = ({
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center space-x-2">
             <Tag className="w-3.5 h-3.5 text-[#0078d4]" />
-            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Category Caps</h4>
+            <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">Caps</h4>
           </div>
         </div>
 

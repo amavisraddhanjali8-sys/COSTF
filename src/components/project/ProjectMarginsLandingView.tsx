@@ -191,11 +191,7 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
       <div className="bg-gradient-to-r from-[#003049] via-[#004e8a] to-[#0078d4] rounded-2xl p-4 sm:p-5 text-white shadow-md border border-[#002235]">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/15">
           <div>
-            <div className="flex items-center space-x-2 text-xs font-semibold text-sky-200 uppercase tracking-wider">
-              <TrendingUp className="w-4 h-4 text-[#fdf0d5]" />
-              <span>Executive Margin Intelligence Portfolio</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-black text-white mt-1">
+            <h1 className="text-xl sm:text-2xl font-black text-white">
               Margins
             </h1>
           </div>
@@ -208,7 +204,7 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
                 className="px-3 py-1.5 bg-[#fdf0d5] hover:bg-[#ecd5a8] text-[#003049] rounded-xl text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#003049]" />
-                <span>+ New Project</span>
+                <span>New</span>
               </button>
             )}
           </div>
@@ -221,9 +217,6 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
             <div className="text-xl sm:text-2xl font-black font-mono text-[#fdf0d5] mt-0.5">
               {portfolioSummary.avgMargin}%
             </div>
-            <span className="text-[10px] text-sky-200 block mt-0.5">
-              Target: 35%
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
@@ -231,9 +224,6 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
             <div className="text-lg sm:text-xl font-black font-mono text-white mt-0.5">
               {formatCurrency(portfolioSummary.totalRev, baseCurrency)}
             </div>
-            <span className="text-[10px] text-sky-200 block mt-0.5">
-              {portfolioSummary.count} Projects
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
@@ -241,9 +231,6 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
             <div className="text-lg sm:text-xl font-black font-mono text-white mt-0.5">
               {formatCurrency(portfolioSummary.totalDirect, baseCurrency)}
             </div>
-            <span className="text-[10px] text-sky-200 block mt-0.5">
-              Direct
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
@@ -251,9 +238,6 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
             <div className="text-lg sm:text-xl font-black font-mono text-emerald-300 mt-0.5">
               +{formatCurrency(portfolioSummary.totalProfit, baseCurrency)}
             </div>
-            <span className="text-[10px] text-emerald-200 block mt-0.5">
-              Gross
-            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15 col-span-2 sm:col-span-1">
@@ -264,9 +248,6 @@ export const ProjectMarginsLandingView: React.FC<ProjectMarginsLandingViewProps>
               </span>
               <span className="text-xs text-sky-200">/ {portfolioSummary.count}</span>
             </div>
-            <span className="text-[10px] text-amber-200 block mt-0.5">
-              {portfolioSummary.atRiskCount} at risk
-            </span>
           </div>
         </div>
       </div>

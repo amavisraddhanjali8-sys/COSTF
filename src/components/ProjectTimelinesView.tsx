@@ -825,9 +825,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
               type="button"
               onClick={onNavigateToLanding}
               className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shrink-0 shadow-2xs"
-              title="Return to all project cards"
+              title="Back"
             >
-              <span>← All Projects</span>
+              <span>Back</span>
             </button>
           )}
 
@@ -847,17 +847,6 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
               <span>Client: <strong className="text-slate-700 dark:text-slate-300 font-semibold">{project.clientName}</strong></span>
               <span>•</span>
               <span>Deadline: <strong className="font-mono font-bold text-slate-900 dark:text-slate-200">{project.deliveryDeadline}</strong></span>
-              {deadlineDaysLeft !== null && (
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                  deadlineDaysLeft < 0
-                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                    : deadlineDaysLeft <= 30
-                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                }`}>
-                  {deadlineDaysLeft < 0 ? `${Math.abs(deadlineDaysLeft)}d Overdue` : `${deadlineDaysLeft}d remaining`}
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -901,10 +890,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
                   ? 'bg-white dark:bg-slate-900 text-[#0078d4] dark:text-sky-400 shadow-2xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
               }`}
-              title="Milestone Calendar View"
             >
               <Calendar className="w-3.5 h-3.5" />
-              <span>Milestone Calendar</span>
+              <span>Calendar</span>
             </button>
             <button
               type="button"
@@ -914,10 +902,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
                   ? 'bg-white dark:bg-slate-900 text-[#0078d4] dark:text-sky-400 shadow-2xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
               }`}
-              title="Phase List & Sequence Reordering"
             >
               <List className="w-3.5 h-3.5" />
-              <span>Phase Sequence</span>
+              <span>Phases</span>
             </button>
             <button
               type="button"
@@ -927,7 +914,6 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
                   ? 'bg-white dark:bg-slate-900 text-[#0078d4] dark:text-sky-400 shadow-2xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
               }`}
-              title="Split View"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
               <span>Split</span>
@@ -940,7 +926,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
             className="flex items-center space-x-1 px-3 py-1.5 bg-[#0078d4] hover:bg-[#006cbd] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shadow-2xs"
           >
             <PlusCircle className="w-3.5 h-3.5" />
-            <span>Add Phase</span>
+            <span>Add</span>
           </button>
 
           {/* Export to ICS Calendar Button */}
@@ -948,10 +934,9 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
             type="button"
             onClick={handleExportICS}
             className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer shadow-2xs"
-            title="Download iCalendar (.ics) milestone schedule for Google Calendar, Outlook, and Apple Calendar"
           >
             <Download className="w-3.5 h-3.5 text-[#0078d4] dark:text-sky-400" />
-            <span>Export to ICS</span>
+            <span>ICS</span>
           </button>
 
           <button
@@ -959,7 +944,7 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
             onClick={onExportPDF}
             className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer shadow-2xs"
           >
-            <span>Export PDF</span>
+            <span>PDF</span>
           </button>
         </div>
       </div>
@@ -973,13 +958,10 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
           <div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center space-x-1">
               <Target className="w-3.5 h-3.5 text-rose-500" />
-              <span>Delivery Deadline</span>
+              <span>Deadline</span>
             </div>
             <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
               {project.deliveryDeadline || 'Not Set'}
-            </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              {deadlineDaysLeft !== null ? `${deadlineDaysLeft} days remaining` : 'No deadline'}
             </div>
           </div>
           <button
@@ -998,13 +980,10 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center space-x-1">
             <Flag className="w-3.5 h-3.5 text-[#0078d4]" />
-            <span>Upcoming Phase Completion</span>
+            <span>Phase</span>
           </div>
           <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-1 truncate">
-            {nextPhaseCompletion ? nextPhaseCompletion.name : 'All Phases Complete'}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Target: <span className="font-mono font-semibold">{nextPhaseCompletion?.endDate || 'N/A'}</span>
+            {nextPhaseCompletion ? nextPhaseCompletion.name : 'Completed'}
           </div>
         </div>
 
@@ -1012,10 +991,10 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center space-x-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Phases Progress</span>
+            <span>Progress</span>
           </div>
           <div className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-            {completedPhasesCount} / {project.phases?.length || 0} Complete
+            {completedPhasesCount} / {project.phases?.length || 0}
           </div>
           <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 mt-1.5 overflow-hidden">
             <div
@@ -1030,16 +1009,13 @@ export const ProjectTimelinesView: React.FC<ProjectTimelinesViewProps> = ({
         {/* Metric 4: Planned Phase Budget vs Incurred */}
         <div className="bg-white dark:bg-[#0b101b] p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center justify-between">
-            <span>Budget / Variance</span>
+            <span>Budget</span>
             <span className={`font-mono font-bold ${totalPhaseVariance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {totalPhaseVariance >= 0 ? `+${formatCurrency(totalPhaseVariance, project.currency)}` : `-${formatCurrency(Math.abs(totalPhaseVariance), project.currency)}`}
             </span>
           </div>
           <div className="text-base font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
             {formatCurrency(totalPhaseBudget, project.currency)}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Actual Incurred: <span className="font-mono">{formatCurrency(totalPhaseActual, project.currency)}</span>
           </div>
         </div>
       </div>

@@ -165,6 +165,10 @@ interface DirectoryCardsHubViewProps {
   onAddCompetitor?: (c: Partial<Competitor>) => void;
   onUpdateCompetitor?: (id: string, c: Partial<Competitor>) => void;
   onDeleteCompetitor?: (id: string) => void;
+  enterpriseResources?: EnterpriseResource[];
+  onAddResource?: (r: any) => void;
+  onUpdateResource?: (id: string, r: any) => void;
+  onDeleteResource?: (id: string) => void;
 }
 
 export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
@@ -217,7 +221,11 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   competitors: competitorsProp,
   onAddCompetitor,
   onUpdateCompetitor,
-  onDeleteCompetitor
+  onDeleteCompetitor,
+  enterpriseResources: enterpriseResourcesProp,
+  onAddResource,
+  onUpdateResource,
+  onDeleteResource
 }) => {
   const [activeTab, setActiveTab] = useState<DirectoryTab>(initialTab || 'projects');
   const [revenueSubTab, setRevenueSubTab] = useState<RevenueStreamSubTab>('all_records');
@@ -360,16 +368,43 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
   };
 
   useEffect(() => {
-    api.getResources()
-      .then((res) => {
-        if (Array.isArray(res)) setEnterpriseResources(res);
-      })
-      .catch((err) => console.warn('Could not load enterprise resources in Directory Hub:', err));
+    if (enterpriseResourcesProp) {
+      setEnterpriseResources(enterpriseResourcesProp);
+    }
+  }, [enterpriseResourcesProp]);
+
+  useEffect(() => {
+    const refreshResources = () => {
+      api.getResources()
+        .then((res) => {
+          if (Array.isArray(res)) setEnterpriseResources(res);
+        })
+        .catch((err) => console.warn('Could not load enterprise resources in Directory Hub:', err));
+    };
+
+    const refreshOverheads = () => {
+      api.getOverheadItems({ limit: 200 })
+        .then((res) => {
+          const list = Array.isArray(res) ? res : (res as any)?.data || [];
+          setOverheadItems(list);
+        })
+        .catch((err) => console.warn('Could not reload overhead items in Directory Hub:', err));
+    };
+
+    refreshResources();
+    refreshOverheads();
+
+    window.addEventListener('fxtt-resources-changed', refreshResources);
+    window.addEventListener('fxtt-overheads-changed', refreshOverheads);
+    return () => {
+      window.removeEventListener('fxtt-resources-changed', refreshResources);
+      window.removeEventListener('fxtt-overheads-changed', refreshOverheads);
+    };
   }, []);
 
   const handleResourceSaved = (saved: EnterpriseResource) => {
     setEnterpriseResources((prev) => {
-      const idx = prev.findIndex((r) => r.id === saved.id);
+      const idx = prev.findIndex((r) => r.id === saved.id || (r.code && r.code === saved.code));
       if (idx >= 0) {
         const copy = [...prev];
         copy[idx] = saved;
@@ -377,10 +412,14 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
       }
       return [saved, ...prev];
     });
+    if (onAddResource) onAddResource(saved);
+    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: saved.id, resource: saved } }));
   };
 
   const handleResourceDeleted = (id: string) => {
-    setEnterpriseResources((prev) => prev.filter((r) => r.id !== id));
+    setEnterpriseResources((prev) => prev.filter((r) => r.id !== id && r.code !== id));
+    if (onDeleteResource) onDeleteResource(id);
+    window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id } }));
   };
 
   const handleResourcePriceUpdated = (updated: EnterpriseResource) => {
@@ -879,20 +918,36 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
     }
   };
 
-  // Delete overhead item handler
-  const handleDeleteOverheadItemDirect = async (item: any) => {
-    if (!window.confirm(`Are you sure you want to delete overhead item "${item.name}" (${item.code})? This will permanently remove it from the PostgreSQL database.`)) {
-      return;
-    }
-    try {
-      if (onDeleteOverheadItem) onDeleteOverheadItem(item.id);
-      await api.deleteOverheadItem(item.id);
-      setOverheadItems((prev) => prev.filter((o) => o.id !== item.id));
-      showToast(`Overhead item "${item.name}" (${item.code}) deleted successfully.`);
-    } catch (err: any) {
-      console.error('Failed to delete overhead item:', err);
-      showToast(err?.message || 'Failed to delete overhead item from database.');
-    }
+  // Delete overhead item handler with zero iframe blocking
+  const handleDeleteOverheadItemDirect = (item: any) => {
+    if (!item) return;
+    const targetCode = item.code || item.id || 'OVH';
+    const targetName = item.name || 'Overhead Item';
+    setDeleteModalData({
+      isOpen: true,
+      title: `${targetName} (${targetCode})`,
+      entityType: 'Overhead Item',
+      onConfirm: async () => {
+        try {
+          const targetId = item.id || item.code;
+          if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
+          await api.deleteOverheadItem(targetId);
+          if (item.code && item.code !== targetId) {
+            await api.deleteOverheadItem(item.code).catch(() => {});
+          }
+          setOverheadItems((prev) =>
+            prev.filter((o) => o.id !== targetId && o.code !== targetCode && o.id !== targetCode && o.code !== targetId)
+          );
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
+          showToast(`Overhead item "${targetName}" (${targetCode}) permanently deleted.`);
+        } catch (err: any) {
+          console.error('Failed to delete overhead item:', err);
+          showToast(err?.message || 'Failed to delete overhead item from database.');
+        } finally {
+          setDeleteModalData(null);
+        }
+      }
+    });
   };
 
   // Card Detail Quick Modal
@@ -1472,6 +1527,20 @@ export const DirectoryCardsHubView: React.FC<DirectoryCardsHubViewProps> = ({
             )
           );
           showToast(`Revenue deliverable "${title}" deleted successfully.`);
+        } else if (entityType === 'Overhead Item' || portalTab === 'overheads-hierarchy' || overheadItems.some((o) => o.id === id || o.code === id)) {
+          const targetId = id;
+          if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
+          api.deleteOverheadItem(targetId).catch(console.error);
+          setOverheadItems((prev) => prev.filter((o) => o.id !== targetId && o.code !== targetId));
+          window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId } }));
+          showToast(`Overhead item "${title}" deleted successfully.`);
+        } else if (entityType === 'Resource' || entityType === 'Enterprise Resource' || portalTab === 'resources' || enterpriseResources.some((r) => r.id === id || r.code === id)) {
+          const targetId = id;
+          if (onDeleteResource) onDeleteResource(targetId);
+          api.deleteResource(targetId).catch(console.error);
+          setEnterpriseResources((prev) => prev.filter((r) => r.id !== targetId && r.code !== targetId));
+          window.dispatchEvent(new CustomEvent('fxtt-resources-changed', { detail: { id: targetId } }));
+          showToast(`Resource "${title}" deleted successfully.`);
         } else if (portalTab === 'service-providers' || (portalTab as string) === 'outsourced' || outsourcedServices.some((o) => o.id === id)) {
           if (onDeleteOutsourcedService) onDeleteOutsourcedService(id);
         } else if (portalTab === 'subcontractors' || subcontractors.some((s) => s.id === id)) {

@@ -357,107 +357,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     onCreateProject({
       ...form,
       clientId: form.clientId || undefined,
-      clientName: form.clientName || 'General Enterprise Client',
+      clientName: form.clientName || '',
       contractLocked: false,
-      phases: [
-        {
-          id: `phase-1-${Date.now()}`,
-          name: 'Phase 1: Engineering & Materials Procurement',
-          budget: form.quotedPrice * 0.4,
-          actualCost: 0,
-          startDate: new Date().toISOString().split('T')[0],
-          endDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-          status: 'In Progress',
-          description: 'Acquisition of structural materials, raw alloy stock, and long lead components.'
-        },
-        {
-          id: `phase-2-${Date.now()}`,
-          name: 'Phase 2: Fabrication & Subcontractor Machining',
-          budget: form.quotedPrice * 0.35,
-          actualCost: 0,
-          startDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-          endDate: new Date(Date.now() + 65 * 86400000).toISOString().split('T')[0],
-          status: 'Not Started',
-          description: 'Specialized 5-axis milling, certified ASME welding, and chassis build.'
-        },
-        {
-          id: `phase-3-${Date.now()}`,
-          name: 'Phase 3: Integration, Power, Testing & Delivery',
-          budget: form.quotedPrice * 0.15,
-          actualCost: 0,
-          startDate: new Date(Date.now() + 65 * 86400000).toISOString().split('T')[0],
-          endDate: new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0],
-          status: 'Not Started',
-          description: 'Outsourced freight, on-site commissioning, electrical testing, and acceptance.'
-        }
-      ],
-      selectedItems: [
-        {
-          id: `item-1-${Date.now()}`,
-          name: materials[0]?.name || 'Structural Titanium Plates 6Al-4V',
-          type: 'material',
-          category: 'Metals & Structural Alloys',
-          quantity: 40,
-          unit: 'sheet',
-          unitCost: materials[0]?.retailPrice || 320,
-          discountPct: 5,
-          totalCost: (materials[0]?.retailPrice || 320) * 40 * 0.95,
-          supplierOrProvider: materials[0]?.supplierName || 'Vanguard Materials'
-        },
-        {
-          id: `item-2-${Date.now()}`,
-          name: subcontractors[0]?.name || '5-Axis Precision CNC Milling',
-          type: 'subcontractor',
-          category: 'Precision Machining',
-          quantity: 120,
-          unit: 'hour',
-          unitCost: subcontractors[0]?.rate || 125,
-          discountPct: 0,
-          totalCost: (subcontractors[0]?.rate || 125) * 120,
-          supplierOrProvider: subcontractors[0]?.subcontractorName || 'Titan Heavy'
-        },
-        {
-          id: `item-3-${Date.now()}`,
-          name: outsourcedServices[0]?.name || 'Specialized Heavy Transport Flatbed',
-          type: 'outsourced',
-          category: 'Logistics',
-          quantity: 800,
-          unit: 'km',
-          unitCost: outsourcedServices[0]?.rate || 4.2,
-          discountPct: 0,
-          totalCost: (outsourcedServices[0]?.rate || 4.2) * 800,
-          supplierOrProvider: outsourcedServices[0]?.providerName || 'Global Integrated'
-        }
-      ],
-      alternativeOptions: [
-        {
-          id: 'opt-base',
-          title: 'Option A: Standard Commercial Spec',
-          description: 'Standard certified structural stock with baseline tooling rates.',
-          adjustedCost: form.quotedPrice * 0.72,
-          adjustedPrice: form.quotedPrice,
-          projectedMarginPct: 28.0,
-          isRecommended: true
-        },
-        {
-          id: 'opt-fast-track',
-          title: 'Option B: Accelerated Delivery (+15% Premium Labour)',
-          description: 'Expedited overtime subcontractor machining and priority flatbed delivery.',
-          adjustedCost: form.quotedPrice * 0.81,
-          adjustedPrice: form.quotedPrice * 1.15,
-          projectedMarginPct: 29.5,
-          isRecommended: false
-        },
-        {
-          id: 'opt-economy',
-          title: 'Option C: Value Engineering (-8% Alternative Alloy)',
-          description: 'Substitute specialized titanium for Aerospace 7075 Aluminum extrusions.',
-          adjustedCost: form.quotedPrice * 0.63,
-          adjustedPrice: form.quotedPrice * 0.90,
-          projectedMarginPct: 30.0,
-          isRecommended: false
-        }
-      ]
+      phases: [],
+      selectedItems: [],
+      alternativeOptions: []
     });
     setIsCreateModalOpen(false);
   };

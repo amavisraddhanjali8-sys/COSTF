@@ -1496,52 +1496,13 @@ export class PostgresService {
         DELETE FROM categories WHERE id IN ('rev-serv-cat-01', 'rev-serv-sub-01-01', 'rev-serv-cat-02', 'rev-serv-sub-02-01');
       `).catch(() => {});
 
-      // Seed default overhead categories if empty
-      const ovhCatCountRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_categories');
-      if (Number(ovhCatCountRes.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO overhead_categories (id, code, name, description, is_default, sort_order) VALUES
-            ('ovh-cat-01', 'CAT-IND', 'Indirect Materials & Factory Consumables', 'Coolants, lubricants, tooling inserts, and PPE safety gear', true, 1),
-            ('ovh-cat-02', 'CAT-UTIL', 'Utilities & Plant Facilities', 'Electricity, industrial gas, facility lease, and environmental HVAC', false, 2),
-            ('ovh-cat-03', 'CAT-ADM', 'Administrative & Quality Assurance', 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance', false, 3)
-          ON CONFLICT (name) DO NOTHING;
-        `);
-      }
-
-      // Seed standard overhead nodes in categories table
-      const overheadInCats = await db.query("SELECT COUNT(*) as cnt FROM categories WHERE group_name = 'overhead'");
-      if (Number(overheadInCats.rows[0]?.cnt || 0) === 0) {
-        await db.exec(`
-          INSERT INTO categories (id, name, type, group_name, parent_id, parent_name, brief, theme_id, meta_badge, action_text, created_at) VALUES
-            ('oh-cat-01', 'Indirect Materials & Factory Consumables', 'category', 'overhead', NULL, NULL, 'Coolants, lubricants, tooling inserts, and PPE safety gear', 'amber-forge', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
-            ('oh-sub-01-01', 'Cutting Fluids & Chemical Agents', 'sub_category', 'overhead', 'oh-cat-01', 'Indirect Materials & Factory Consumables', 'High-pressure CNC coolant and solvent cleaners', 'sunset-amber', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-sub-01-02', 'PPE & Operational Safety', 'sub_category', 'overhead', 'oh-cat-01', 'Indirect Materials & Factory Consumables', 'Respirators, safety glasses, and cut-resistant gloves', 'amber-forge', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-cat-02', 'Utilities & Plant Facilities', 'category', 'overhead', NULL, NULL, 'Electricity, industrial gas, facility lease, and environmental HVAC', 'pacific-sky', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
-            ('oh-sub-02-01', 'Industrial Three-Phase Power', 'sub_category', 'overhead', 'oh-cat-02', 'Utilities & Plant Facilities', 'Machine peak electrical draw and substation fees', 'pacific-sky', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-sub-02-02', 'Facility Leasing & Depreciation', 'sub_category', 'overhead', 'oh-cat-02', 'Utilities & Plant Facilities', 'Square footage lease and plant maintenance', 'teal-deep', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-cat-03', 'Administrative & Quality Assurance', 'category', 'overhead', NULL, NULL, 'ISO 9001/AS9100 quality certifications, ERP licenses, insurance', 'airbus-cobalt', 'OVERHEAD ROOT', 'EXPLORE SUB-CATEGORIES', NOW()),
-            ('oh-sub-03-01', 'Quality Audits & Compliance Testing', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'CMM calibration, ultrasonic NDT tests, and standard audits', 'airbus-cobalt', 'SUB-CATEGORY', 'VIEW ITEMS', NOW()),
-            ('oh-sub-03-02', 'ERP Software & Cloud Infrastructure', 'sub_category', 'overhead', 'oh-cat-03', 'Administrative & Quality Assurance', 'Compute licensing and enterprise database servers', 'indigo-night', 'SUB-CATEGORY', 'VIEW ITEMS', NOW())
-          ON CONFLICT (id) DO NOTHING;
-        `);
-      }
-
-      // Seed initial overhead items if empty or only 1 item
-      const ovhItemCountRes = await db.query('SELECT COUNT(*) as cnt FROM overhead_items');
-      if (Number(ovhItemCountRes.rows[0]?.cnt || 0) <= 1) {
-        await db.exec(`
-          INSERT INTO overhead_items (
-            id, code, barcode, name, category, sub_category, description, cost_type,
-            default_calculation_method, default_rate, default_cost_base, unit_type,
-            effective_date, status, created_by, updated_by, theme_id
-          ) VALUES
-            ('ovh-seed-01', 'OVH-IND-001', 'BC-OVH-IND-001', 'High-Pressure CNC Coolants & Chemical Solvents', 'Indirect Materials & Factory Consumables', 'Cutting Fluids & Chemical Agents', 'Semi-synthetic aerospace cutting coolant and ultrasonic bath detergents', 'Variable', 'fixed_amount', 4500.00, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'amber-forge'),
-            ('ovh-seed-02', 'OVH-IND-002', 'BC-OVH-IND-002', 'Plant Safety Equipment & PPE Re-issuance', 'Indirect Materials & Factory Consumables', 'PPE & Operational Safety', 'Respirators, safety goggles, welding shields, and cut-resistant Kevlar gloves', 'Variable', 'fixed_amount', 2200.00, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'sunset-amber'),
-            ('ovh-seed-03', 'OVH-UTL-001', 'BC-OVH-UTL-001', 'Industrial Three-Phase Electricity & Machine Draw', 'Utilities & Plant Facilities', 'Industrial Three-Phase Power', 'Substation electrical utility consumption for high-speed machining centers', 'Semi-Variable', 'percentage_of_cost_base', 4.50, 'total_direct_cost', 'month', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'pacific-sky'),
-            ('ovh-seed-04', 'OVH-ADM-001', 'BC-OVH-ADM-001', 'ISO 9001 / AS9100 Annual Quality Audits & NDT', 'Administrative & Quality Assurance', 'Quality Audits & Compliance Testing', 'Accredited third-party quality systems audit, ISO surveillance, and CMM laser calibration', 'Fixed', 'fixed_amount', 12500.00, 'total_direct_cost', 'year', CURRENT_DATE, 'Active', 'System Finance', 'System Finance', 'airbus-cobalt')
-          ON CONFLICT (code) DO NOTHING;
-        `);
-      }
+      // Purge all dummy overhead records and categories
+      await db.exec(`
+        DELETE FROM overhead_items WHERE id IN ('ovh-seed-01', 'ovh-seed-02', 'ovh-seed-03', 'ovh-seed-04') OR code LIKE 'OVH-%';
+        DELETE FROM overhead_categories WHERE id IN ('ovh-cat-01', 'ovh-cat-02', 'ovh-cat-03') OR code IN ('CAT-IND', 'CAT-UTIL', 'CAT-ADM');
+        DELETE FROM categories WHERE group_name = 'overhead';
+        DELETE FROM barcode_registry WHERE entity_type = 'overhead_item' OR entity_id LIKE 'ovh-%';
+      `).catch(() => {});
     } catch (e) {
       console.warn('[PostgreSQL] ensureOverheadAndRevenueTables warning:', (e as Error).message);
     }
@@ -2828,7 +2789,17 @@ export class PostgresService {
 
   public async deleteMaterial(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query('DELETE FROM materials WHERE id=$1', [id]);
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
+
+    const matRes = await db.query('SELECT id, code FROM materials WHERE id = $1 OR code = $1', [cleanId]).catch(() => ({ rows: [] }));
+    const targetId = matRes.rows[0]?.id || cleanId;
+    const targetCode = matRes.rows[0]?.code || cleanId;
+
+    await db.query('DELETE FROM material_vendor_quotes WHERE material_id = $1 OR material_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3 OR entity_code = $3)', ['material', targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3)', ['material', targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM materials WHERE id = $1 OR code = $2', [targetId, targetCode]);
     return true;
   }
 
@@ -3057,7 +3028,11 @@ export class PostgresService {
 
   public async deleteOutsourced(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query('DELETE FROM outsourced_services WHERE id=$1', [id]);
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
+    await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_code = $2)', ['outsourced_service', cleanId]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND entity_id = $2', ['outsourced_service', cleanId]).catch(() => {});
+    await db.query('DELETE FROM outsourced_services WHERE id = $1 OR code = $1', [cleanId]);
     return true;
   }
 
@@ -3334,7 +3309,11 @@ export class PostgresService {
 
   public async deleteSubcontractor(id: string): Promise<boolean> {
     const db = await this.getDb();
-    await db.query('DELETE FROM subcontractors WHERE id=$1', [id]);
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
+    await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_code = $2)', ['subcontractor', cleanId]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND entity_id = $2', ['subcontractor', cleanId]).catch(() => {});
+    await db.query('DELETE FROM subcontractors WHERE id = $1 OR code = $1', [cleanId]);
     return true;
   }
 
@@ -3936,19 +3915,8 @@ export class PostgresService {
         clientName = newCli.name;
       }
     } else {
-      // Default to general enterprise client
-      const defClient = await db.query("SELECT id, name FROM clients WHERE id = 'cli-default-corp' OR name = 'General Enterprise Client' LIMIT 1");
-      if (defClient.rows.length > 0) {
-        clientId = defClient.rows[0].id;
-        clientName = defClient.rows[0].name;
-      } else {
-        const newCli = await this.createClient({
-          name: 'General Enterprise Client',
-          industry: 'Commercial Enterprise'
-        });
-        clientId = newCli.id;
-        clientName = newCli.name;
-      }
+      clientId = null;
+      clientName = '';
     }
 
     const quotedPrice = round2(data.quotedPrice ?? 100000);
@@ -8242,11 +8210,12 @@ export class PostgresService {
 
   public async getOverheadItemById(id: string): Promise<any | null> {
     if (!id) return null;
+    const clean = String(id).trim();
     const db = await this.getDb();
     const itemRes = await db.query(
       `SELECT oi.*, oi.effective_date::text AS effective_date_iso
-       FROM overhead_items oi WHERE oi.id = $1`,
-      [id]
+       FROM overhead_items oi WHERE oi.id = $1 OR oi.code = $1 OR LOWER(oi.code) = LOWER($1)`,
+      [clean]
     );
     if (itemRes.rows.length === 0) return null;
     const r = itemRes.rows[0];
@@ -8545,26 +8514,39 @@ export class PostgresService {
 
   public async deleteOverheadItem(id: string, actor?: { id?: string; name?: string; role?: string }): Promise<boolean> {
     const db = await this.getDb();
-    const existing = await this.getOverheadItemById(id);
-    if (!existing) return false;
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
 
-    // Clean up any allocations in project plans and delete the item from PostgreSQL
-    await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1', [id]).catch(() => {});
-    await db.query('DELETE FROM overhead_items WHERE id = $1', [id]);
+    const existing = await this.getOverheadItemById(cleanId);
+    const targetId = existing?.id || cleanId;
+    const targetCode = existing?.code || cleanId;
 
-    await this.createOverheadAuditLog({
-      overheadItemId: id,
-      overheadItemCode: existing.code,
-      overheadItemName: existing.name,
-      action: 'ITEM_DELETED',
-      actorId: actor?.id,
-      actorName: actor?.name || 'System Finance',
-      actorRole: actor?.role || 'ADMIN',
-      previousState: existing,
-      changeDescription: `Deleted overhead catalogue item '${existing.name}' (${existing.code}).`
-    });
+    // 1. Clean up allocations in project plans and project_plan_overhead_allocations
+    await db.query('DELETE FROM plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2 OR overhead_item_code = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM project_plan_overhead_allocations WHERE overhead_item_id = $1 OR overhead_item_id = $2', [targetId, targetCode]).catch(() => {});
 
-    return true;
+    // 2. Cascade delete barcodes and price history
+    await db.query('DELETE FROM barcode_registry WHERE (entity_id = $1 OR entity_id = $2 OR entity_code = $2) AND entity_type = $3', [targetId, targetCode, 'overhead_item']).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE (entity_id = $1 OR entity_id = $2) AND (entity_type = $3 OR entity_type = $4)', [targetId, targetCode, 'overhead', 'overhead_item']).catch(() => {});
+
+    // 3. Delete from overhead_items by id or code
+    const delRes = await db.query('DELETE FROM overhead_items WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+
+    if (existing) {
+      await this.createOverheadAuditLog({
+        overheadItemId: targetId,
+        overheadItemCode: targetCode,
+        overheadItemName: existing.name,
+        action: 'ITEM_DELETED',
+        actorId: actor?.id,
+        actorName: actor?.name || 'System Finance',
+        actorRole: actor?.role || 'ADMIN',
+        previousState: existing,
+        changeDescription: `Deleted overhead catalogue item '${existing.name}' (${targetCode}).`
+      }).catch(() => {});
+    }
+
+    return (delRes.rowCount ?? 0) > 0 || !!existing;
   }
 
   // --- Plan Overhead Allocations (Requirement 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20) ---
@@ -12019,18 +12001,13 @@ export class PostgresService {
           AND LOWER(TRIM(p.client_name)) = LOWER(TRIM(c.name))
       `);
 
-      // Default fallback client if any project still has no client_id
+      // Purge dummy default fallback client
       await db.query(`
-        INSERT INTO clients (id, client_code, name, tagline, industry, location, status, active_projects_count, total_quoted_value, contact_person, email, created_at, created_at_ts, updated_at_ts)
-        VALUES ('cli-default-corp', 'CLI-0001', 'General Enterprise Client', 'Commercial Corporate Client', 'Enterprise Systems', 'Corporate Center', 'Active Partner', 0, 0, 'Client Services', 'client-services@enterprise.com', NOW()::text, NOW(), NOW())
-        ON CONFLICT (id) DO NOTHING
-      `);
-
-      await db.query(`
-        UPDATE projects
-        SET client_id = 'cli-default-corp', client_name = 'General Enterprise Client'
-        WHERE client_id IS NULL OR NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = projects.client_id)
-      `);
+        DELETE FROM project_clients WHERE client_id = 'cli-default-corp';
+        DELETE FROM client_contacts WHERE client_id = 'cli-default-corp';
+        DELETE FROM clients WHERE id = 'cli-default-corp' OR name = 'General Enterprise Client';
+        UPDATE projects SET client_id = NULL, client_name = '' WHERE client_id = 'cli-default-corp' OR client_name = 'General Enterprise Client';
+      `).catch(() => {});
 
       // Populate project_clients junction table
       await db.query(`
@@ -12949,13 +12926,8 @@ export class PostgresService {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
-        INSERT INTO competitors (id, name, code, country, market_tier, notes)
-        VALUES
-          ('comp-01', 'Apex Industrial Dynamics', 'COMP-APEX', 'United States', 'Market Leader', 'Primary domestic competitor across automation and architectural lines.'),
-          ('comp-02', 'Global Core Systems Ltd', 'COMP-GLOBAL', 'Germany', 'Premium Rival', 'High-end European precision engineering alternative.'),
-          ('comp-03', 'Benchmark Industry Average', 'COMP-BENCH', 'Global', 'Market Benchmark', 'Aggregated median market reference rate.'),
-          ('comp-04', 'Vanguard Precision Tech', 'COMP-VANG', 'Singapore', 'Low-Cost Challenger', 'Asian Pacific fast-turn competitive rates.')
-        ON CONFLICT (id) DO NOTHING;
+        -- Purge dummy competitors
+        DELETE FROM competitors WHERE id IN ('comp-01', 'comp-02', 'comp-03', 'comp-04') OR code LIKE 'COMP-%';
 
         CREATE TABLE IF NOT EXISTS product_competitor_quotes (
           id TEXT PRIMARY KEY,
@@ -14733,9 +14705,11 @@ export class PostgresService {
   }
 
   public async getResourceById(id: string): Promise<any | null> {
+    if (!id) return null;
+    const clean = String(id).trim();
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
-    const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1', [id]);
+    const res = await db.query('SELECT * FROM enterprise_resources WHERE id = $1 OR code = $1 OR LOWER(code) = LOWER($1)', [clean]);
     if (!res.rows || res.rows.length === 0) return null;
     const r = res.rows[0];
     const parsedSpecs = typeof r.specifications === 'string' ? JSON.parse(r.specifications || '{}') : (r.specifications || {});
@@ -14897,10 +14871,18 @@ export class PostgresService {
   public async deleteResource(id: string): Promise<boolean> {
     const db = await this.getDb();
     await this.ensureEnterpriseResourcesSchema();
-    await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1', [id]).catch(() => {});
-    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND entity_id = $2', ['resource', id]).catch(() => {});
-    await db.query('DELETE FROM enterprise_resources WHERE id = $1', [id]);
-    return true;
+    const cleanId = String(id || '').trim();
+    if (!cleanId) return false;
+
+    const existing = await this.getResourceById(cleanId);
+    const targetId = existing?.id || cleanId;
+    const targetCode = existing?.code || cleanId;
+
+    await db.query('DELETE FROM project_plan_resources WHERE resource_id = $1 OR resource_id = $2', [targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM price_history_records WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3)', ['resource', targetId, targetCode]).catch(() => {});
+    await db.query('DELETE FROM barcode_registry WHERE entity_type = $1 AND (entity_id = $2 OR entity_id = $3 OR entity_code = $3)', ['resource', targetId, targetCode]).catch(() => {});
+    const res = await db.query('DELETE FROM enterprise_resources WHERE id = $1 OR id = $2 OR code = $2 OR LOWER(code) = LOWER($2)', [targetId, targetCode]);
+    return (res.rowCount ?? 0) > 0 || !!existing;
   }
 
   public async addResourceAlternative(resourceId: string, altData: any): Promise<any> {

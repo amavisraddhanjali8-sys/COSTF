@@ -534,7 +534,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               {plan.isActive && (
                 <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 flex items-center space-x-1">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>Current Active Plan</span>
+                  <span>Active</span>
                 </span>
               )}
             </div>
@@ -586,9 +586,6 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                 </>
               )}
             </div>
-            {plan.description && (
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 max-w-3xl italic">{plan.description}</p>
-            )}
           </div>
 
           {/* Action Button Cluster */}

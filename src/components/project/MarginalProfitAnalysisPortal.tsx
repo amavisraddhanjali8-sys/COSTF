@@ -500,7 +500,7 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Marginal Profit
+                  Margins
                 </h2>
                 <span className="text-[10px] font-bold uppercase text-[#0078d4] bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
                   Active
@@ -574,16 +574,13 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
               </label>
 
               <div className="flex items-center space-x-2">
-                <span className="text-[10px] font-mono text-slate-400">
-                  {allPlans.length} Plans Defined
-                </span>
                 <button
                   type="button"
                   onClick={() => setIsCreatePlanModalOpen(true)}
                   className="text-xs text-[#0078d4] hover:underline font-bold flex items-center space-x-0.5 cursor-pointer"
                 >
                   <Plus className="w-3 h-3" />
-                  <span>New Plan</span>
+                  <span>New</span>
                 </button>
               </div>
             </div>
@@ -731,7 +728,7 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
 
             {/* Direct Cost */}
             <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Direct Cost</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Direct</div>
               <div className="text-base font-bold font-mono text-[#0078d4] dark:text-sky-400 mt-0.5">
                 {formatCurrency(analysisMetrics.effectiveDirectCost, activeCurrency)}
               </div>
@@ -739,7 +736,7 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
 
             {/* Total Full Cost */}
             <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Cost</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total</div>
               <div className="text-base font-bold font-mono text-slate-800 dark:text-slate-200 mt-0.5">
                 {formatCurrency(analysisMetrics.totalProjectCost, activeCurrency)}
               </div>
@@ -747,7 +744,7 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
 
             {/* Gross Marginal Profit */}
             <div className="p-3 bg-white dark:bg-[#0b101b] rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gross Margin</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gross</div>
               <div className={`text-base font-bold font-mono mt-0.5 ${analysisMetrics.grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
                 {analysisMetrics.grossMarginPct}%
               </div>
@@ -759,15 +756,7 @@ export const MarginalProfitAnalysisPortal: React.FC<MarginalProfitAnalysisPortal
                 ? 'border-amber-300 dark:border-amber-700/60 bg-amber-50/20'
                 : 'border-slate-200 dark:border-slate-800'
             }`}>
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Net Margin</div>
-                {analysisMetrics.netMarginPct < marginThreshold && (
-                  <span className="flex items-center space-x-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
-                    <span>Below {marginThreshold}%</span>
-                  </span>
-                )}
-              </div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Net</div>
               <div className={`text-base font-bold font-mono mt-0.5 ${
                 analysisMetrics.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
               }`}>

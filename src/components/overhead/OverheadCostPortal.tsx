@@ -41,6 +41,7 @@ interface OverheadCostPortalProps {
   onOpenPlan?: (planId: string) => void;
   showToast?: (msg: string | { message: string; type?: string }) => void;
   onAddOverheadItem?: (item: OverheadItem) => void;
+  onDeleteOverheadItem?: (id: string) => void;
 }
 
 export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
@@ -48,7 +49,8 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
   projects = [],
   onOpenPlan,
   showToast,
-  onAddOverheadItem
+  onAddOverheadItem,
+  onDeleteOverheadItem
 }) => {
   const [items, setItems] = useState<OverheadItem[]>([]);
   const [overheadCategories, setOverheadCategories] = useState<OverheadCategory[]>([]);
@@ -339,7 +341,14 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
     if (!deletingOverheadItem) return;
     setIsExecutingDelete(true);
     try {
-      await api.deleteOverheadItem(deletingOverheadItem.id);
+      const targetId = deletingOverheadItem.id || deletingOverheadItem.code;
+      const targetCode = deletingOverheadItem.code || deletingOverheadItem.id;
+      await api.deleteOverheadItem(targetId);
+      if (deletingOverheadItem.code && deletingOverheadItem.code !== targetId) {
+        await api.deleteOverheadItem(deletingOverheadItem.code).catch(() => {});
+      }
+      if (onDeleteOverheadItem) onDeleteOverheadItem(targetId);
+      window.dispatchEvent(new CustomEvent('fxtt-overheads-changed', { detail: { id: targetId, code: targetCode } }));
       await loadData();
       if (showToast) showToast(`Overhead item "${deletingOverheadItem.name}" permanently deleted.`);
       setDeletingOverheadItem(null);
@@ -350,6 +359,16 @@ export const OverheadCostPortal: React.FC<OverheadCostPortalProps> = ({
       setIsExecutingDelete(false);
     }
   };
+
+  useEffect(() => {
+    const handleOverheadsChanged = () => {
+      loadData();
+    };
+    window.addEventListener('fxtt-overheads-changed', handleOverheadsChanged);
+    return () => {
+      window.removeEventListener('fxtt-overheads-changed', handleOverheadsChanged);
+    };
+  }, []);
 
   // Overhead categories list from DB
   const overheadCatNodes = categories.filter((c) => c.group === 'overhead' && c.type === 'category');
