@@ -282,6 +282,9 @@ export default function App() {
         if (data.inventory) setInventory(data.inventory);
         if (data.transactions) setTransactions(data.transactions);
         if (data.categories) setCategories(data.categories);
+        if (data.overheads) setOverheads(data.overheads);
+        if (data.revenueItems) setRevenueItems(data.revenueItems);
+        if (data.resources) setEnterpriseResources(data.resources);
       }
       showToast('Central database synchronized from PostgreSQL database.');
     } catch {

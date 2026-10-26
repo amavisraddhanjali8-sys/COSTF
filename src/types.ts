@@ -1581,6 +1581,7 @@ export interface EnterpriseResource {
   operationalCharge?: number;
   chargeType?: 'hourly' | 'daily' | 'shift' | 'unit' | 'lump_sum' | string;
   currency?: string;
+  barcode?: string;
   supplierId?: string;
   supplierName?: string;
   competitorCompany?: string;

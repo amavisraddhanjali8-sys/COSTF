@@ -2605,6 +2605,16 @@ async function startServer() {
     try { res.json(await postgresService.getKv()); }
     catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
+  app.get('/api/kv/:key', async (req, res) => {
+    const { key } = req.params;
+    if (!KV_KEY.test(key)) return res.status(400).json({ error: 'Bad key' });
+    try {
+      const val = await postgresService.getKvKey(key);
+      res.json({ key, value: val ?? null });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message });
+    }
+  });
   app.put('/api/kv/:key', async (req, res) => {
     const { key } = req.params;
     const { value } = req.body || {};

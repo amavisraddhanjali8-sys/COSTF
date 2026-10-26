@@ -1625,41 +1625,48 @@ export class PostgresService {
   public async clearDummyData(): Promise<void> {
     const db = await this.getDb();
     await db.exec(`
+      DELETE FROM vendor_deletion_archives;
+      DELETE FROM material_vendor_price_history;
+      DELETE FROM material_vendor_quotes;
+      DELETE FROM procurement_price_history;
+      DELETE FROM price_history_records;
       DELETE FROM project_deliverables;
-      DELETE FROM revenue_rate_history;
-      DELETE FROM product_competitor_quotes;
       DELETE FROM product_competitor_price_history;
+      DELETE FROM product_competitor_quotes;
       DELETE FROM competitor;
       DELETE FROM enterprise_resources;
       DELETE FROM barcode_registry;
-      DELETE FROM project_plan_cost_summaries;
-      DELETE FROM plan_overhead_allocations;
-      DELETE FROM project_plan_overhead_allocations;
-      DELETE FROM project_plan_resources;
-      DELETE FROM project_plan_boq_items;
-      DELETE FROM project_plan_sections;
-      DELETE FROM project_plan_revisions;
-      DELETE FROM project_plans;
-      DELETE FROM overhead_audit_logs;
-      DELETE FROM overhead_items;
-      DELETE FROM overhead_categories;
-      DELETE FROM revenue_items;
-      DELETE FROM revenue_subcategories;
-      DELETE FROM revenue_categories;
-      DELETE FROM price_history_records;
-      DELETE FROM inventory_transactions;
-      DELETE FROM inventory;
-      DELETE FROM projects;
-      DELETE FROM outsourced_services;
-      DELETE FROM subcontractors;
-      DELETE FROM produce_items;
-      DELETE FROM materials;
-      DELETE FROM suppliers;
-      DELETE FROM clients;
-      DELETE FROM custom_tiles;
       DELETE FROM plan_tariffs;
       DELETE FROM tariff_versions;
       DELETE FROM tariffs;
+      DELETE FROM plan_overhead_allocations;
+      DELETE FROM project_plan_overhead_allocations;
+      DELETE FROM overhead_audit_logs;
+      DELETE FROM overhead_items;
+      DELETE FROM overhead_categories;
+      DELETE FROM revenue_rate_history;
+      DELETE FROM project_plan_boq_items;
+      DELETE FROM project_plan_resources;
+      DELETE FROM project_plan_sections;
+      DELETE FROM project_plan_cost_summaries;
+      DELETE FROM project_plan_cost_controls;
+      DELETE FROM project_plan_revisions;
+      DELETE FROM project_plans;
+      DELETE FROM project_clients;
+      DELETE FROM client_contacts;
+      DELETE FROM projects;
+      DELETE FROM clients;
+      DELETE FROM revenue_items;
+      DELETE FROM revenue_subcategories;
+      DELETE FROM revenue_categories;
+      DELETE FROM inventory_transactions;
+      DELETE FROM inventory;
+      DELETE FROM produce_items;
+      DELETE FROM materials;
+      DELETE FROM subcontractors;
+      DELETE FROM outsourced_services;
+      DELETE FROM suppliers;
+      DELETE FROM custom_tiles;
       DELETE FROM audit_logs;
     `);
   }
@@ -3995,12 +4002,14 @@ export class PostgresService {
     );
 
     // Populate project_clients junction table (Requirement 6)
-    await db.query(
-      `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary, updated_at)
-       VALUES ($1, $2, $3, 'Primary Client', 100.00, true, NOW())
-       ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET is_primary = true, updated_at = NOW()`,
-      [`pc-${id}-${clientId}-primary`, id, clientId]
-    );
+    if (clientId) {
+      await db.query(
+        `INSERT INTO project_clients (id, project_id, client_id, relationship_type, share_pct, is_primary, updated_at)
+         VALUES ($1, $2, $3, 'Primary Client', 100.00, true, NOW())
+         ON CONFLICT (project_id, client_id, relationship_type) DO UPDATE SET is_primary = true, updated_at = NOW()`,
+        [`pc-${id}-${clientId}-primary`, id, clientId]
+      );
+    }
 
     // If additional client entities were specified, sync them
     if (Array.isArray(data.associatedClients)) {
@@ -6330,6 +6339,12 @@ export class PostgresService {
     const out: Record<string, string> = {};
     for (const r of res.rows) out[r.key] = r.value;
     return out;
+  }
+
+  public async getKvKey(key: string): Promise<string | null> {
+    const db = await this.getDb();
+    const res = await db.query('SELECT value FROM app_kv WHERE key = $1', [key]);
+    return res.rows.length > 0 ? res.rows[0].value : null;
   }
 
   public async setKv(key: string, value: string): Promise<void> {
@@ -13077,6 +13092,15 @@ export class PostgresService {
         CREATE INDEX IF NOT EXISTS idx_competitor_item_id ON competitor(item_id);
         CREATE INDEX IF NOT EXISTS idx_competitor_item_type ON competitor(item_type);
         CREATE INDEX IF NOT EXISTS idx_competitor_created_at ON competitor(created_at DESC);
+
+        -- Seed initial competitor benchmarks if empty
+        INSERT INTO competitors (id, name, code, country, market_tier, notes)
+        VALUES
+          ('comp-01', 'Apex Industrial Dynamics', 'COMP-APEX', 'United States', 'Market Leader', 'Primary domestic competitor across automation and architectural lines.'),
+          ('comp-02', 'Global Core Systems Ltd', 'COMP-GLOBAL', 'Germany', 'Premium Rival', 'High-end European precision engineering alternative.'),
+          ('comp-03', 'Benchmark Industry Average', 'COMP-BENCH', 'Global', 'Market Benchmark', 'Aggregated median market reference rate.'),
+          ('comp-04', 'Vanguard Precision Tech', 'COMP-VANG', 'Singapore', 'Low-Cost Challenger', 'Asian Pacific fast-turn competitive rates.')
+        ON CONFLICT (id) DO NOTHING;
       `);
 
       // Competitor quotes are created by users per product/service

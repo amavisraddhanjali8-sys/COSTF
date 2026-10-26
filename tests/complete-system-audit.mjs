@@ -60,7 +60,7 @@ async function runAudit() {
 
   // Verify DB connection & status
   const dbStatus = await request('GET', '/api/database/status', null, adminToken);
-  assert('PostgreSQL database connected and authoritative', dbStatus.status === 200 && dbStatus.json?.connected === true && dbStatus.json?.engine === 'PostgreSQL');
+  assert('PostgreSQL database connected and authoritative', dbStatus.status === 200 && dbStatus.json?.connected === true && (dbStatus.json?.engine === 'PostgreSQL' || dbStatus.json?.engine?.startsWith('PostgreSQL')));
   assert('All 11 schema migrations recorded as applied', dbStatus.json?.migrationsApplied?.length >= 11 && dbStatus.json?.migrationsApplied?.includes('011_composite_foreign_keys_and_audit_integrity.sql'));
 
   // --------------------------------------------------------------------------

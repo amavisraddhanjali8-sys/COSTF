@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Search,
   RotateCw,
@@ -58,7 +58,8 @@ import {
   ProduceItem,
   PriceHistoryRecord,
   OverheadItem,
-  RevenueItem
+  RevenueItem,
+  EnterpriseResource
 } from '../types';
 import { ItemImageViewerModal } from './ItemImageViewerModal';
 import { ItemGridCard, ItemGridCardData } from './ItemGridCard';
@@ -3643,7 +3644,7 @@ export const MasterDataGridCatalog: React.FC<MasterDataGridCatalogProps> = ({
               <button
                 type="button"
                 onClick={async () => {
-                  const toDelete = Array.from(selectedIds);
+                  const toDelete: string[] = Array.from(selectedIds);
                   await Promise.all(
                     toDelete.map(async (id) => {
                       const itm = allItems.find((i) => i.id === id);
