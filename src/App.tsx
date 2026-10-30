@@ -1715,6 +1715,7 @@ export default function App() {
               setSelectedPlanId(pId);
               setActiveTab('plan-details');
             }}
+            showToast={showToast}
           />
         )}
 

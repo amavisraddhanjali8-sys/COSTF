@@ -10027,8 +10027,19 @@ export class PostgresService {
       consumptionRate: round2(b.consumption_rate ?? 100),
       notes: b.notes || '',
       lineOrder: Number(b.line_order || 1),
-      snapshotData: typeof b.snapshot_data === 'string' ? JSON.parse(b.snapshot_data) : b.snapshot_data || {},
       commercialContext: b.commercial_context || '',
+      isManufactured: Boolean(b.is_manufactured),
+      manufacturingMode: b.manufacturing_mode || 'standard',
+      manufacturingCostBreakdown: typeof b.manufacturing_cost_breakdown === 'string'
+        ? JSON.parse(b.manufacturing_cost_breakdown)
+        : (b.manufacturing_cost_breakdown || {}),
+      includedSubcontractorCharges: round4(b.included_subcontractor_charges ?? 0),
+      subcontractorId: b.subcontractor_id || undefined,
+      subcontractorName: b.subcontractor_name || undefined,
+      subcontractorTrade: b.subcontractor_trade || undefined,
+      subcontractorRate: round4(b.subcontractor_rate ?? 0),
+      leadTimeDays: Number(b.lead_time_days || 7),
+      makeVsBuyDecision: b.make_vs_buy_decision || 'direct',
       createdAt: b.created_at ? new Date(b.created_at).toISOString() : new Date().toISOString()
     }));
 
@@ -10192,6 +10203,17 @@ export class PostgresService {
       // Line order
       const lineOrder = Number(data.lineOrder || (await q('SELECT COUNT(*) as cnt FROM project_plan_boq_items WHERE plan_id = $1', [planId])).rows[0]?.cnt || 0) + 1;
 
+      const isManufactured = Boolean(data.isManufactured);
+      const manufacturingMode = String(data.manufacturingMode || (isManufactured ? 'in_house_manufacture' : 'standard'));
+      const manufacturingCostBreakdown = JSON.stringify(data.manufacturingCostBreakdown || {});
+      const includedSubcontractorCharges = round4(Number(data.includedSubcontractorCharges || 0));
+      const subcontractorId = data.subcontractorId || null;
+      const subcontractorName = data.subcontractorName || null;
+      const subcontractorTrade = data.subcontractorTrade || null;
+      const subcontractorRate = round4(Number(data.subcontractorRate || 0));
+      const leadTimeDays = Number(data.leadTimeDays || 7);
+      const makeVsBuyDecision = String(data.makeVsBuyDecision || (isManufactured ? 'manufacture' : 'direct'));
+
       // Insert BOQ Item
       await q(
         `INSERT INTO project_plan_boq_items (
@@ -10199,13 +10221,17 @@ export class PostgresService {
           revenue_item_id, rate, description, tax_treatment, tax_rate_pct, tax_amount,
           name, category, supplier_or_provider, quantity, unit, unit_cost, discount_pct,
           total_cost, markup_pct, billable_rate, total_revenue, gross_profit,
-          currency, native_unit_cost, consumption_rate, notes, line_order, snapshot_data, commercial_context
+          currency, native_unit_cost, consumption_rate, notes, line_order, snapshot_data, commercial_context,
+          is_manufactured, manufacturing_mode, manufacturing_cost_breakdown, included_subcontractor_charges,
+          subcontractor_id, subcontractor_name, subcontractor_trade, subcontractor_rate, lead_time_days, make_vs_buy_decision
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8,
           $9, $10, $11, $12, $13, $14,
           $15, $16, $17, $18, $19, $20, $21,
           $22, $23, $24, $25, $26,
-          $27, $28, $29, $30, $31, $32, $33
+          $27, $28, $29, $30, $31, $32, $33,
+          $34, $35, $36, $37,
+          $38, $39, $40, $41, $42, $43
         )`,
         [
           boqId,
@@ -10223,8 +10249,8 @@ export class PostgresService {
           taxRatePct,
           taxAmount,
           name,
-          data.category || revItem?.category || 'General',
-          data.supplierOrProvider || 'Company Direct',
+          data.category || revItem?.category || (itemType === 'material' ? 'Direct Materials' : itemType === 'subcontractor' ? 'Subcontractor Trade' : 'General'),
+          data.supplierOrProvider || data.subcontractorName || 'Company Direct',
           quantity,
           unit,
           unitCost,
@@ -10234,13 +10260,23 @@ export class PostgresService {
           rate,
           totalRevenue,
           grossProfit,
-          data.currency || plan.currency || 'USD',
+          data.currency || plan.currency || 'LKR',
           unitCost,
           round2(Number(data.consumptionRate || 100)),
           String(data.notes || ''),
           lineOrder,
           JSON.stringify(snapshotData),
-          String(data.commercialContext || `Initial plan commercial terms`)
+          String(data.commercialContext || `Initial plan commercial terms`),
+          isManufactured,
+          manufacturingMode,
+          manufacturingCostBreakdown,
+          includedSubcontractorCharges,
+          subcontractorId,
+          subcontractorName,
+          subcontractorTrade,
+          subcontractorRate,
+          leadTimeDays,
+          makeVsBuyDecision
         ]
       );
 
@@ -10373,7 +10409,7 @@ export class PostgresService {
         'commercial_terms_update';
 
       // Financial line recalculation
-      const unitCost = round4(existing.unit_cost || 0);
+      const unitCost = data.unitCost !== undefined ? round4(Number(data.unitCost)) : round4(existing.unit_cost || 0);
       const { totalAmount: directCostTotal } = calcDiscountedLine(newQty, unitCost, 0);
       const totalCost = round2(directCostTotal);
       const discountedRate = round4(decMul(newRate, decSub(1, decDiv(newDiscountPct, 100))));
@@ -10381,17 +10417,40 @@ export class PostgresService {
       const grossProfit = round2(decSub(totalRevenue, totalCost));
       const taxAmount = round2(decMul(totalRevenue, decDiv(newTaxRatePct, 100)));
 
+      const isManufactured = data.isManufactured !== undefined ? Boolean(data.isManufactured) : Boolean(existing.is_manufactured);
+      const manufacturingMode = data.manufacturingMode !== undefined ? String(data.manufacturingMode) : (existing.manufacturing_mode || 'standard');
+      const manufacturingCostBreakdown = data.manufacturingCostBreakdown !== undefined
+        ? JSON.stringify(data.manufacturingCostBreakdown)
+        : (existing.manufacturing_cost_breakdown ? (typeof existing.manufacturing_cost_breakdown === 'string' ? existing.manufacturing_cost_breakdown : JSON.stringify(existing.manufacturing_cost_breakdown)) : '{}');
+      const includedSubcontractorCharges = data.includedSubcontractorCharges !== undefined ? round4(Number(data.includedSubcontractorCharges)) : Number(existing.included_subcontractor_charges || 0);
+      const subcontractorId = data.subcontractorId !== undefined ? data.subcontractorId : (existing.subcontractor_id || null);
+      const subcontractorName = data.subcontractorName !== undefined ? data.subcontractorName : (existing.subcontractor_name || null);
+      const subcontractorTrade = data.subcontractorTrade !== undefined ? data.subcontractorTrade : (existing.subcontractor_trade || null);
+      const subcontractorRate = data.subcontractorRate !== undefined ? round4(Number(data.subcontractorRate)) : Number(existing.subcontractor_rate || 0);
+      const leadTimeDays = data.leadTimeDays !== undefined ? Number(data.leadTimeDays) : Number(existing.lead_time_days || 7);
+      const makeVsBuyDecision = data.makeVsBuyDecision !== undefined ? String(data.makeVsBuyDecision) : (existing.make_vs_buy_decision || 'direct');
+      const name = data.name !== undefined ? String(data.name).trim() : existing.name;
+      const notes = data.notes !== undefined ? String(data.notes) : (existing.notes || '');
+
       // Update project_plan_boq_items
       await q(
         `UPDATE project_plan_boq_items SET
-          quantity = $1, unit = $2, rate = $3, billable_rate = $3, discount_pct = $4,
-          description = $5, tax_treatment = $6, tax_rate_pct = $7, tax_amount = $8,
-          total_cost = $9, total_revenue = $10, gross_profit = $11, updated_at = NOW()
-         WHERE id = $12`,
+          name = $1, quantity = $2, unit = $3, rate = $4, billable_rate = $4, discount_pct = $5,
+          unit_cost = $6, total_cost = $7, total_revenue = $8, gross_profit = $9,
+          description = $10, tax_treatment = $11, tax_rate_pct = $12, tax_amount = $13,
+          is_manufactured = $14, manufacturing_mode = $15, manufacturing_cost_breakdown = $16,
+          included_subcontractor_charges = $17, subcontractor_id = $18, subcontractor_name = $19,
+          subcontractor_trade = $20, subcontractor_rate = $21, lead_time_days = $22,
+          make_vs_buy_decision = $23, notes = $24, updated_at = NOW()
+         WHERE id = $25`,
         [
-          newQty, newUnit, newRate, newDiscountPct,
+          name, newQty, newUnit, newRate, newDiscountPct,
+          unitCost, totalCost, totalRevenue, grossProfit,
           newDescription, newTaxTreatment, newTaxRatePct, taxAmount,
-          totalCost, totalRevenue, grossProfit, boqItemId
+          isManufactured, manufacturingMode, manufacturingCostBreakdown,
+          includedSubcontractorCharges, subcontractorId, subcontractorName,
+          subcontractorTrade, subcontractorRate, leadTimeDays,
+          makeVsBuyDecision, notes, boqItemId
         ]
       );
 
@@ -10543,6 +10602,526 @@ export class PostgresService {
       await q('DELETE FROM project_plan_boq_items WHERE id = $1', [boqItemId]);
       await this.recalculatePlanFinancials(planId, q);
       return true;
+    });
+  }
+
+  // ============================================================================
+  // MAKE VS BUY & HYBRID MANUFACTURING ANALYSIS SYSTEM (TASK 20)
+  // ============================================================================
+
+  private mapMakeVsBuyRow(r: any): any {
+    return {
+      id: r.id,
+      planId: r.plan_id,
+      projectId: r.project_id,
+      boqItemId: r.boq_item_id || undefined,
+      itemCode: r.item_code || '',
+      itemName: r.item_name,
+      category: r.category || 'Manufacturing & Assembly',
+      quantity: Number(r.quantity || 1),
+      unit: r.unit || 'unit',
+      currency: r.currency || 'LKR',
+      materialCostPerUnit: Number(r.material_cost_per_unit || 0),
+      laborCostPerUnit: Number(r.labor_cost_per_unit || 0),
+      overheadCostPerUnit: Number(r.overhead_cost_per_unit || 0),
+      subcontractorChargesPerUnit: Number(r.subcontractor_charges_per_unit || 0),
+      totalUnitManufactureCost: Number(r.total_unit_manufacture_cost || 0),
+      totalManufactureCost: Number(r.total_manufacture_cost || 0),
+      subcontractorId: r.subcontractor_id || undefined,
+      subcontractorName: r.subcontractor_name || '',
+      subcontractorTrade: r.subcontractor_trade || '',
+      subcontractorUnitRate: Number(r.subcontractor_unit_rate || 0),
+      subcontractorLeadTimeDays: Number(r.subcontractor_lead_time_days || 14),
+      totalSubcontractorCost: Number(r.total_subcontractor_cost || 0),
+      costDifference: Number(r.cost_difference || 0),
+      savingsPct: Number(r.savings_pct || 0),
+      breakEvenQuantity: Number(r.break_even_quantity || 0),
+      recommendedDecision: r.recommended_decision || 'manufacture',
+      selectedDecision: r.selected_decision || 'manufacture',
+      materialsBreakdown: typeof r.materials_breakdown === 'string' ? JSON.parse(r.materials_breakdown) : (r.materials_breakdown || []),
+      laborBreakdown: typeof r.labor_breakdown === 'string' ? JSON.parse(r.labor_breakdown) : (r.labor_breakdown || []),
+      subcontractorChargesBreakdown: typeof r.subcontractor_charges_breakdown === 'string' ? JSON.parse(r.subcontractor_charges_breakdown) : (r.subcontractor_charges_breakdown || []),
+      status: r.status || 'Active',
+      notes: r.notes || '',
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+    };
+  }
+
+  public async getPlanMakeVsBuyAnalyses(planId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT * FROM project_plan_make_vs_buy_analyses
+       WHERE plan_id = $1
+       ORDER BY created_at DESC`,
+      [planId]
+    );
+
+    return res.rows.map((r: any) => this.mapMakeVsBuyRow(r));
+  }
+
+  public async getProjectMakeVsBuyAnalyses(projectId: string): Promise<any[]> {
+    const db = await this.getDb();
+    const res = await db.query(
+      `SELECT * FROM project_plan_make_vs_buy_analyses
+       WHERE project_id = $1
+       ORDER BY created_at DESC`,
+      [projectId]
+    );
+
+    return res.rows.map((r: any) => this.mapMakeVsBuyRow(r));
+  }
+
+  public async getPlanMakeVsBuyAnalysisById(planId: string, analysisId: string): Promise<any | null> {
+    const list = await this.getPlanMakeVsBuyAnalyses(planId);
+    return list.find((a) => a.id === analysisId) || null;
+  }
+
+  public async createPlanMakeVsBuyAnalysis(planId: string, data: any, actor?: any): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const planRes = await q('SELECT * FROM project_plans WHERE id = $1', [planId]);
+      if (planRes.rows.length === 0) {
+        throw Object.assign(new Error(`Project plan '${planId}' does not exist.`), { status: 404 });
+      }
+      const plan = planRes.rows[0];
+      const projectId = plan.project_id;
+
+      const id = data.id || `mvb-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      const itemName = String(data.itemName || 'Custom Fabricated Item').trim();
+      const itemCode = String(data.itemCode || `MFG-${Date.now().toString().slice(-4)}`).trim();
+      const category = String(data.category || 'Manufacturing & Assembly').trim();
+      const quantity = Math.max(1, round4(Number(data.quantity || 1)));
+      const unit = String(data.unit || 'unit').trim();
+      const currency = String(data.currency || plan.currency || 'LKR').trim();
+
+      const matCostPerUnit = Math.max(0, round4(Number(data.materialCostPerUnit || 0)));
+      const laborCostPerUnit = Math.max(0, round4(Number(data.laborCostPerUnit || 0)));
+      const subChargesPerUnit = Math.max(0, round4(Number(data.subcontractorChargesPerUnit || 0)));
+      const overheadCostPerUnit = Math.max(0, round4(Number(data.overheadCostPerUnit || 0)));
+
+      const totalUnitManufactureCost = round4(decAdd(decAdd(decAdd(matCostPerUnit, laborCostPerUnit), subChargesPerUnit), overheadCostPerUnit));
+      const totalManufactureCost = round2(decMul(quantity, totalUnitManufactureCost));
+
+      const subUnitRate = Math.max(0, round4(Number(data.subcontractorUnitRate || 0)));
+      const totalSubcontractorCost = round2(decMul(quantity, subUnitRate));
+      const subLeadTimeDays = Math.max(1, Number(data.subcontractorLeadTimeDays || 14));
+
+      // Cost Difference: positive means in-house manufacturing is cheaper (saves money)
+      const costDifference = round2(decSub(totalSubcontractorCost, totalManufactureCost));
+      const savingsPct = totalSubcontractorCost > 0
+        ? round2(decMul(decDiv(costDifference, totalSubcontractorCost), 100))
+        : 0;
+
+      let recommendedDecision: 'manufacture' | 'subcontract' | 'hybrid' = 'manufacture';
+      if (subChargesPerUnit > 0 && totalUnitManufactureCost < subUnitRate) {
+        recommendedDecision = 'hybrid';
+      } else if (costDifference < 0) {
+        // Subcontractor is cheaper
+        recommendedDecision = 'subcontract';
+      } else {
+        recommendedDecision = 'manufacture';
+      }
+
+      const selectedDecision = data.selectedDecision || recommendedDecision;
+
+      await q(
+        `INSERT INTO project_plan_make_vs_buy_analyses (
+          id, plan_id, project_id, boq_item_id, item_code, item_name, category,
+          quantity, unit, currency, material_cost_per_unit, labor_cost_per_unit,
+          overhead_cost_per_unit, subcontractor_charges_per_unit, total_unit_manufacture_cost,
+          total_manufacture_cost, subcontractor_id, subcontractor_name, subcontractor_trade,
+          subcontractor_unit_rate, subcontractor_lead_time_days, total_subcontractor_cost,
+          cost_difference, savings_pct, recommended_decision, selected_decision,
+          materials_breakdown, labor_breakdown, subcontractor_charges_breakdown,
+          status, notes, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12,
+          $13, $14, $15,
+          $16, $17, $18, $19,
+          $20, $21, $22,
+          $23, $24, $25, $26,
+          $27, $28, $29,
+          $30, $31, NOW(), NOW()
+        )`,
+        [
+          id, planId, projectId, data.boqItemId || null, itemCode, itemName, category,
+          quantity, unit, currency, matCostPerUnit, laborCostPerUnit,
+          overheadCostPerUnit, subChargesPerUnit, totalUnitManufactureCost,
+          totalManufactureCost, data.subcontractorId || null, data.subcontractorName || '', data.subcontractorTrade || '',
+          subUnitRate, subLeadTimeDays, totalSubcontractorCost,
+          costDifference, savingsPct, recommendedDecision, selectedDecision,
+          JSON.stringify(data.materialsBreakdown || []),
+          JSON.stringify(data.laborBreakdown || []),
+          JSON.stringify(data.subcontractorChargesBreakdown || []),
+          'Active', String(data.notes || '')
+        ]
+      );
+
+      const created = await this.getPlanMakeVsBuyAnalysisById(planId, id);
+      return created;
+    });
+  }
+
+  public async updatePlanMakeVsBuyAnalysis(planId: string, analysisId: string, data: any, actor?: any): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const existing = await this.getPlanMakeVsBuyAnalysisById(planId, analysisId);
+      if (!existing) {
+        throw Object.assign(new Error(`Make-vs-Buy analysis '${analysisId}' not found.`), { status: 404 });
+      }
+
+      const itemName = data.itemName !== undefined ? String(data.itemName).trim() : existing.itemName;
+      const itemCode = data.itemCode !== undefined ? String(data.itemCode).trim() : existing.itemCode;
+      const category = data.category !== undefined ? String(data.category).trim() : existing.category;
+      const quantity = data.quantity !== undefined ? Math.max(1, round4(Number(data.quantity))) : existing.quantity;
+      const unit = data.unit !== undefined ? String(data.unit).trim() : existing.unit;
+      const currency = data.currency !== undefined ? String(data.currency).trim() : existing.currency;
+
+      const matCostPerUnit = data.materialCostPerUnit !== undefined ? Math.max(0, round4(Number(data.materialCostPerUnit))) : existing.materialCostPerUnit;
+      const laborCostPerUnit = data.laborCostPerUnit !== undefined ? Math.max(0, round4(Number(data.laborCostPerUnit))) : existing.laborCostPerUnit;
+      const subChargesPerUnit = data.subcontractorChargesPerUnit !== undefined ? Math.max(0, round4(Number(data.subcontractorChargesPerUnit))) : existing.subcontractorChargesPerUnit;
+      const overheadCostPerUnit = data.overheadCostPerUnit !== undefined ? Math.max(0, round4(Number(data.overheadCostPerUnit))) : existing.overheadCostPerUnit;
+
+      const totalUnitManufactureCost = round4(decAdd(decAdd(decAdd(matCostPerUnit, laborCostPerUnit), subChargesPerUnit), overheadCostPerUnit));
+      const totalManufactureCost = round2(decMul(quantity, totalUnitManufactureCost));
+
+      const subUnitRate = data.subcontractorUnitRate !== undefined ? Math.max(0, round4(Number(data.subcontractorUnitRate))) : existing.subcontractorUnitRate;
+      const totalSubcontractorCost = round2(decMul(quantity, subUnitRate));
+      const subLeadTimeDays = data.subcontractorLeadTimeDays !== undefined ? Math.max(1, Number(data.subcontractorLeadTimeDays)) : existing.subcontractorLeadTimeDays;
+      const subcontractorName = data.subcontractorName !== undefined ? data.subcontractorName : existing.subcontractorName;
+      const subcontractorId = data.subcontractorId !== undefined ? data.subcontractorId : existing.subcontractorId;
+      const subcontractorTrade = data.subcontractorTrade !== undefined ? data.subcontractorTrade : existing.subcontractorTrade;
+
+      const costDifference = round2(decSub(totalSubcontractorCost, totalManufactureCost));
+      const savingsPct = totalSubcontractorCost > 0
+        ? round2(decMul(decDiv(costDifference, totalSubcontractorCost), 100))
+        : 0;
+
+      let recommendedDecision = existing.recommendedDecision;
+      if (subChargesPerUnit > 0 && totalUnitManufactureCost < subUnitRate) {
+        recommendedDecision = 'hybrid';
+      } else if (costDifference < 0) {
+        recommendedDecision = 'subcontract';
+      } else {
+        recommendedDecision = 'manufacture';
+      }
+
+      const selectedDecision = data.selectedDecision !== undefined ? data.selectedDecision : existing.selectedDecision;
+      const materialsBreakdown = data.materialsBreakdown !== undefined ? JSON.stringify(data.materialsBreakdown) : JSON.stringify(existing.materialsBreakdown || []);
+      const laborBreakdown = data.laborBreakdown !== undefined ? JSON.stringify(data.laborBreakdown) : JSON.stringify(existing.laborBreakdown || []);
+      const subChargesBreakdown = data.subcontractorChargesBreakdown !== undefined ? JSON.stringify(data.subcontractorChargesBreakdown) : JSON.stringify(existing.subcontractorChargesBreakdown || []);
+      const notes = data.notes !== undefined ? String(data.notes) : existing.notes;
+      const status = data.status !== undefined ? String(data.status) : existing.status;
+
+      await q(
+        `UPDATE project_plan_make_vs_buy_analyses SET
+          item_name = $1, item_code = $2, category = $3, quantity = $4, unit = $5,
+          currency = $6, material_cost_per_unit = $7, labor_cost_per_unit = $8,
+          overhead_cost_per_unit = $9, subcontractor_charges_per_unit = $10,
+          total_unit_manufacture_cost = $11, total_manufacture_cost = $12,
+          subcontractor_id = $13, subcontractor_name = $14, subcontractor_trade = $15,
+          subcontractor_unit_rate = $16, subcontractor_lead_time_days = $17,
+          total_subcontractor_cost = $18, cost_difference = $19, savings_pct = $20,
+          recommended_decision = $21, selected_decision = $22,
+          materials_breakdown = $23, labor_breakdown = $24,
+          subcontractor_charges_breakdown = $25, status = $26, notes = $27, updated_at = NOW()
+         WHERE id = $28 AND plan_id = $29`,
+        [
+          itemName, itemCode, category, quantity, unit,
+          currency, matCostPerUnit, laborCostPerUnit,
+          overheadCostPerUnit, subChargesPerUnit,
+          totalUnitManufactureCost, totalManufactureCost,
+          subcontractorId, subcontractorName, subcontractorTrade,
+          subUnitRate, subLeadTimeDays,
+          totalSubcontractorCost, costDifference, savingsPct,
+          recommendedDecision, selectedDecision,
+          materialsBreakdown, laborBreakdown,
+          subChargesBreakdown, status, notes,
+          analysisId, planId
+        ]
+      );
+
+      return await this.getPlanMakeVsBuyAnalysisById(planId, analysisId);
+    });
+  }
+
+  public async deletePlanMakeVsBuyAnalysis(planId: string, analysisId: string): Promise<boolean> {
+    const db = await this.getDb();
+    const res = await db.query(
+      'DELETE FROM project_plan_make_vs_buy_analyses WHERE id = $1 AND plan_id = $2',
+      [analysisId, planId]
+    );
+    return (res as any).rowCount > 0;
+  }
+
+  /**
+   * Apply Make-vs-Buy decision into project plan BOQ items.
+   * If decision is 'manufacture' or 'hybrid': creates/updates manufactured item with embedded subcontractor charges.
+   * If decision is 'subcontract': creates/updates subcontractor trade item.
+   */
+  public async applyMakeVsBuyDecision(
+    planId: string,
+    analysisId: string,
+    payload: { decision?: 'manufacture' | 'subcontract' | 'hybrid'; sellingMarkupPct?: number },
+    actor?: any
+  ): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const analysis = await this.getPlanMakeVsBuyAnalysisById(planId, analysisId);
+      if (!analysis) {
+        throw Object.assign(new Error(`Analysis '${analysisId}' not found.`), { status: 404 });
+      }
+
+      const decision = payload.decision || analysis.selectedDecision || analysis.recommendedDecision || 'manufacture';
+      const markupPct = payload.sellingMarkupPct !== undefined ? Number(payload.sellingMarkupPct) : 35;
+
+      let itemType: 'produce' | 'material' | 'subcontractor' = 'produce';
+      let unitCost = 0;
+      let totalCost = 0;
+      let lineName = analysis.itemName;
+      let lineDescription = '';
+      let isManufactured = false;
+      let manufacturingMode = 'standard';
+      let subcontractorId = null;
+      let subcontractorName = null;
+      let subcontractorTrade = null;
+      let subcontractorRate = 0;
+      let leadTimeDays = 7;
+
+      if (decision === 'manufacture' || decision === 'hybrid') {
+        itemType = 'produce';
+        unitCost = analysis.totalUnitManufactureCost;
+        totalCost = analysis.totalManufactureCost;
+        isManufactured = true;
+        manufacturingMode = decision === 'hybrid' ? 'hybrid' : 'in_house_manufacture';
+        leadTimeDays = 10;
+        lineDescription = decision === 'hybrid'
+          ? `In-House Manufacturing with Subcontractor Services (Materials: ${analysis.currency} ${analysis.materialCostPerUnit}/u + Labor: ${analysis.laborCostPerUnit}/u + Subcontractor charges: ${analysis.subcontractorChargesPerUnit}/u)`
+          : `In-House Manufactured Component (Materials: ${analysis.currency} ${analysis.materialCostPerUnit}/u + Labor: ${analysis.laborCostPerUnit}/u)`;
+      } else {
+        itemType = 'subcontractor';
+        unitCost = analysis.subcontractorUnitRate;
+        totalCost = analysis.totalSubcontractorCost;
+        isManufactured = false;
+        manufacturingMode = 'hire_subcontractor';
+        subcontractorId = analysis.subcontractorId || null;
+        subcontractorName = analysis.subcontractorName || 'Selected Trade Subcontractor';
+        subcontractorTrade = analysis.subcontractorTrade || 'Custom Fabrication';
+        subcontractorRate = analysis.subcontractorUnitRate;
+        leadTimeDays = analysis.subcontractorLeadTimeDays || 14;
+        lineName = `${analysis.itemName} [Turnkey: ${subcontractorName}]`;
+        lineDescription = `Turnkey Subcontractor Contract awarded to ${subcontractorName} (${subcontractorTrade}). Lead time: ${leadTimeDays} days.`;
+      }
+
+      const sellingRate = round4(decMul(unitCost, decAdd(1, decDiv(markupPct, 100))));
+      const totalRevenue = round2(decMul(analysis.quantity, sellingRate));
+      const grossProfit = round2(decSub(totalRevenue, totalCost));
+
+      let boqItemId = analysis.boqItemId;
+      if (boqItemId) {
+        // Update existing BOQ item
+        await q(
+          `UPDATE project_plan_boq_items SET
+            name = $1, item_type = $2, unit_cost = $3, total_cost = $4,
+            rate = $5, billable_rate = $5, markup_pct = $6, total_revenue = $7,
+            gross_profit = $8, description = $9, is_manufactured = $10,
+            manufacturing_mode = $11, manufacturing_cost_breakdown = $12,
+            included_subcontractor_charges = $13, subcontractor_id = $14,
+            subcontractor_name = $15, subcontractor_trade = $16,
+            subcontractor_rate = $17, lead_time_days = $18,
+            make_vs_buy_decision = $19, updated_at = NOW()
+           WHERE id = $20`,
+          [
+            lineName, itemType, unitCost, totalCost,
+            sellingRate, markupPct, totalRevenue, grossProfit,
+            lineDescription, isManufactured, manufacturingMode,
+            JSON.stringify({
+              rawMaterials: analysis.materialsBreakdown,
+              laborAndMachine: analysis.laborBreakdown,
+              subcontractorServices: analysis.subcontractorChargesBreakdown,
+              rawMaterialCostPerUnit: analysis.materialCostPerUnit,
+              laborCostPerUnit: analysis.laborCostPerUnit,
+              subcontractorChargesPerUnit: analysis.subcontractorChargesPerUnit,
+              internalOverheadPct: analysis.overheadCostPerUnit > 0 ? 5 : 0,
+              internalOverheadPerUnit: analysis.overheadCostPerUnit,
+              totalUnitManufactureCost: analysis.totalUnitManufactureCost,
+              totalManufactureCost: analysis.totalManufactureCost,
+              totalSubcontractorCost: analysis.totalSubcontractorCost,
+              savingsPct: analysis.savingsPct
+            }),
+            analysis.subcontractorChargesPerUnit, subcontractorId, subcontractorName,
+            subcontractorTrade, subcontractorRate, leadTimeDays,
+            decision, boqItemId
+          ]
+        );
+      } else {
+        // Insert new BOQ item
+        boqItemId = `boq-${planId}-mvb-${Date.now()}`;
+        const lineOrder = Number((await q('SELECT COUNT(*) as cnt FROM project_plan_boq_items WHERE plan_id = $1', [planId])).rows[0]?.cnt || 0) + 1;
+
+        await q(
+          `INSERT INTO project_plan_boq_items (
+            id, plan_id, project_id, section_id, phase_id, item_type, catalog_item_id, item_code,
+            rate, description, tax_treatment, tax_rate_pct, tax_amount,
+            name, category, supplier_or_provider, quantity, unit, unit_cost, discount_pct,
+            total_cost, markup_pct, billable_rate, total_revenue, gross_profit,
+            currency, native_unit_cost, consumption_rate, notes, line_order, snapshot_data, commercial_context,
+            is_manufactured, manufacturing_mode, manufacturing_cost_breakdown, included_subcontractor_charges,
+            subcontractor_id, subcontractor_name, subcontractor_trade, subcontractor_rate, lead_time_days, make_vs_buy_decision
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8,
+            $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25,
+            $26, $27, $28, $29, $30, $31, $32,
+            $33, $34, $35, $36,
+            $37, $38, $39, $40, $41, $42
+          )`,
+          [
+            boqItemId, planId, analysis.projectId, null, 'phase-01', itemType, null, analysis.itemCode,
+            sellingRate, lineDescription, 'Standard (0%)', 0, 0,
+            lineName, analysis.category || 'Direct Production & Procurement', subcontractorName || 'In-House Plant',
+            analysis.quantity, analysis.unit, unitCost, 0,
+            totalCost, markupPct, sellingRate, totalRevenue, grossProfit,
+            analysis.currency || 'LKR', unitCost, 100, `Created via Make-vs-Buy Decision (${decision})`,
+            lineOrder, JSON.stringify({ analysisId }), `Make-vs-Buy Decision Adopted`,
+            isManufactured, manufacturingMode,
+            JSON.stringify({
+              rawMaterials: analysis.materialsBreakdown,
+              laborAndMachine: analysis.laborBreakdown,
+              subcontractorServices: analysis.subcontractorChargesBreakdown,
+              rawMaterialCostPerUnit: analysis.materialCostPerUnit,
+              laborCostPerUnit: analysis.laborCostPerUnit,
+              subcontractorChargesPerUnit: analysis.subcontractorChargesPerUnit,
+              totalUnitManufactureCost: analysis.totalUnitManufactureCost,
+              totalSubcontractorCost: analysis.totalSubcontractorCost,
+              savingsPct: analysis.savingsPct
+            }),
+            analysis.subcontractorChargesPerUnit, subcontractorId, subcontractorName,
+            subcontractorTrade, subcontractorRate, leadTimeDays, decision
+          ]
+        );
+      }
+
+      // Update analysis state
+      await q(
+        `UPDATE project_plan_make_vs_buy_analyses SET
+          selected_decision = $1, status = 'Adopted', boq_item_id = $2, updated_at = NOW()
+         WHERE id = $3 AND plan_id = $4`,
+        [decision, boqItemId, analysisId, planId]
+      );
+
+      // Recalculate plan financials
+      await this.recalculatePlanFinancials(planId, q);
+
+      const updatedAnalysis = await this.getPlanMakeVsBuyAnalysisById(planId, analysisId);
+      const boqRow = await q('SELECT * FROM project_plan_boq_items WHERE id = $1', [boqItemId]);
+
+      return {
+        success: true,
+        analysis: updatedAnalysis,
+        boqItem: boqRow.rows[0],
+        decisionAdopted: decision
+      };
+    });
+  }
+
+  /**
+   * Attaches a specialized subcontractor service fee directly into the manufacturing cost of a BOQ item.
+   */
+  public async attachSubcontractorChargeToPlanItem(
+    planId: string,
+    boqItemId: string,
+    chargeData: {
+      subcontractorId?: string;
+      subcontractorName: string;
+      serviceName: string;
+      unitRate?: number;
+      rate?: number;
+      chargeType?: 'per_unit' | 'total_fixed' | string;
+      totalCost?: number;
+      leadTimeDays?: number;
+      unit?: string;
+      quantity?: number;
+      notes?: string;
+    },
+    actor?: any
+  ): Promise<any> {
+    return this.withTransaction(async (q) => {
+      const boqRes = await q('SELECT * FROM project_plan_boq_items WHERE id = $1 AND plan_id = $2 FOR UPDATE', [boqItemId, planId]);
+      if (boqRes.rows.length === 0) {
+        throw Object.assign(new Error(`BOQ item '${boqItemId}' not found.`), { status: 404 });
+      }
+      const existing = boqRes.rows[0];
+
+      const rawRate = Number(chargeData.unitRate !== undefined ? chargeData.unitRate : (chargeData.rate !== undefined ? chargeData.rate : 0));
+      const quantity = round4(Number(existing.quantity || 1));
+      const additionalRate = chargeData.chargeType === 'total_fixed'
+        ? (quantity > 0 ? round4(rawRate / quantity) : round4(rawRate))
+        : round4(rawRate);
+
+      if (additionalRate <= 0) {
+        throw Object.assign(new Error('Subcontractor rate must be greater than 0.'), { status: 400 });
+      }
+
+      const currentUnitCost = round4(Number(existing.unit_cost || 0));
+      const newUnitCost = round4(decAdd(currentUnitCost, additionalRate));
+      const newTotalCost = round2(decMul(quantity, newUnitCost));
+
+      const sellingRate = round4(Number(existing.rate || existing.billable_rate || decMul(newUnitCost, 1.35)));
+      const discountPct = round2(Number(existing.discount_pct || 0));
+      const discountedRate = round4(decMul(sellingRate, decSub(1, decDiv(discountPct, 100))));
+      const totalRevenue = round2(decMul(quantity, discountedRate));
+      const grossProfit = round2(decSub(totalRevenue, newTotalCost));
+
+      const existingBreakdown = typeof existing.manufacturing_cost_breakdown === 'string'
+        ? JSON.parse(existing.manufacturing_cost_breakdown)
+        : (existing.manufacturing_cost_breakdown || {});
+
+      const subServices: any[] = Array.isArray(existingBreakdown.subcontractorServices)
+        ? existingBreakdown.subcontractorServices
+        : [];
+
+      subServices.push({
+        id: `sub-svc-${Date.now()}`,
+        subcontractorId: chargeData.subcontractorId || null,
+        subcontractorName: chargeData.subcontractorName,
+        serviceName: chargeData.serviceName,
+        unitRate: additionalRate,
+        quantity: 1,
+        unit: chargeData.unit || existing.unit || 'unit',
+        totalCost: additionalRate,
+        includeInManufacturingCost: true,
+        notes: chargeData.notes || ''
+      });
+
+      existingBreakdown.subcontractorServices = subServices;
+      const currentSubCharges = round4(Number(existing.included_subcontractor_charges || 0));
+      const newIncludedSubCharges = round4(decAdd(currentSubCharges, additionalRate));
+      existingBreakdown.subcontractorChargesPerUnit = newIncludedSubCharges;
+      existingBreakdown.totalUnitManufactureCost = newUnitCost;
+      existingBreakdown.totalManufactureCost = newTotalCost;
+
+      await q(
+        `UPDATE project_plan_boq_items SET
+          unit_cost = $1, total_cost = $2, gross_profit = $3,
+          is_manufactured = true,
+          included_subcontractor_charges = $4,
+          manufacturing_cost_breakdown = $5,
+          notes = CASE WHEN notes = '' THEN $6 ELSE notes || ' | ' || $6 END,
+          updated_at = NOW()
+         WHERE id = $7`,
+        [
+          newUnitCost, newTotalCost, grossProfit,
+          newIncludedSubCharges, JSON.stringify(existingBreakdown),
+          `Added subcontractor service: ${chargeData.serviceName} (${chargeData.subcontractorName}) @ +${additionalRate}`,
+          boqItemId
+        ]
+      );
+
+      await this.recalculatePlanFinancials(planId, q);
+
+      const updatedRow = await q('SELECT * FROM project_plan_boq_items WHERE id = $1', [boqItemId]);
+      return updatedRow.rows[0];
     });
   }
 

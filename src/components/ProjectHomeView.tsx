@@ -32,7 +32,8 @@ import {
   AlertTriangle,
   Table,
   LayoutGrid,
-  ExternalLink
+  ExternalLink,
+  Scale
 } from 'lucide-react';
 import { calculateProjectProfitability, getMarginThreshold } from '../utils/profitabilityMonitor';
 import {
@@ -55,6 +56,7 @@ import { SavePlanAsTemplateModal } from './project/SavePlanAsTemplateModal';
 import { PlanDetailsPage } from './project/PlanDetailsPage';
 import { ProjectPlansListTable, ProjectPlanRow } from './project/ProjectPlansListTable';
 import { ProjectResourcesTab } from './project/ProjectResourcesTab';
+import { MakeVsBuyFullView } from './project/MakeVsBuyFullView';
 import { ModernTileCard } from './ModernTileCard';
 import { calculateProjectMetrics } from '../utils/costCalculations';
 import { getRandomThemeIndex, getThemeById } from '../data/tileThemes';
@@ -77,7 +79,8 @@ export interface ProjectHomeViewProps {
   onExportPDF?: () => void;
   onNavigateBack?: () => void;
   onViewPlanDetails?: (planId: string) => void;
-  initialSubTab?: 'plans' | 'dashboard' | 'cost-controls';
+  showToast?: (msg: string | { message: string; type?: string }) => void;
+  initialSubTab?: 'plans' | 'dashboard' | 'make-vs-buy' | 'resources' | 'cost-controls';
 }
 
 export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
@@ -96,9 +99,10 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
   onExportPDF,
   onNavigateBack,
   onViewPlanDetails,
+  showToast,
   initialSubTab = 'plans'
 }) => {
-  const [subTab, setSubTab] = useState<'plans' | 'plan-details' | 'dashboard' | 'resources' | 'cost-controls'>(initialSubTab as any);
+  const [subTab, setSubTab] = useState<'plans' | 'plan-details' | 'dashboard' | 'make-vs-buy' | 'resources' | 'cost-controls'>(initialSubTab as any);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [planViewMode, setPlanViewMode] = useState<'table' | 'cards'>('table');
   const [costControlViewMode, setCostControlViewMode] = useState<'caps' | 'breakdown'>('caps');
@@ -644,6 +648,19 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
           <span>Dashboard</span>
         </button>
 
+        {/* Tab 3: Make vs Buy (NEXT TO DASHBOARD) */}
+        <button
+          onClick={() => setSubTab('make-vs-buy')}
+          className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            subTab === 'make-vs-buy'
+              ? 'bg-[#0078d4] text-white shadow-xs'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Scale className="w-4 h-4" />
+          <span>Make vs Buy</span>
+        </button>
+
         {/* Tab 3: Resources (Allocated Project & Plan Resources) */}
         <button
           onClick={() => setSubTab('resources')}
@@ -1126,6 +1143,20 @@ export const ProjectHomeView: React.FC<ProjectHomeViewProps> = ({
             materials={materials}
             onUpdateProject={onUpdateProject}
             onAddProduceItem={onAddProduceItem}
+          />
+        </div>
+      )}
+
+      {/* TAB: MAKE VS BUY COMPARISON FULL SCREEN */}
+      {subTab === 'make-vs-buy' && (
+        <div className="w-full">
+          <MakeVsBuyFullView
+            project={project}
+            plans={plans}
+            activePlanId={activePlanId || plans[0]?.id}
+            currency={project.currency || 'LKR'}
+            onPlanUpdated={fetchPlansFromPostgres}
+            showToast={showToast}
           />
         </div>
       )}

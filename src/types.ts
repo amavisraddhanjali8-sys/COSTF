@@ -820,8 +820,116 @@ export interface ProjectPlanBoqItem {
   lineOrder?: number;
   snapshotData?: any;
   commercialContext?: string;
+  isManufactured?: boolean;
+  manufacturingMode?: 'in_house_manufacture' | 'hire_subcontractor' | 'hybrid' | 'direct_purchase' | string;
+  manufacturingCostBreakdown?: ManufacturingCostBreakdown;
+  includedSubcontractorCharges?: number;
+  subcontractorId?: string;
+  subcontractorName?: string;
+  subcontractorTrade?: string;
+  subcontractorRate?: number;
+  leadTimeDays?: number;
+  makeVsBuyDecision?: 'manufacture' | 'subcontract' | 'hybrid' | 'direct' | string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface MakeVsBuyMaterialLine {
+  id?: string;
+  materialId?: string;
+  materialCode?: string;
+  name: string;
+  category?: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  wastePct?: number;
+  totalCost: number;
+}
+
+export interface MakeVsBuyLaborLine {
+  id?: string;
+  role?: string;
+  trade?: string;
+  hours: number;
+  hourlyRate: number;
+  totalCost: number;
+}
+
+export interface MakeVsBuySubcontractorService {
+  id?: string;
+  subcontractorId?: string;
+  subcontractorName: string;
+  serviceName: string; // e.g., Heat Treatment, Powder Coating, NDT Testing, CNC Broaching
+  unitRate?: number;
+  rate?: number;
+  chargeType?: 'per_unit' | 'total_fixed' | string;
+  quantity?: number;
+  unit?: string;
+  leadTimeDays?: number;
+  totalCost: number;
+  includeInManufacturingCost?: boolean;
+  notes?: string;
+}
+
+export interface ManufacturingCostBreakdown {
+  rawMaterials: MakeVsBuyMaterialLine[];
+  laborAndMachine: MakeVsBuyLaborLine[];
+  subcontractorServices: MakeVsBuySubcontractorService[];
+  rawMaterialCostPerUnit: number;
+  laborCostPerUnit: number;
+  subcontractorChargesPerUnit: number;
+  internalOverheadPct: number;
+  internalOverheadPerUnit: number;
+  totalUnitManufactureCost: number;
+  totalManufactureCost: number;
+  leadTimeDays?: number;
+}
+
+export interface MakeVsBuyAnalysis {
+  id: string;
+  planId: string;
+  projectId: string;
+  boqItemId?: string;
+  itemCode?: string;
+  itemName: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  currency: string;
+  materialCostPerUnit: number;
+  laborCostPerUnit: number;
+  overheadCostPerUnit: number;
+  subcontractorChargesPerUnit: number;
+  totalUnitManufactureCost: number;
+  totalManufactureCost: number;
+  inHouseOverheadPct?: number;
+  inHouseLeadTimeDays?: number;
+  subcontractorId?: string;
+  subcontractorName?: string;
+  subcontractorTrade?: string;
+  subcontractorRate?: number;
+  subcontractorUnitRate?: number;
+  subcontractorLeadTimeDays?: number;
+  subcontractorLogisticsCost?: number;
+  subcontractorWarrantyNotes?: string;
+  totalSubcontractorCost: number;
+  costDifference: number; // positive = in-house manufacture is cheaper
+  savingsPct: number;
+  breakEvenQuantity?: number;
+  recommendedDecision: 'manufacture' | 'subcontract' | 'hybrid' | string;
+  selectedDecision: 'manufacture' | 'subcontract' | 'hybrid' | string;
+  decision?: string;
+  materialsBreakdown: MakeVsBuyMaterialLine[];
+  laborBreakdown: MakeVsBuyLaborLine[];
+  subcontractorChargesBreakdown: MakeVsBuySubcontractorService[];
+  inHouseMaterialsBreakdown?: MakeVsBuyMaterialLine[];
+  inHouseLaborBreakdown?: MakeVsBuyLaborLine[];
+  inHouseSubcontractorServices?: MakeVsBuySubcontractorService[];
+  status: 'Active' | 'Adopted' | 'Archived' | string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProjectPlanResource {

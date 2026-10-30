@@ -32,7 +32,8 @@ import {
   ProductCompetitorPriceHistoryRecord,
   ProjectDeliverableItem,
   EnterpriseResource,
-  ResourceAlternative
+  ResourceAlternative,
+  MakeVsBuyAnalysis
 } from '../types';
 import { saveStoredCompanyDetails } from '../data/userAndAuditData';
 import { authFetch as fetch } from './http';
@@ -737,6 +738,10 @@ export const api = {
     const data = await res.json();
     const list = Array.isArray(data) ? data : data.data || [];
     return list;
+  },
+
+  async getSubcontractorRates(params?: ListQueryParams): Promise<SubcontractorRate[]> {
+    return this.getSubcontractors(params);
   },
 
   async getSubcontractorsPaginated(params?: ListQueryParams): Promise<PaginatedApiResponse<SubcontractorRate>> {
@@ -1733,6 +1738,85 @@ export const api = {
       method: 'DELETE'
     });
     if (!res.ok) throw await parseErrorResponse(res, 'Failed to remove plan BOQ item');
+  },
+
+  // --- Make vs Buy & Subcontractor Manufacturing Analysis APIs (TASK 20) ---
+  async getPlanMakeVsBuyAnalyses(planId: string): Promise<MakeVsBuyAnalysis[]> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/make-vs-buy`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch Make-vs-Buy analyses');
+    return await res.json();
+  },
+
+  async getProjectMakeVsBuyAnalyses(projectId: string): Promise<MakeVsBuyAnalysis[]> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/make-vs-buy`);
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to fetch project Make-vs-Buy analyses');
+    return await res.json();
+  },
+
+  async createPlanMakeVsBuyAnalysis(planId: string, data: any): Promise<MakeVsBuyAnalysis> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/make-vs-buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to create Make-vs-Buy analysis');
+    return await res.json();
+  },
+
+  async updatePlanMakeVsBuyAnalysis(planId: string, analysisId: string, data: any): Promise<MakeVsBuyAnalysis> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/make-vs-buy/${encodeURIComponent(analysisId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to update Make-vs-Buy analysis');
+    return await res.json();
+  },
+
+  async deletePlanMakeVsBuyAnalysis(planId: string, analysisId: string): Promise<void> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/make-vs-buy/${encodeURIComponent(analysisId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to delete Make-vs-Buy analysis');
+  },
+
+  async applyMakeVsBuyDecision(
+    planId: string,
+    analysisId: string,
+    payload: { decision?: 'manufacture' | 'subcontract' | 'hybrid'; sellingMarkupPct?: number }
+  ): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/make-vs-buy/${encodeURIComponent(analysisId)}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to apply Make-vs-Buy decision');
+    return await res.json();
+  },
+
+  async attachSubcontractorCharge(
+    planId: string,
+    boqItemId: string,
+    chargeData: {
+      subcontractorId?: string;
+      subcontractorName: string;
+      serviceName: string;
+      unitRate?: number;
+      rate?: number;
+      chargeType?: string;
+      totalCost?: number;
+      leadTimeDays?: number;
+      unit?: string;
+      notes?: string;
+    }
+  ): Promise<any> {
+    const res = await fetch(`/api/project-plans/${encodeURIComponent(planId)}/boq-items/${encodeURIComponent(boqItemId)}/attach-subcontractor-charge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(chargeData)
+    });
+    if (!res.ok) throw await parseErrorResponse(res, 'Failed to attach subcontractor charge');
+    return await res.json();
   },
 
   // --- Historical Rate Tracking ---

@@ -35,10 +35,12 @@ import {
   Calculator,
   Barcode as BarcodeIcon,
   Tag,
-  Info
+  Info,
+  Scale,
+  Wrench
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { formatCurrency, getStoredCurrency } from '../../utils/currency';
+import { formatCurrency, getStoredCurrency, setStoredCurrency, SUPPORTED_CURRENCIES } from '../../utils/currency';
 import { calculatePlanFinancials } from '../../utils/planCalculationService';
 import { AddOverheadToPlanModal } from '../overhead/AddOverheadToPlanModal';
 import { EditPlanOverheadAllocationModal } from '../overhead/EditPlanOverheadAllocationModal';
@@ -50,6 +52,10 @@ import { ProcurementPriceHistoryModal } from '../pricing/ProcurementPriceHistory
 import { PlanBarcodeScannerModal } from './PlanBarcodeScannerModal';
 import { AddPlanResourceModal } from './AddPlanResourceModal';
 import { PlanCostControlsTab } from './PlanCostControlsTab';
+import { AddMaterialCostToPlanModal } from './AddMaterialCostToPlanModal';
+import { AddSubcontractorRateToPlanModal } from './AddSubcontractorRateToPlanModal';
+import { AttachSubcontractorChargeModal } from './AttachSubcontractorChargeModal';
+import { MakeVsBuyAnalysisModal } from './MakeVsBuyAnalysisModal';
 import { round2 } from '../../utils/decimalMath';
 import { ApplyTariffToPlanModal } from '../tariffs/ApplyTariffToPlanModal';
 import {
@@ -141,6 +147,17 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
   const [materials, setMaterials] = useState<MaterialItem[]>([]);
   const [outsourcedServices, setOutsourcedServices] = useState<OutsourcedService[]>([]);
   const [subcontractors, setSubcontractors] = useState<SubcontractorRateItem[]>([]);
+
+  // Materials, Subcontractor Rates, and Make vs Buy Modals
+  const [isAddMaterialModalOpen, setIsAddMaterialModalOpen] = useState(false);
+  const [isAddSubcontractorModalOpen, setIsAddSubcontractorModalOpen] = useState(false);
+  const [isAttachSubcontractorModalOpen, setIsAttachSubcontractorModalOpen] = useState(false);
+  const [attachSubTargetItem, setAttachSubTargetItem] = useState<ProjectPlanBoqItem | null>(null);
+  const [isMakeVsBuyModalOpen, setIsMakeVsBuyModalOpen] = useState(false);
+  const [makeVsBuyTargetItem, setMakeVsBuyTargetItem] = useState<ProjectPlanBoqItem | null>(null);
+
+  const [currentCurrency, setCurrentCurrency] = useState<string>(() => getStoredCurrency());
+
   const [confirmModalState, setConfirmModalState] = useState<{
     isOpen: boolean;
     title: string;
@@ -148,6 +165,22 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
     confirmLabel?: string;
     onConfirm: () => void;
   } | null>(null);
+
+  const handleCurrencyChange = async (newCurr: string) => {
+    setStoredCurrency(newCurr);
+    setCurrentCurrency(newCurr);
+    if (plan?.id) {
+      try {
+        await api.updateProjectPlan(plan.id, { currency: newCurr });
+        setPlan((prev: any) => prev ? { ...prev, currency: newCurr } : prev);
+        showToast?.({ message: `Project plan currency updated to ${newCurr}.`, type: 'info' });
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
+
+  const activeCurrency = currentCurrency || plan?.currency || 'LKR';
 
   const handleApplyPriceSnapshotToPlan = async (record: ProcurementPriceRecord) => {
     if (!plan) return;
@@ -199,8 +232,6 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
       showToast?.({ message: err?.message || 'Failed to apply price snapshot to plan', type: 'error' });
     }
   };
-
-  const activeCurrency = plan?.currency || getStoredCurrency();
 
   const loadPlan = async () => {
     setLoading(true);
@@ -674,6 +705,23 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               </button>
             )}
 
+            {/* Currency Selector (Default: LKR, with full switcher) */}
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Curr:</span>
+              <select
+                value={activeCurrency}
+                onChange={(e) => handleCurrencyChange(e.target.value)}
+                className="bg-transparent text-xs font-bold font-mono text-[#0078d4] dark:text-sky-400 focus:outline-hidden cursor-pointer"
+                title="Select active working currency for this plan (Default: LKR)"
+              >
+                {SUPPORTED_CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code} className="text-slate-900 bg-white dark:bg-slate-900">
+                    {c.code} ({c.symbol})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={handleDeletePlan}
               className="flex items-center space-x-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold rounded-lg transition-colors shadow-2xs cursor-pointer"
@@ -825,6 +873,42 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Add Material Cost Button */}
+              <button
+                type="button"
+                onClick={() => setIsAddMaterialModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center space-x-1 cursor-pointer shadow-xs"
+                title="Add direct material item and cost to plan BOQ"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Material Cost</span>
+              </button>
+
+              {/* Add Subcontractor Rate Button */}
+              <button
+                type="button"
+                onClick={() => setIsAddSubcontractorModalOpen(true)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white flex items-center space-x-1 cursor-pointer shadow-xs"
+                title="Add subcontractor rate or trade package to plan BOQ"
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>+ Subcontractor Rate</span>
+              </button>
+
+              {/* Make vs Buy Analysis Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMakeVsBuyTargetItem(null);
+                  setIsMakeVsBuyModalOpen(true);
+                }}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white flex items-center space-x-1 cursor-pointer shadow-xs"
+                title="Perform Make vs Buy comparative analysis (Manufacture in-house vs Subcontract)"
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>Make vs Buy</span>
+              </button>
+
               {/* Add Revenue Item Button */}
               <button
                 type="button"
@@ -904,7 +988,7 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
               <thead className="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-800 text-[11px]">
                 <tr>
                   <th className="py-2.5 px-3 font-semibold">#</th>
-                  <th className="py-2.5 px-3 font-semibold">Type</th>
+                  <th className="py-2.5 px-3 font-semibold">Type & Mode</th>
                   <th className="py-2.5 px-3 font-semibold">Code</th>
                   <th className="py-2.5 px-3 font-semibold">Name & Scope</th>
                   <th className="py-2.5 px-3 font-semibold text-right">Quantity</th>
@@ -923,33 +1007,79 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                   const profit = Number(item.grossProfit || rev - lineCost);
                   const sellingRate = Number(item.rate ?? item.billableRate ?? item.sellingRate ?? 0);
 
+                  const includedSubCharges = Array.isArray(item.includedSubcontractorCharges)
+                    ? item.includedSubcontractorCharges
+                    : [];
+                  const totalSubChargesOnItem = includedSubCharges.reduce((acc: number, c: any) => acc + (Number(c.rate) || 0), 0);
+
                   return (
                     <tr key={item.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/60 transition-colors">
                       <td className="py-2 px-3 text-slate-400">{idx + 1}</td>
                       <td className="py-2 px-3">
-                        <span
-                          className={`px-1.5 py-0.5 text-[9px] uppercase font-bold rounded ${
-                            item.type === 'service'
-                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
-                              : item.type === 'product'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                              : item.type === 'subcontractor'
-                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                              : item.type === 'outsourced'
-                              ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
-                              : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
-                          }`}
-                        >
-                          {item.type}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span
+                            className={`px-1.5 py-0.5 text-[9px] uppercase font-bold rounded w-fit ${
+                              item.type === 'service'
+                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                                : item.type === 'product'
+                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                : item.type === 'subcontractor'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : item.type === 'material'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : item.type === 'outsourced'
+                                ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                                : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                            }`}
+                          >
+                            {item.type}
+                          </span>
+                          {item.isManufactured && (
+                            <span className="px-1.5 py-0.2 text-[8px] uppercase font-bold rounded bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border border-blue-200 dark:border-blue-800 w-fit">
+                              Manufactured
+                            </span>
+                          )}
+                          {item.makeVsBuyDecision && (
+                            <span className={`px-1.5 py-0.2 text-[8px] uppercase font-bold rounded w-fit ${
+                              item.makeVsBuyDecision === 'MAKE_IN_HOUSE'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-300'
+                                : item.makeVsBuyDecision === 'HYBRID'
+                                ? 'bg-purple-50 text-purple-700 border border-purple-300 dark:bg-purple-950/80 dark:text-purple-300'
+                                : 'bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/80 dark:text-amber-300'
+                            }`}>
+                              {item.makeVsBuyDecision.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 px-3 text-[#0078d4] font-semibold">{item.itemCode || item.revenueItemCode || item.itemId || '-'}</td>
-                      <td className="py-2 px-3 font-sans font-medium text-slate-900 dark:text-slate-100 max-w-[220px]">
+                      <td className="py-2 px-3 font-sans font-medium text-slate-900 dark:text-slate-100 max-w-[240px]">
                         <div className="truncate font-semibold">{item.name}</div>
                         {item.description && item.description !== item.name && (
                           <div className="text-[10px] text-slate-400 truncate">{item.description}</div>
                         )}
                         {item.category && <div className="text-[10px] text-slate-500 italic">{item.category}</div>}
+                        {item.subcontractorName && (
+                          <div className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1 mt-0.5">
+                            <Truck className="w-2.5 h-2.5" />
+                            <span>Partner: {item.subcontractorName} {item.subcontractorTrade ? `(${item.subcontractorTrade})` : ''}</span>
+                          </div>
+                        )}
+                        {/* Attached Subcontractor Charges Pill */}
+                        {includedSubCharges.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttachSubTargetItem(item);
+                              setIsAttachSubcontractorModalOpen(true);
+                            }}
+                            className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[10px] font-semibold hover:bg-amber-100 transition-colors cursor-pointer"
+                            title="View or add more subcontractor charges attached to this item's manufacturing cost"
+                          >
+                            <Truck className="w-2.5 h-2.5" />
+                            <span>+ {formatCurrency(totalSubChargesOnItem, activeCurrency)} sub charges ({includedSubCharges.length})</span>
+                          </button>
+                        )}
                       </td>
                       <td className="py-2 px-3 text-right">
                         {Number(item.quantity || 0).toLocaleString()} <span className="font-sans text-[10px] text-slate-400">{item.unit || 'pcs'}</span>
@@ -971,6 +1101,32 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
                       </td>
                       <td className="py-2 px-3 text-right">
                         <div className="flex items-center justify-end space-x-1 font-sans">
+                          {/* Attach Subcontractor Charge to Item */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttachSubTargetItem(item);
+                              setIsAttachSubcontractorModalOpen(true);
+                            }}
+                            className="p-1 rounded text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Attach subcontractor processing charge directly to this item's unit manufacturing cost"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Make vs Buy comparative analysis for this item */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMakeVsBuyTargetItem(item);
+                              setIsMakeVsBuyModalOpen(true);
+                            }}
+                            className="p-1 rounded text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Perform Make vs Buy analysis for this item"
+                          >
+                            <Scale className="w-3.5 h-3.5" />
+                          </button>
+
                           {/* Edit commercial terms */}
                           <button
                             type="button"
@@ -2033,6 +2189,73 @@ export const PlanDetailsPage: React.FC<PlanDetailsPageProps> = ({
         initialData={editingPlanResource}
         enterpriseResources={enterpriseResources}
         currency={activeCurrency}
+      />
+
+      {/* Add Direct Material Cost Modal */}
+      <AddMaterialCostToPlanModal
+        isOpen={isAddMaterialModalOpen}
+        onClose={() => setIsAddMaterialModalOpen(false)}
+        planId={plan.id}
+        currency={activeCurrency}
+        materials={materials}
+        suppliers={suppliers}
+        sections={plan.sections || []}
+        onSuccess={async () => {
+          await loadPlan();
+          onPlanUpdated?.();
+        }}
+        showToast={showToast}
+      />
+
+      {/* Add Subcontractor Rate Modal */}
+      <AddSubcontractorRateToPlanModal
+        isOpen={isAddSubcontractorModalOpen}
+        onClose={() => setIsAddSubcontractorModalOpen(false)}
+        planId={plan.id}
+        currency={activeCurrency}
+        subcontractors={subcontractors}
+        sections={plan.sections || []}
+        onSuccess={async () => {
+          await loadPlan();
+          onPlanUpdated?.();
+        }}
+        showToast={showToast}
+      />
+
+      {/* Attach Subcontractor Service Charge to Item Manufacturing Cost */}
+      <AttachSubcontractorChargeModal
+        isOpen={isAttachSubcontractorModalOpen}
+        onClose={() => {
+          setIsAttachSubcontractorModalOpen(false);
+          setAttachSubTargetItem(null);
+        }}
+        planId={plan.id}
+        currency={activeCurrency}
+        initialBoqItem={attachSubTargetItem}
+        boqItems={plan.boqItems || []}
+        onSuccess={async () => {
+          await loadPlan();
+          onPlanUpdated?.();
+        }}
+        showToast={showToast}
+      />
+
+      {/* Make vs Buy Comparative Analysis Engine */}
+      <MakeVsBuyAnalysisModal
+        isOpen={isMakeVsBuyModalOpen}
+        onClose={() => {
+          setIsMakeVsBuyModalOpen(false);
+          setMakeVsBuyTargetItem(null);
+        }}
+        planId={plan.id}
+        currency={activeCurrency}
+        initialBoqItem={makeVsBuyTargetItem}
+        boqItems={plan.boqItems || []}
+        onSuccess={async () => {
+          await loadPlan();
+          onPlanUpdated?.();
+        }}
+        showToast={showToast}
       />
 
       {/* In-App Confirmation Modal */}

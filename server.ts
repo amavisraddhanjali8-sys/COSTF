@@ -3538,6 +3538,106 @@ async function startServer() {
     }
   });
 
+  // --- Make vs Buy & Subcontractor Manufacturing Analysis Routes (TASK 20) ---
+  const makeVsBuyRoutes = [
+    '/api/project-plans/:planId/make-vs-buy',
+    '/api/plans/:planId/make-vs-buy'
+  ];
+
+  const makeVsBuyItemRoutes = [
+    '/api/project-plans/:planId/make-vs-buy/:analysisId',
+    '/api/plans/:planId/make-vs-buy/:analysisId'
+  ];
+
+  const makeVsBuyApplyRoutes = [
+    '/api/project-plans/:planId/make-vs-buy/:analysisId/apply',
+    '/api/plans/:planId/make-vs-buy/:analysisId/apply'
+  ];
+
+  app.get(makeVsBuyRoutes, async (req, res) => {
+    try {
+      const analyses = await postgresService.getPlanMakeVsBuyAnalyses(req.params.planId);
+      res.json(analyses);
+    } catch (e: any) {
+      console.error('Failed to get Make-vs-Buy analyses:', e);
+      res.status(500).json({ error: 'Failed to fetch Make-vs-Buy analyses', details: e?.message });
+    }
+  });
+
+  app.get('/api/projects/:projectId/make-vs-buy', async (req, res) => {
+    try {
+      const analyses = await postgresService.getProjectMakeVsBuyAnalyses(req.params.projectId);
+      res.json(analyses);
+    } catch (e: any) {
+      console.error('Failed to get project Make-vs-Buy analyses:', e);
+      res.status(500).json({ error: 'Failed to fetch project Make-vs-Buy analyses', details: e?.message });
+    }
+  });
+
+  app.post(makeVsBuyRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const created = await postgresService.createPlanMakeVsBuyAnalysis(req.params.planId, req.body, actor);
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to create Make-vs-Buy analysis:', e);
+      res.status(500).json({ error: 'Failed to create Make-vs-Buy analysis', details: e?.message });
+    }
+  });
+
+  app.put(makeVsBuyItemRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.updatePlanMakeVsBuyAnalysis(req.params.planId, req.params.analysisId, req.body, actor);
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to update Make-vs-Buy analysis:', e);
+      res.status(500).json({ error: 'Failed to update Make-vs-Buy analysis', details: e?.message });
+    }
+  });
+
+  app.delete(makeVsBuyItemRoutes, async (req: any, res) => {
+    try {
+      const ok = await postgresService.deletePlanMakeVsBuyAnalysis(req.params.planId, req.params.analysisId);
+      if (!ok) return res.status(404).json({ error: 'Analysis not found' });
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to delete Make-vs-Buy analysis:', e);
+      res.status(500).json({ error: 'Failed to delete Make-vs-Buy analysis', details: e?.message });
+    }
+  });
+
+  app.post(makeVsBuyApplyRoutes, async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const result = await postgresService.applyMakeVsBuyDecision(req.params.planId, req.params.analysisId, req.body, actor);
+      res.json(result);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to apply Make-vs-Buy decision:', e);
+      res.status(500).json({ error: 'Failed to apply Make-vs-Buy decision', details: e?.message });
+    }
+  });
+
+  app.post('/api/project-plans/:planId/boq-items/:boqItemId/attach-subcontractor-charge', async (req: any, res) => {
+    try {
+      const actor = req.user;
+      const updated = await postgresService.attachSubcontractorChargeToPlanItem(
+        req.params.planId,
+        req.params.boqItemId,
+        req.body,
+        actor
+      );
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.status) return res.status(e.status).json({ error: e.message });
+      console.error('Failed to attach subcontractor charge:', e);
+      res.status(500).json({ error: 'Failed to attach subcontractor charge', details: e?.message });
+    }
+  });
+
   // --- Historical Commercial Rate Tracking ---
   app.get(['/api/revenue-rate-history', '/api/revenue/rate-history'], async (req, res) => {
     try {
